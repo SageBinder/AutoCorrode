@@ -225,7 +225,8 @@ fun define (outer, source) interactive lthy =
               ||> next_command_context
             end
           val (outputs, completed) = fold_map declare (declarations ~~ later_entities) lthy
-          val _ = URust_Imports.conclude_batch {initial = lthy} completed batch
+          val _ = URust_Imports.conclude_batch
+            {declared = maps (member_entities lthy o #2 o #2) declarations} completed batch
         in (outputs, completed) end)
     val _ = URust_Report_Transaction.replay completed reports
     val _ = List.app (fn output => output ()) outputs

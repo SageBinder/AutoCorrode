@@ -2243,7 +2243,7 @@ ML_val \<open>
       then ()
       else error "function registration option lost the definition"
     val _ =
-      if is_none (URust_Item_Scope.lookup_function function_option_ctxt "OptionFunction")
+      if is_none (Parser_Test_Calls.lookup function_option_ctxt "OptionFunction")
       then ()
       else error "disabled function registration installed a callable entry"
 

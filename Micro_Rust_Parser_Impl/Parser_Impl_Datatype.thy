@@ -425,13 +425,7 @@ fun reject_item_notation_conflict lthy rust_path rust_pos =
         [Micro_Rust_Names.NLiteral,
          Micro_Rust_Names.NFunction]
   in
-    if is_some (URust_Item_Scope.lookup_function lthy rust_path)
-    then
-      positioned_datatype_error
-        ("Rust item path " ^ quote rust_path ^
-          " conflicts with an existing Rust function item")
-        rust_pos
-    else if null registrations then ()
+    if null registrations then ()
     else
       positioned_datatype_error
         ("Rust item path " ^ quote rust_path ^
@@ -1483,7 +1477,6 @@ fun prepared_registrations ctxt
      constructors =
        map (fn (rust_path, _, origin, shape) => (rust_path, origin, scope_constructor_shape shape))
          (item_constructor_descriptors item),
-     functions = [],
      literal_notations = [],
      call_notations = conversions}
   end

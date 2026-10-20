@@ -94,66 +94,90 @@ type entry =
   below --- because the parse phase runs pre-type and cannot itself choose
   by type.)
 
-  \<open>reg_eq\<close> dedupes entries by their term (position-erased), so
-  re-registering the same backend is idempotent (e.g. when a syntax
-  declaration is replayed on context-open).\<close>
+  \<open>reg_eq\<close> identifies entries by their typed term, without positions and up to the
+  naming of schematic type variables, so theory merges stay transitive. Insertion additionally
+  treats a backend that an existing scheme covers as already registered
+  (\<open>backend_covers\<close>), so re-registering the same backend is idempotent (e.g. when a
+  syntax declaration is replayed on context-open).\<close>
+fun normalized_backend term =
+  let
+    val stripped = Term_Position.strip_positions term;
+    val substitutions =
+      Term.add_tvars stripped [] |> rev
+      |> map_index (fn (index, (variable, sort)) =>
+           ((variable, sort), TVar (("'backend" ^ string_of_int index, 0), sort)))
+      |> TVars.make;
+  in
+    stripped |> Term.map_types (Term_Subst.instantiateT substitutions)
+    |> Term_Subst.zero_var_indexes
+  end;
+
 fun reg_eq (e1 : entry, e2 : entry) =
-  Term.aconv_untyped (#hol_term e1, #hol_term e2);
+  Term.aconv (apply2 normalized_backend (#hol_term e1, #hol_term e2));
 
-\<comment>\<open>Table keyed by \<open>(context, rust_name)\<close> with a list of entries. The key is
-  the pair of strings (\<open>Position.T\<close> is not an ordered type); entries (term and
-  registration position) ride in the value.\<close>
-(* Function items reserve an exclusive callable path alongside the overloadable notation table.
-   Keeping both in this datum also checks independently populated import branches on merge. *)
-type function_item = {function: term, pos: Position.T};
-
-fun same_function_item (left: function_item, right: function_item) =
-  Term.aconv
-    (apply2 Term_Subst.zero_var_indexes (#function left, #function right));
-
-fun function_item_conflict name (left: function_item, right: function_item) =
-  error ("urust_fn: conflicting Rust function path " ^ quote name ^
-    Position.here (#pos left) ^ Position.here (#pos right));
-
-fun check_callable_paths (notations, function_items) =
-  Symtab.fold (fn (name, item: function_item) => fn () =>
-    if Symtab.defined notations ("function" ^ "\000" ^ name) then
-      error ("urust_fn: Rust function path " ^ quote name ^
-        " conflicts with an existing micro_rust_notation (call) declaration" ^
-        Position.here (#pos item))
-    else ()) function_items ();
+(* A specialization of an already registered polymorphic backend adds no capability. Match
+   complete types and value syntax so concrete locale instances of different types stay distinct. *)
+fun backend_covers thy (general: entry) (specific: entry) =
+  let
+    val general_term = normalized_backend (#hol_term general);
+    val specific_term = normalized_backend (#hol_term specific);
+    val shifted = Term.map_types (Logic.incr_tvar (Term.maxidx_of_term specific_term + 1)) general_term;
+  in
+    Term.aconv_untyped (general_term, specific_term) andalso
+      can (Pattern.match thy (shifted, specific_term)) (Vartab.empty, Vartab.empty)
+  end;
 
 structure Data = Generic_Data
 (
-  type T =
-    entry list Symtab.table * function_item Symtab.table;
-  val empty = (Symtab.empty, Symtab.empty);
-  fun merge ((left_notations, left_items), (right_notations, right_items)) =
-    let
-      val notations = Symtab.merge_list reg_eq (left_notations, right_notations);
-      val items = Symtab.join
-        (fn name => fn (left, right) =>
-          if same_function_item (left, right) then left
-          else function_item_conflict name (left, right))
-        (left_items, right_items);
-      val result = (notations, items);
-      val _ = check_callable_paths result;
-    in result end;
+  type T = entry list Symtab.table;
+  val empty = Symtab.empty;
+  val merge = Symtab.merge_list reg_eq;
 );
 
-fun reserve_function_item name function pos =
-  Data.map (fn (notations, items) =>
+(* Namespace ownership is declaration-only: overloadable functions carry no backend here.
+   Both insertion and theory merge check constructor conflicts independently of merge order. *)
+datatype declaration_kind = Function_Declaration | Constructor_Declaration;
+type declaration_owner = {kind: declaration_kind, pos: Position.T};
+
+fun owner_eq (left: declaration_owner, right: declaration_owner) =
+  #kind left = #kind right;
+
+fun check_owners name (owners: declaration_owner list) =
+  if exists (fn owner => #kind owner = Function_Declaration) owners andalso
+      exists (fn owner => #kind owner = Constructor_Declaration) owners
+  then error ("urust_fn: Rust function path " ^ quote name ^
+    " is already owned by a Rust constructor item" ^
+    implode (map (Position.here o #pos) owners))
+  else owners;
+
+structure Declaration_Owners = Generic_Data
+(
+  type T = declaration_owner list Symtab.table;
+  val empty = Symtab.empty;
+  fun merge tables = Symtab.merge_list owner_eq tables |> Symtab.map check_owners;
+);
+
+(* Serials of automatic urust_fn registrations. They stand for Rust function items, which take no
+   generic arguments at a call, whereas an explicit call notation may receive a turbofish payload. *)
+structure Automatic_Registrations = Generic_Data
+(
+  type T = unit Inttab.table;
+  val empty = Inttab.empty;
+  val merge = Inttab.merge (K true);
+);
+
+fun mark_automatic s = Automatic_Registrations.map (Inttab.update (s, ()));
+
+fun is_automatic ctxt ({serial, ...}: entry) =
+  Inttab.defined (Automatic_Registrations.get (Context.Proof ctxt)) serial;
+
+fun reserve_declaration kind name pos =
+  Declaration_Owners.map (fn table =>
     let
-      val candidate = {function = function, pos = pos};
-      val items' =
-        (case Symtab.lookup items name of
-           NONE => Symtab.update (name, candidate) items
-         | SOME existing =>
-             if same_function_item (existing, candidate) then items
-             else function_item_conflict name (existing, candidate));
-      val result = (notations, items');
-      val _ = check_callable_paths result;
-    in result end);
+      val owners = the_default [] (Symtab.lookup table name);
+      (* A repeated declaration of an owned kind keeps the first owner and its position. *)
+      val checked = check_owners name (insert owner_eq {kind = kind, pos = pos} owners);
+    in Symtab.update (name, checked) table end);
 
 fun mk_key kind name = kind_to_string kind ^ "\000" ^ name;
 
@@ -283,44 +307,57 @@ fun set_shadow_bit kind names bit =
     end;
 
 \<comment>\<open>Register \<open>rust_name\<close> (in context \<open>kind\<close>) as a notation backend for
-  \<open>hol_term\<close>, recording \<open>reg_pos\<close>. CONSes onto the name's backend list
-  (deduped by \<open>reg_eq\<close>), so distinct backends accumulate while identical
-  re-registration is a no-op.
+  \<open>hol_term\<close>, recording \<open>reg_pos\<close>. CONSes onto the name's backend list, so
+  distinct backends accumulate, while a backend that an existing scheme covers
+  (\<open>backend_covers\<close>) is a no-op and one that covers existing specializations replaces them.
 
-  Allocates a fresh \<open>serial\<close> per \<^emph>\<open>declaration\<close> (not per merge-replay) and
-  emits a \<open>def\<close>-side entity markup at \<open>reg_pos\<close>. Use sites later emit
-  matching \<open>ref\<close>-side markup pointing back here, so jEdit's
-  jump-to-definition lands on the registering command.\<close>
-fun register_with_source kind name hol_term source_const
-    reg_pos context =
+  The caller allocates one \<open>serial\<close> per \<^emph>\<open>declaration\<close> (not per merge-replay).
+  This function only updates data: a local-theory declaration is applied to several contexts, so
+  the registering command emits its \<open>def\<close>-side entity markup once through
+  \<open>report_registration\<close>. Use sites later emit matching \<open>ref\<close>-side markup pointing
+  back here, so jEdit's jump-to-definition lands on the registering command.\<close>
+fun register_with_source_serial kind name hol_term source_const
+    reg_pos s context =
   let
-    val s = serial ();
+    val ctxt = Context.proof_of context;
+    val hol_term = singleton (Variable.polymorphic ctxt) hol_term;
     val entry =
       {hol_term = hol_term, source_const = source_const,
        reg_pos = reg_pos, serial = s};
-    val ctxt = Context.proof_of context;
-    val completed =
-      context |> Data.map (fn (notations, items) =>
-        let
-          val result = (Symtab.insert_list reg_eq (mk_key kind name, entry) notations, items);
-          val _ = check_callable_paths result;
-        in result end);
-    val _ = Micro_Rust_Semantic_Navigation.defer_report ctxt reg_pos
-      (Position.make_entity_markup {def = true} s notationN (name, reg_pos));
-  in completed end;
+    val existing = the_default [] (Symtab.lookup (Data.get context) (mk_key kind name));
+  in
+    if exists (fn old => backend_covers (Proof_Context.theory_of ctxt) old entry) existing then context
+    else
+      let
+        val retained = filter_out (backend_covers (Proof_Context.theory_of ctxt) entry) existing;
+      in context |> Data.map (Symtab.update (mk_key kind name, entry :: retained)) end
+  end;
+
+\<comment>\<open>The \<open>def\<close>-side entity markup of one registering command.\<close>
+fun report_registration ctxt name reg_pos s =
+  Micro_Rust_Semantic_Navigation.defer_report ctxt reg_pos
+    (Position.make_entity_markup {def = true} s notationN (name, reg_pos));
+
+(* Registration from inside a declaration callback, reported per application. *)
+fun register_with_source kind name hol_term source_const reg_pos context =
+  let val s = serial ()
+  in
+    report_registration (Context.proof_of context) name reg_pos s;
+    register_with_source_serial kind name hol_term source_const reg_pos s context
+  end;
 
 fun register kind name hol_term reg_pos =
   register_with_source kind name hol_term NONE reg_pos;
 
 \<comment>\<open>All backends registered for a \<open>(kind, name)\<close>, or \<open>[]\<close> if none.\<close>
 fun lookups ctxt kind name =
-  the_default [] (Symtab.lookup (#1 (Data.get (Context.Proof ctxt))) (mk_key kind name));
+  the_default [] (Symtab.lookup (Data.get (Context.Proof ctxt)) (mk_key kind name));
 
 \<comment>\<open>All registered entries, as \<open>(kind, rust_name, entry)\<close> triples (for the
   query command). Splits the composite key back into kind and name; one row
   per backend.\<close>
 fun dump ctxt =
-  #1 (Data.get (Context.Proof ctxt))
+  Data.get (Context.Proof ctxt)
   |> Symtab.dest
   |> maps (fn (key, es) =>
        (case String.fields (fn ch => ch = #"\000") key of
@@ -678,56 +715,40 @@ fun unify_and_instantiate ctxt T t =
         in SOME (subst t') end
   end;
 
-\<comment>\<open>Candidate backends for \<open>(kind, name)\<close> whose type unifies with \<open>T\<close>.
-  Each result retains its complete registration entry alongside the
-  instantiated term, so typed resolution can report the declaration it
-  actually selected. The backend term is freshly \<^emph>\<open>polymorphised\<close> (its
-  \<open>TFree\<close>s are generalised to schematic \<open>TVar\<close>s) and then imported with
-  fresh schematic indices --- this is the same dance
-  \<open>adhoc_overloading\<close>'s variant table does, and is what lets a registered
-  term whose declared type is \<open>'a \<Rightarrow> 'a option\<close> match an occurrence whose
-  inferred type is \<open>nat \<Rightarrow> nat option\<close>. Skipping the polymorphisation
-  leaves \<open>TFree\<close>s in the backend, which do not unify with the occurrence's
-  schematic Vars and cause spurious "no backend matches type" errors.\<close>
-\<comment>\<open>Generalise a backend's free type variables to schematics, leaving
-  any pre-existing schematics untouched. Distinct from
-  \<open>Logic.varify_types_global\<close>, which raises on pre-existing schematics
-  --- the registered backend may legitimately contain both
-  (e.g. \<open>lift_fun1 Some\<close>: \<open>lift_fun1\<close>'s tvars are TFree but the inlined
-  \<open>Some\<close> has TVar from its declared signature).\<close>
-fun varify_tfrees_in_term t =
-  Term.map_types (Term.map_atyps
-    (fn TFree (a, S) => TVar ((a, 0), S) | T => T)) t;
-
+\<comment>\<open>Candidate backends retain their complete types: interpreted concrete types and
+  ambient fixed type variables constrain dispatch. Only unfixed variables are generalized; each
+  occurrence imports fresh inference parameters, so signature and effect variables remain independent
+  across calls. Erasing every internal type would discard a locale interpretation's specialization.\<close>
 type dispatch_candidate =
   {entry: Micro_Rust_Names.entry, term: term};
 
+fun fresh_backend ctxt term =
+  singleton (Variable.polymorphic ctxt) term
+  |> Term_Subst.zero_var_indexes
+  |> Term.map_types (Logic.incr_tvar (serial ()) #> Type_Infer.paramify_vars);
+
 fun candidates ctxt kind name T =
-  Micro_Rust_Names.lookups ctxt kind name
-  |> map_filter (fn entry as { hol_term, ... } =>
-       \<comment>\<open>Mirror \<open>adhoc_overloading.ML\<close>: keep the backend's type for
-         the unifiability check, but splice the term with all internal
-         types erased to \<open>dummyT\<close> --- subsequent type inference re-checks
-         the spliced term against \<open>T\<close> and fills in dummies, which lets
-         residual polymorphism flow naturally and avoids "Illegal
-         schematic type variable" reports for tvars that the surrounding
-         context can still pin.\<close>
-       let val varified = varify_tfrees_in_term hol_term
-       in
-         if unifiable_types ctxt (T, fastype_of varified)
-         then
-           SOME
-             {entry = entry,
-              term =
-                Type.constraint T
-                  (Term.map_types (K dummyT) varified)}
-         else NONE
-       end);
+  let
+    val entries = Micro_Rust_Names.lookups ctxt kind name;
+    (* Theory union may bring together a generic backend and its specialization. Prefer the
+       covering scheme before instantiation, including when effect channels remain unconstrained. *)
+    val maximal = filter (fn entry => not (exists (fn other =>
+      not (Micro_Rust_Names.reg_eq (other, entry)) andalso
+      Micro_Rust_Names.backend_covers (Proof_Context.theory_of ctxt) other entry) entries)) entries;
+  in
+    maximal
+    |> map_filter (fn entry as {hol_term, ...} =>
+         Option.map (fn backend => {entry = entry, term = Type.constraint T backend})
+           (unify_and_instantiate ctxt T (fresh_backend ctxt hol_term)))
+    |> distinct (fn (left: dispatch_candidate, right: dispatch_candidate) =>
+         Term.aconv (apply2 Micro_Rust_Names.normalized_backend (#term left, #term right)))
+  end;
 
 \<comment>\<open>Look up a HOL constant by user-visible name. Returns
-  \<open>SOME (full_name, declared_type)\<close> if the name resolves to a proper
-  constant in \<open>ctxt\<close>, \<open>NONE\<close> otherwise (free variable, abbreviation,
-  unknown name, etc.). Used by \<open>shadow_check\<close> below.\<close>
+  \<open>SOME (full_name, declared_type)\<close> if the name resolves to a constant in \<open>ctxt\<close>,
+  including an abbreviation such as a locale's local abbreviation of its constant, and
+  \<open>NONE\<close> otherwise (free variable, unknown name, etc.). Used by \<open>shadow_check\<close>
+  below.\<close>
 fun lookup_hol_const ctxt name =
   (case try (Proof_Context.read_const {proper = true, strict = false} ctxt) name of
      SOME (Const (full_name, T)) => SOME (full_name, T)
@@ -751,8 +772,11 @@ fun lookup_hol_const ctxt name =
   vice versa).
 
   Only fires when there is at least one registered backend that unifies;
-  if dispatch has nothing to say, shadowing is irrelevant.\<close>
-fun shadow_check ctxt kind name T pos have_backend =
+  if dispatch has nothing to say, shadowing is irrelevant. A constant that denotes a registered
+  backend is not a shadow: an automatically registered function, an explicit registration of a
+  constant under its own name, a locale's local abbreviation of either, or an abbreviation whose
+  expansion is the backend (\<open>is_registered_backend\<close>).\<close>
+fun shadow_check ctxt kind name T pos have_backend is_registered_backend =
   if not have_backend then () else
   if kind = Micro_Rust_Names.NLiteral then () else
   let val { suppress_warning, suppress_error } =
@@ -762,6 +786,7 @@ fun shadow_check ctxt kind name T pos have_backend =
     NONE => ()
   | SOME (full_name, const_T) =>
       if Micro_Rust_Names.infer_kind_of_type const_T <> kind then ()
+      else if is_registered_backend (full_name, const_T) then ()
       else
         let
           \<comment>\<open>Render the constant via \<^ML>\<open>Syntax.pretty_term\<close> so name-space markup
@@ -949,6 +974,18 @@ fun backend_identity_constant ctxt
          head_const (Term_Position.strip_positions hol_term))
   end;
 
+\<comment>\<open>Does a same-named HOL constant denote one of the registered backends? Abbreviations,
+  including a locale's local abbreviation of its constant, are compared after expansion, and the
+  whole term must match: a partial application or a wrapper of the constant remains a shadow.\<close>
+fun denotes_registered_backend entries ctxt (full_name, const_T) =
+  let
+    val expanded = Proof_Context.expand_abbrevs ctxt (Const (full_name, const_T))
+  in
+    exists (fn ({hol_term, ...} : Micro_Rust_Names.entry) =>
+        Term.aconv_untyped (Term_Position.strip_positions hol_term, expanded))
+      entries
+  end;
+
 fun emit_backend_markup_at_pos ctxt kind name pos =
   if not (Position.is_reported pos) then ()
   else
@@ -1055,7 +1092,9 @@ fun resolve ctxt =
            let
              val pos = #terminal_pos positions
              val cands = candidates ctxt kind name T
-             val _ = shadow_check ctxt kind name T pos (not (null cands))
+             val _ =
+               shadow_check ctxt kind name T pos (not (null cands))
+                 (denotes_registered_backend (Micro_Rust_Names.lookups ctxt kind name) ctxt)
              fun select ({entry, term} : dispatch_candidate) =
                (emit_selected_use_markup_at_positions
                   ctxt kind name entry positions;
@@ -1193,6 +1232,7 @@ fun do_register kind_opt (hol_src, (rust_name, rust_pos)) lthy =
             hol_src of
          SOME (constant as Const _) => SOME constant
        | _ => NONE)
+    val registration_serial = serial ();
     val kind =
       case kind_opt of
         SOME k => (check_forced_kind k lthy t0; k)
@@ -1201,10 +1241,12 @@ fun do_register kind_opt (hol_src, (rust_name, rust_pos)) lthy =
     lthy
     |> Local_Theory.declaration {pervasive=false, syntax=true, pos=Position.none}
       (fn phi =>
-        Micro_Rust_Names.register_with_source kind rust_name
+        Micro_Rust_Names.register_with_source_serial kind rust_name
           (Morphism.term phi t0)
           (Option.map (Morphism.term phi) source_const)
-          rust_pos)
+          rust_pos registration_serial)
+    |> tap (fn completed =>
+      Micro_Rust_Names.report_registration completed rust_name rust_pos registration_serial)
   end;
 
 \<comment>\<open>Config sub-command: parse \<open>[mode] "name"+\<close> and update the

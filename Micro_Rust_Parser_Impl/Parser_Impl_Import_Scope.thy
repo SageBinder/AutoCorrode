@@ -23,7 +23,6 @@ sig
     | Generated_Struct
     | Generated_Enum
     | Enum_Variant
-    | Generated_Function
     | Generated_Constructor
     | Literal_Notation
     | Call_Notation
@@ -119,7 +118,6 @@ struct
     | Generated_Struct
     | Generated_Enum
     | Enum_Variant
-    | Generated_Function
     | Generated_Constructor
     | Literal_Notation
     | Call_Notation
@@ -152,13 +150,11 @@ struct
     | role_name Generated_Struct = "generated struct"
     | role_name Generated_Enum = "generated enum"
     | role_name Enum_Variant = "enum variant"
-    | role_name Generated_Function = "generated function"
     | role_name Generated_Constructor = "generated constructor"
     | role_name Literal_Notation = "literal notation"
     | role_name Call_Notation = "call notation"
 
-  fun role_namespace Generated_Function = Value_Namespace
-    | role_namespace Generated_Constructor = Value_Namespace
+  fun role_namespace Generated_Constructor = Value_Namespace
     | role_namespace Literal_Notation = Value_Namespace
     | role_namespace Call_Notation = Value_Namespace
     | role_namespace _ = Type_Namespace

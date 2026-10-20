@@ -92,7 +92,7 @@ context extended with the batch, prepared for that context under `Declared_Later
 registry entities that it and the later members declare. The entities come from the
 registrations each declaration backend reports from its own decisions
 (`URust_Command.prepared_function_registrations`, `prepared_datatype_registrations`: item types and
-mappings, constructors, and the conversion calls of the native `simple_word_enum` backend under its
+mappings, constructors, automatic function call notations, and the conversion calls of the native `simple_word_enum` backend under its
 plugin filter), mapped to namespaces by the same `URust_Imports.registration_entities` that
 resolution applies to installed registry entries. Such an entity is unavailable to earlier
 members in its own namespace only, and its use is rejected without fallback, also through a body
@@ -179,19 +179,28 @@ valid, collision-free `application_def` argument names. Their audits cover shado
 wildcards, aliases and context fixes; chunk output checks live in `Parser_Chunk_Use_ML_Tests`.
 Generated decision subjects retain their administrative names.
 
-Named functions register their Rust declaration name by default. Bare, explicit and scoped
-`register_notation` controls use `urust_register_notation`, shared with datatypes. Examples
-and ordinary fixtures keep the enabled default. Use `[register_notation = false]` only for
-an actual name or registration conflict, such as different locale interpretations sharing
-one Rust path. Tests of disabled registration and option precedence deliberately exercise
-the opt-out.
+Named functions register their Rust declaration name as `micro_rust_notation (call)` by default.
+Distinct backends can share the name and calls dispatch by type, for both direct and method calls.
+Explicit registration of the same backend is idempotent, including schematic type renaming and
+specialization of an already registered polymorphic backend;
+differently typed locale interpretations remain distinct. Each occurrence imports fresh signature
+and effect variables, while interpreted concrete types and ambient fixed types stay rigid. Navigation
+points to the `urust_fn` declaration. Constructor collisions still reject on declaration and in either
+theory merge order, including named-field constructors.
+
+Bare, explicit and scoped `register_notation` controls use `urust_register_notation`, shared with
+datatypes. Examples and ordinary fixtures keep the enabled default. Use
+`[register_notation = false]` for indistinguishable same-typed locale instances: otherwise a call
+reports ambiguity with its candidates. Tests of disabled registration and option precedence exercise
+the opt-out. Chunk import collisions use the prepared declarations, so adding an overload to an
+existing notation key cannot evade a same-scope alias conflict.
 
 Start with `Parser_Function_Examples.thy` to learn `urust_fn`: it opens with explicit, inferred and
 anonymous names, then demonstrates parameter forms, calls, options, HOL escapes, mapped signatures,
 inferred effects and locales through ordinary checked declarations.
 
 `Parser_Function_ML_Tests.thy` imports those examples and checks their equations, types,
-registration, ASTs, diagnostics, parser/printer recovery, locale conflicts and editor navigation.
+registration, ASTs, diagnostics, parser/printer recovery, locale dispatch, overload ambiguity, theory merges and editor navigation.
 The shared command/API and expression declaration tests are in `Parser_Syntax_Examples.thy` and
 `Parser_Syntax_ML_Tests.thy`, including comparisons with the imported function artifacts.
 

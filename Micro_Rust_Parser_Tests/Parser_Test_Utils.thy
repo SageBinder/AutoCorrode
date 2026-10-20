@@ -10,6 +10,23 @@ declare [[urust_pp_test = true, urust_pretty = true, urust_verbosity = 2, urust_
   urust_application_def = false, urust_register_notation = true]]
 
 ML\<open>
+(* Queries for automatic call registrations use the same notation owner as explicit ones. *)
+structure Parser_Test_Calls =
+struct
+  fun entries ctxt name = Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NFunction name
+  fun lookup ctxt name = try hd (entries ctxt name)
+  fun dump ctxt =
+    Micro_Rust_Names.dump ctxt
+    |> map_filter (fn (kind, name, entry) =>
+         if kind = Micro_Rust_Names.NFunction then SOME (name, entry) else NONE)
+  fun declare {rust_name, rust_pos, function} lthy =
+    lthy |> Local_Theory.declaration {pervasive = false, syntax = true, pos = rust_pos}
+      (fn phi => Micro_Rust_Names.reserve_declaration Micro_Rust_Names.Function_Declaration
+          rust_name rust_pos #>
+        Micro_Rust_Names.register_with_source Micro_Rust_Names.NFunction rust_name
+          (Morphism.term phi function) NONE rust_pos)
+end
+
 structure Parser_Test_Report_Lock =
 struct
   val lock = Synchronized.var "parser_test_report_lock" ()

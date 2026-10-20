@@ -5983,11 +5983,8 @@ ML_val\<open>
       ctxt
       |> Context.Proof
       |> Micro_Rust_Names.Data.map
-          (fn (notations, items) =>
-            (Symtab.delete_safe
-              (Micro_Rust_Names.mk_key
-                Micro_Rust_Names.NFunction "is_none") notations,
-             items))
+          (Symtab.delete_safe
+            (Micro_Rust_Names.mk_key Micro_Rust_Names.NFunction "is_none"))
       |> Context.proof_of
     val _ =
       audit_assert "literal-only fixture lost its literal registration"
@@ -8563,12 +8560,9 @@ ML_val\<open>
     val synthetic_ctxt =
       Context.Proof ctxt
       |> Micro_Rust_Names.Data.map
-          (fn (notations, items) =>
-            (Symtab.update
-              (Micro_Rust_Names.mk_key
-                Micro_Rust_Names.NLiteral synthetic_name,
-               [low_entry, high_entry]) notations,
-             items))
+          (Symtab.update
+            (Micro_Rust_Names.mk_key Micro_Rust_Names.NLiteral synthetic_name,
+             [low_entry, high_entry]))
       |> Context.proof_of
     val synthetic_text =
       "match_case \<llangle>ConstructorQualifierVariant\<rrangle> { " ^

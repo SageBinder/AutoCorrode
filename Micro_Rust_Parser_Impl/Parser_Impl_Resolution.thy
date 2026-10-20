@@ -884,6 +884,25 @@ struct
            map (parse_antiquotation ctxt environment)
              (generic_sources generic_arguments))
 
+  (* An automatic urust_fn registration stands for a Rust function item, which takes no generic
+     arguments at a call. Explicit call notations keep their turbofish payload. *)
+  fun reject_generated_function_generics ctxt path =
+    (case segment_generic_args (final_segment path) of
+       NONE => ()
+     | SOME (Generic_Args (_, pos)) =>
+         let
+           val entries =
+             Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NFunction
+               (render_path (remove_final_generic_args path))
+         in
+           if not (null entries) andalso forall (Micro_Rust_Names.is_automatic ctxt) entries
+           then
+             error
+               ("urust_expr: generic arguments are not supported on generated Rust function paths" ^
+                 Position.here pos)
+           else ()
+         end)
+
   fun has_intermediate_generics path =
     let
       val segments = path_segments path
@@ -1010,7 +1029,7 @@ struct
 
   (* The roles that make a target usable in each import use. A use that its target supports only
      once a later declaration adds one of them reports that declaration as unavailable. *)
-  val call_import_roles = [S.Generated_Function, S.Generated_Constructor, S.Call_Notation]
+  val call_import_roles = [S.Generated_Constructor, S.Call_Notation]
   val value_import_roles = [S.Generated_Constructor, S.Literal_Notation]
   val repeat_length_import_roles = [S.Literal_Notation]
 
@@ -1265,31 +1284,6 @@ struct
     | Struct_Item_Call
     | No_Item_Call
 
-  fun item_function_entry ctxt path entry =
-    let
-      val _ =
-        (case find_first (is_some o segment_generic_args) (path_segments path) of
-           NONE => ()
-         | SOME segment =>
-             let val Generic_Args (_, pos) = the (segment_generic_args segment)
-             in
-               error
-                 ("urust_expr: generic arguments are not supported on generated Rust function paths" ^
-                   Position.here pos)
-             end)
-      val pos = #2 (path_terminal path)
-      val _ = I.defer_function_reference ctxt pos entry
-      (* A registered definition exports schematic signature and effect types. Each call must
-         instantiate them independently, while ambient fixed types remain rigid. *)
-      val function =
-        I.function_term entry
-        |> Term_Subst.zero_var_indexes
-        |> Term.map_types
-            (Logic.incr_tvar (serial ()) #> Type_Infer.paramify_vars)
-    in
-      T.source_position pos function
-    end
-
   fun item_function_path role ctxt path actual_arity entry =
     let
 
@@ -1360,9 +1354,6 @@ struct
            Struct_Item_Call => "a struct expression head"
          | _ => "a call")
       val function =
-        (case I.lookup_function ctxt (render_path (item_lookup_path canonical)) of
-           SOME entry => item_function_entry ctxt canonical entry
-         | NONE =>
              (case exact_item_constructor ctxt canonical of
                 SOME entry => item_function_path item_role ctxt canonical actual_arity entry
               | NONE =>
@@ -1375,8 +1366,10 @@ struct
                             (case exact_registered_path ctxt Micro_Rust_Names.NFunction
                                 (remove_final_generic_args canonical) of
                                SOME registered =>
-                                 apply_generic_arguments ctxt environment registered (SOME arguments)
-                             | NONE => unusable_import ctxt call_import_roles role route)))))
+                                 (reject_generated_function_generics ctxt canonical;
+                                  apply_generic_arguments ctxt environment registered
+                                    (SOME arguments))
+                             | NONE => unusable_import ctxt call_import_roles role route))))
       val _ = report_import_use ctxt route
     in function end
 
@@ -1403,11 +1396,6 @@ struct
         (case lexical_function () of
            SOME local_term => local_term
          | NONE =>
-             (case I.lookup_function ctxt (render_path (item_lookup_path path))
-              of
-                SOME entry =>
-                  item_function_entry ctxt path entry
-              | NONE =>
              (case
                 if item_role = No_Item_Call
                 then NONE
@@ -1432,6 +1420,7 @@ struct
                              generated_basename_error
                                ctxt "call" path
                          val _ = reject_intermediate_generics path
+                         val _ = reject_generated_function_generics ctxt path
                          val base = remove_final_generic_args path
                          val function =
                            resolve_generic_free_path ctxt environment
@@ -1441,7 +1430,7 @@ struct
                            function
                            (segment_generic_args
                              (final_segment path))
-                       end)))))
+                       end))))
       fun same_range position =
         Position.offset_of position = Position.offset_of head_pos andalso
         Position.end_offset_of position = Position.end_offset_of head_pos
@@ -1600,10 +1589,7 @@ struct
          exists
            (fn ({hol_term, ...} : Micro_Rust_Names.entry) =>
              is_nullary_function_type (fastype_of hol_term))
-           (Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NFunction (render_path canonical)) orelse
-         (case I.lookup_function ctxt (render_path (item_lookup_path canonical)) of
-            SOME entry => is_nullary_function_type (fastype_of (I.function_term entry))
-          | NONE => false)
+           (Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NFunction (render_path canonical))
      | NONE =>
     let
       val path = source_path

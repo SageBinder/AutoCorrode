@@ -61,9 +61,12 @@ Named functions register their Rust name by default for later direct calls. The 
 \<open>register_notation\<close> option, using the shared scoped
 \<open>urust_register_notation\<close> configuration, can suppress this entry while retaining the HOL
 definition or abbreviation and its native declaration navigation. Inline values override the scoped
-setting. Enabled registration rejects occupied function, constructor and call-notation paths,
-including incompatible locale interpretations and context merges. Mapping references are reported
-only after successful declaration completion.
+setting. Enabled registration is a morphism-aware call notation: distinct backends accumulate and
+calls select the unique type-compatible backend. Explicit notation for the same backend is idempotent.
+Indistinguishable backends report ambiguity at their use; same-typed locale instances therefore retain
+the opt-out workaround. Function/constructor declaration collisions remain rejected in both
+registration and theory merge. Mapping references are reported only after successful declaration
+completion.
 
 The optional parenthesized, comma-separated expression argument list occurs immediately before the source
 cartouche and accepts an empty list or trailing comma. Omitting it is equivalent to \<open>()\<close>.
@@ -881,11 +884,10 @@ fun prepare_declaration lthy
 fun elaborate_prepared_ast lthy
     {kind, source, declared_type, arguments_with_types, ast} : elaborated =
   let
-    val ((((closed, import_reports), field_reports), function_reports),
+    val (((closed, import_reports), field_reports),
           navigation_reports) =
       URust_Report_Transaction.capture (fn () =>
       URust_Report_Transaction.release_on_failure lthy (fn () =>
-        URust_Item_Scope.capture_function_reports (fn () =>
           URust_Item_Scope.capture_field_reports (fn () =>
           URust_Import_Scope.capture_reports (fn () =>
             let
@@ -910,7 +912,7 @@ fun elaborate_prepared_ast lthy
                 reject_unresolved kind lthy source closed
             in
               closed
-            end)))))
+            end))))
     (* Native resolved targets precede the authored Rust field/function reference, which remains
        the final navigation destination; an import declaration follows every target reached
        through it. Release every queue only after complete checking. All queues replay through
@@ -920,9 +922,6 @@ fun elaborate_prepared_ast lthy
     val _ =
       URust_Item_Scope.replay_field_reports
         lthy field_reports
-    val _ =
-      URust_Item_Scope.replay_function_reports
-        lthy function_reports
     val _ =
       URust_Import_Scope.replay_use_reports lthy import_reports
   in
@@ -1324,41 +1323,32 @@ fun declaration_registered_term
       (Anonymous_Result {term, ...}) = term
 
 fun reject_function_item_conflict lthy (rust_name, rust_pos) =
-  if is_some (URust_Item_Scope.lookup_function lthy rust_name)
-  then
-    error
-      ("urust_fn: Rust function path " ^ quote rust_name ^
-        " is already owned by a Rust function item" ^
-        Position.here rust_pos)
-  else if is_some
-      (URust_Item_Scope.lookup_constructor lthy rust_name)
-  then
-    error
-      ("urust_fn: Rust function path " ^ quote rust_name ^
-        " is already owned by a Rust constructor item" ^
-        Position.here rust_pos)
-  else if not
-      (null
-        (Micro_Rust_Names.lookups
-          lthy Micro_Rust_Names.NFunction rust_name))
-  then
-    error
-      ("urust_fn: Rust function path " ^ quote rust_name ^
-        " conflicts with an existing micro_rust_notation (call) declaration" ^
-        Position.here rust_pos)
-  else
-    ()
+  ignore (Micro_Rust_Names.reserve_declaration Micro_Rust_Names.Function_Declaration
+    rust_name rust_pos (Context.Proof lthy))
 
-fun register_function_result target (rust_name, rust_pos)
-    declaration lthy =
+fun register_function_result target (rust_name, rust_pos) declaration lthy =
   (case target of
      Anonymous_Target _ => lthy
    | Named_Target _ =>
-       URust_Item_Scope.register_function
-         {rust_name = rust_name,
-          rust_pos = rust_pos,
-          function = declaration_registered_term declaration}
-         lthy)
+       let
+         val registration_serial = serial ()
+         val term = declaration_registered_term declaration
+         val source_const =
+           (case Term.strip_comb term of (constant as Const _, _) => SOME constant | _ => NONE)
+       in
+         lthy |> Local_Theory.declaration {pervasive = false, syntax = true, pos = rust_pos}
+           (fn phi =>
+             Micro_Rust_Names.reserve_declaration Micro_Rust_Names.Function_Declaration
+               rust_name rust_pos #>
+             Micro_Rust_Names.mark_automatic registration_serial #>
+             Micro_Rust_Names.register_with_source_serial Micro_Rust_Names.NFunction rust_name
+               (Morphism.term phi term) (Option.map (Morphism.term phi) source_const)
+               rust_pos registration_serial)
+         |> tap (fn completed =>
+           (Navigation.defer_report completed rust_pos Markup.keyword3;
+            Micro_Rust_Names.report_registration completed rust_name rust_pos
+              registration_serial))
+       end)
 
 fun declare_urust_function_result pp_test render_pretty
     abbreviation application_definition attributes binding
@@ -1415,19 +1405,17 @@ fun declare_urust_function_result pp_test render_pretty
                pretty_arguments = map #1 arguments,
                pretty_body = pretty_body},
             lthy))
-    (* Disabling the callable entry does not disable native HOL declaration navigation. *)
+    (* Native HOL declaration navigation is independent of the callable entry. *)
     val _ =
-      if register_notation then ()
-      else
-        (case target of
-           Named_Target _ =>
-             Navigation.defer_report lthy'
-               (#2 (URust_AST.function_name function))
-               (Name_Space.markup
-                 (Consts.space_of (Proof_Context.consts_of lthy'))
-                 (Proof_Context.intern_const lthy'
-                   (Local_Theory.full_name lthy binding)))
-         | Anonymous_Target _ => ())
+      (case target of
+         Named_Target _ =>
+           Navigation.defer_report lthy'
+             (#2 (URust_AST.function_name function))
+             (Name_Space.markup
+               (Consts.space_of (Proof_Context.consts_of lthy'))
+               (Proof_Context.intern_const lthy'
+                 (Local_Theory.full_name lthy binding)))
+       | Anonymous_Target _ => ())
   in
     (declaration, lthy')
   end
@@ -1778,8 +1766,7 @@ fun declare_prepared_function
 fun prepared_function_registrations
     (Prepared_Function {register_notation, target, function, ...}) : URust_Imports.registrations =
   {item_types = [], type_mappings = [], constructors = [], literal_notations = [],
-   call_notations = [],
-   functions =
+   call_notations =
      (case (register_notation, target) of
         (true, Named_Target _) => [#1 (URust_AST.function_name function)]
       | _ => [])}
@@ -2226,13 +2213,6 @@ local
           error
             ("urust_notation: Rust path " ^ quote canonical ^
               " is already owned by urust_datatype" ^
-              Position.here pos)
-        else if is_some
-            (URust_Item_Scope.lookup_function lthy canonical)
-        then
-          error
-            ("urust_notation: Rust path " ^ quote canonical ^
-              " is already owned by urust_fn" ^
               Position.here pos)
         else ()
     in

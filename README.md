@@ -139,7 +139,13 @@ urust_type_alias ["QUALIFIED_PATH"] ‹ type RustName<T, ...> = RUST_TYPE; ›
 urust_datatype [OPTIONS] [HOL_NAME] ‹ struct-or-enum ›
 ```
 
-`urust_fn` requires one complete Rust-shaped free-function item.
+`urust_fn` requires one complete Rust-shaped free-function item. Named declarations automatically
+register the Rust name through `micro_rust_notation (call)`, so differently typed functions can
+share a direct or method call name. Repeating explicit notation for the same backend is idempotent.
+Calls with several type-compatible backends report ambiguity; same-typed locale instances retain
+`[register_notation = false]`. Function/constructor declaration collisions remain errors, including
+on theory merge. Each call instantiates generalized signature and effect types independently,
+while concrete interpretation types and ambient fixed types remain rigid.
 The HOL name may be explicit, `_` for anonymous check-only use, or omitted and inferred with the
 same acronym-aware snake-case conversion as `urust_datatype` (`HTTPServer` becomes `http_server`).
 Rust signature types are authoritative: parameters and explicit results resolve through
@@ -192,9 +198,9 @@ are not supported in datatype fields, aliases or casts.
 Named functions register their Rust name by default. The Boolean `register_notation` option uses
 the shared `urust_register_notation` scoped setting, with inline values taking precedence.
 Disabled registration preserves existing entries and installs the ordinary HOL definition or
-abbreviation. Enabled registration rejects occupied function, constructor and call-notation
-paths, including conflicts during locale interpretation and context merging.
-Keep registration enabled unless a concrete conflict requires the opt-out.
+abbreviation. Enabled registration accumulates call-notation backends and preserves the declaration
+as the navigation target. Keep registration enabled unless indistinguishable backends require the
+opt-out.
 
 ```isabelle
 urust_fn identity_helper ‹

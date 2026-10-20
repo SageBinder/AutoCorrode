@@ -27,11 +27,11 @@ ML_val\<open>
       else error ("function registration example: " ^ label)
 
     fun registered (rust_name, hol_name) =
-      (case URust_Item_Scope.lookup_function ctxt rust_name of
+      (case Parser_Test_Calls.lookup ctxt rust_name of
          SOME entry =>
            require (rust_name ^ " selected the wrong HOL artifact")
              (Term.aconv_untyped
-               (URust_Item_Scope.function_term entry, Const (hol_name, dummyT)))
+               ((fn (entry: Micro_Rust_Names.entry) => #hol_term entry) entry, Const (hol_name, dummyT)))
        | NONE => error ("function example did not register " ^ quote rust_name))
 
     val _ =
@@ -43,7 +43,7 @@ ML_val\<open>
     val _ =
       List.app
         (fn name => require (name ^ " unexpectedly registered")
-          (is_none (URust_Item_Scope.lookup_function ctxt name)))
+          (is_none (Parser_Test_Calls.lookup ctxt name)))
         ["UnregisteredHelper", "ScopedUnregisteredHelper"]
   in
     ()
@@ -51,7 +51,7 @@ ML_val\<open>
 \<close>
 
 ML_val\<open>
-  if is_none (URust_Item_Scope.lookup_function \<^context> "AnonymousProbe")
+  if is_none (Parser_Test_Calls.lookup \<^context> "AnonymousProbe")
   then ()
   else error "anonymous Rust function item was registered"
 \<close>
@@ -76,10 +76,10 @@ ML_val\<open>
 \<close>
 
 ML_val\<open>
-  (case URust_Item_Scope.lookup_function \<^context> "RustAlias" of
+  (case Parser_Test_Calls.lookup \<^context> "RustAlias" of
      SOME entry =>
        if Term.aconv_untyped
-           (URust_Item_Scope.function_term entry,
+           ((fn (entry: Micro_Rust_Names.entry) => #hol_term entry) entry,
             Const (\<^const_name>\<open>explicit_hol_name\<close>, dummyT))
        then ()
        else error "anonymous duplicate Rust item replaced the registered function"
@@ -87,15 +87,15 @@ ML_val\<open>
 \<close>
 
 ML_val\<open>
-  (case URust_Item_Scope.lookup_function \<^context> "LocaleScopedFunction" of
+  (case Parser_Test_Calls.lookup \<^context> "LocaleScopedFunction" of
      SOME entry =>
        if Term.aconv_untyped
-           (URust_Item_Scope.function_term entry,
+           ((fn (entry: Micro_Rust_Names.entry) => #hol_term entry) entry,
             Const (\<^const_name>\<open>global_after_locale_scope\<close>, dummyT))
        then ()
        else error "locale-scoped Rust function registration leaked globally"
    | NONE => error "global declaration after locale scope was not registered");
-  if is_none (URust_Item_Scope.lookup_function \<^context> "LocaleScopedClient")
+  if is_none (Parser_Test_Calls.lookup \<^context> "LocaleScopedClient")
   then ()
   else error "locale-scoped Rust client registration leaked globally"
 \<close>
@@ -754,20 +754,10 @@ local
       (command "function_item_as_value"
         "fn FunctionItemAsValue() -> u8 { RustMaximumCallArity }")
   val _ =
-    reject "rust-function-existing-function"
-      "already owned by a Rust function item"
-      (command "duplicate_rust_function"
-        "fn RustAlias(x: u64) -> u64 { x }")
-  val _ =
     reject "rust-function-existing-constructor"
       "already owned by a Rust constructor item"
       (command "constructor_conflict"
         "fn SharedItem(x: u64) -> u64 { x }")
-  val _ =
-    reject "rust-function-existing-notation"
-      "conflicts with an existing micro_rust_notation"
-      (command "notation_conflict"
-        "fn NotationClash(x: u64) -> u64 { x }")
   val _ =
     reject "rust-function-recursive-definition"
       "RecursiveFunction"
@@ -857,22 +847,24 @@ local
       (fn (name, properties) =>
         name = Markup.entityN andalso
           Properties.get properties Markup.kindN =
-            SOME "urust_function" andalso
+            SOME "micro_rust_notation" andalso
           is_some (Properties.get properties property) andalso
           has_position properties position)
       markup
 
-  val SOME entry = I.lookup_function ctxt "RustAlias"
+  val SOME entry = Parser_Test_Calls.lookup ctxt "RustAlias"
   val (definition_result, definition_chunks) =
     capture "definition"
-      (fn () => I.report_function_definition entry)
+      (fn () => Position.report (#reg_pos entry)
+        (Position.make_entity_markup {def = true} (#serial entry)
+          Micro_Rust_Names.notationN ("RustAlias", #reg_pos entry)))
   val _ =
     (case definition_result of
        Exn.Res _ => ()
      | Exn.Exn exn => Exn.reraise exn)
   val _ =
     if has_function_entity Markup.defN
-         (I.function_position entry) (markups definition_chunks)
+         ((fn (entry: Micro_Rust_Names.entry) => #reg_pos entry) entry) (markups definition_chunks)
     then ()
     else error "function item definition navigation changed"
 
@@ -1120,12 +1112,9 @@ struct
         length (distinct (op =) types) = length types)
 
   fun function_snapshot ctxt =
-    URust_Item_Scope.dump_functions ctxt
-    |> map (fn entry =>
-        (URust_Item_Scope.function_rust_name entry,
-         URust_Item_Scope.function_term entry,
-         Position.properties_of
-           (URust_Item_Scope.function_position entry)))
+    Parser_Test_Calls.dump ctxt
+    |> map (fn (name, entry) =>
+        (name, #hol_term entry, Position.properties_of (#reg_pos entry)))
 
   fun type_snapshot ctxt =
     URust_Item_Scope.dump_types ctxt
@@ -1159,6 +1148,13 @@ struct
   fun constant_snapshot ctxt =
     #constants (Consts.dest (Proof_Context.consts_of ctxt))
 
+  fun ownership_snapshot ctxt =
+    Micro_Rust_Names.Declaration_Owners.get (Context.Proof ctxt)
+    |> Symtab.dest
+    |> map (fn (name, owners) => (name,
+        map (fn ({kind, pos}: Micro_Rust_Names.declaration_owner) =>
+          (kind, Position.properties_of pos)) owners))
+
   fun registry_unchanged label earlier later =
     (require (label ^ ": function registry changed")
        (function_snapshot earlier = function_snapshot later);
@@ -1166,6 +1162,8 @@ struct
        (type_snapshot earlier = type_snapshot later);
      require (label ^ ": constructor registry changed")
        (constructor_snapshot earlier = constructor_snapshot later);
+     require (label ^ ": declaration ownership changed")
+       (ownership_snapshot earlier = ownership_snapshot later);
      require (label ^ ": notation registry changed")
        (notation_snapshot earlier = notation_snapshot later);
      require (label ^ ": type registry changed")
@@ -1204,8 +1202,8 @@ struct
         name = Markup.entityN andalso
         is_some (Properties.get properties Markup.defN) andalso
         member (op =)
-          ["urust_item", "urust_constructor", "urust_field", "urust_function",
-           "micro_rust_notation", "micro_rust_type_mapping"]
+          ["urust_item", "urust_constructor", "urust_field", "micro_rust_notation",
+           "micro_rust_type_mapping"]
           (the_default "" (Properties.get properties Markup.kindN)))
       markup
 
@@ -1709,7 +1707,7 @@ ML_val \<open>
             (command options target
               ("fn " ^ rust ^ "(value: u16) -> u16 { value }"))
         val ctxt = Toplevel.context_of state
-        val entry = URust_Item_Scope.lookup_function ctxt rust
+        val entry = Parser_Test_Calls.lookup ctxt rust
         val _ = require (label ^ ": registration option ignored") (is_some entry = registered)
         val _ =
           if target = "_" then
@@ -1744,7 +1742,7 @@ ML_val \<open>
                      require (label ^ ": registered target differs from installed artifact")
                        (Term.aconv_untyped
                          (Proof_Context.expand_abbrevs ctxt
-                            (URust_Item_Scope.function_term registered_entry),
+                            ((fn (entry: Micro_Rust_Names.entry) => #hol_term entry) registered_entry),
                           expanded)))
             in () end
         val _ =
@@ -1798,9 +1796,9 @@ ML_val \<open>
     val scoped_ctxt = Toplevel.context_of scoped
     val _ =
       require "scoped registration configuration leaked"
-        (is_none (URust_Item_Scope.lookup_function scoped_ctxt "SignatureScopedOff") andalso
-          is_none (URust_Item_Scope.lookup_function scoped_ctxt "SignatureNestedOff") andalso
-          is_some (URust_Item_Scope.lookup_function scoped_ctxt "SignatureRestoredOn"))
+        (is_none (Parser_Test_Calls.lookup scoped_ctxt "SignatureScopedOff") andalso
+          is_none (Parser_Test_Calls.lookup scoped_ctxt "SignatureNestedOff") andalso
+          is_some (Parser_Test_Calls.lookup scoped_ctxt "SignatureRestoredOn"))
 
     val application =
       run_from base "signature-application-artifacts"
@@ -1885,7 +1883,7 @@ ML_val \<open>
             (null (entities "micro_rust_type_mapping" markup))
         val _ =
           require (label ^ ": failed command emitted successful function navigation")
-            (null (entities "urust_function" markup))
+            (null (entities "micro_rust_notation" markup))
         val unchanged = Toplevel.context_of base
         val _ = registry_unchanged (label ^ " rollback") earlier_ctxt unchanged
         val _ =
@@ -1901,7 +1899,7 @@ ML_val \<open>
         val recovered_ctxt = Toplevel.context_of recovered
       in
         require (label ^ ": parser/registry did not recover")
-          (is_some (URust_Item_Scope.lookup_function recovered_ctxt "SignatureFailure"));
+          (is_some (Parser_Test_Calls.lookup recovered_ctxt "SignatureFailure"));
         ignore (theorem recovered_ctxt "signature_failure")
       end
 
@@ -1985,12 +1983,8 @@ ML_val \<open>
           reject label expected
             (item "[register_notation]"
               ("fn " ^ rust ^ "(value: " ^ typ ^ ") -> " ^ typ ^ " { value }")))
-        [("registration-existing-function", "already owned by a Rust function item",
-          "SignaturePrimitive", "u8"),
-         ("registration-existing-constructor", "already owned by a Rust constructor item",
-          "SignaturePacket", "SignaturePacket"),
-         ("registration-existing-notation", "conflicts with an existing micro_rust_notation",
-          "SignatureExistingCall", "u8")]
+        [("registration-existing-constructor", "already owned by a Rust constructor item",
+          "SignaturePacket", "SignaturePacket")]
 
     val _ =
       reject "registration-disabled-still-checks-signature" "unknown Rust type"
@@ -2148,13 +2142,32 @@ ML_val \<open>
         (fn () => run_from base success_label success_text)
     val success_ctxt = Context_Position.set_visible true (Toplevel.context_of success)
     val SOME function_entry =
-      URust_Item_Scope.lookup_function success_ctxt "SignatureNavigationCommand"
-    val declaration_position = URust_Item_Scope.function_position function_entry
+      Parser_Test_Calls.lookup success_ctxt "SignatureNavigationCommand"
+    val declaration_position = (fn (entry: Micro_Rust_Names.entry) => #reg_pos entry) function_entry
     val _ =
       require "successful command lost native function declaration markup"
         (not (null
-          (entity_ids "urust_function" Markup.defN "SignatureNavigationCommand"
+          (entity_ids "micro_rust_notation" Markup.defN "SignatureNavigationCommand"
             declaration_position success_markup)))
+    val success_hol_name =
+      Proof_Context.read_const {proper = true, strict = false}
+        success_ctxt "signature_navigation_command"
+      |> dest_Const_name
+    val _ =
+      require "registered Rust name lost native HOL declaration navigation"
+        (exists
+          (fn (name, properties) =>
+            name = Markup.entityN andalso
+            Properties.get properties Markup.kindN = SOME "constant" andalso
+            Properties.get properties Markup.nameN = SOME success_hol_name andalso
+            has_position properties declaration_position)
+          success_markup)
+    val _ =
+      require "registered Rust name lost its declaration styling"
+        (exists
+          (fn (name, properties) =>
+            name = Markup.keyword3N andalso has_position properties declaration_position)
+          success_markup)
     val _ =
       require "successful command did not replay signature mapping reports"
         (length (entities mapping_kind success_markup) = 2)
@@ -2171,9 +2184,9 @@ ML_val \<open>
       token_position client_text (start client_label) "SignatureNavigationCommand" 0
     val _ =
       require "registered signature function call lost its native reference"
-        (entity_ids "urust_function" Markup.refN "SignatureNavigationCommand"
+        (entity_ids "micro_rust_notation" Markup.refN "SignatureNavigationCommand"
           call_position client_markup =
-            entity_ids "urust_function" Markup.defN "SignatureNavigationCommand"
+            entity_ids "micro_rust_notation" Markup.defN "SignatureNavigationCommand"
               declaration_position success_markup)
 
     val disabled_label = "signature-disabled-navigation"
@@ -2185,7 +2198,7 @@ ML_val \<open>
         (fn () => run_from base disabled_label disabled_text)
     val _ =
       require "disabled registration emitted a function declaration entity"
-        (null (entities "urust_function" disabled_markup))
+        (null (entities "micro_rust_notation" disabled_markup))
     val _ =
       require "disabled registration suppressed signature type navigation"
         (length (entities mapping_kind disabled_markup) = 2)
@@ -2224,9 +2237,9 @@ ML_val \<open>
         require (label ^ ": HOL alias artifact changed")
           (is_some abbreviation_rhs = abbreviated andalso has_def = not abbreviated);
         require (label ^ ": optout registered a Rust callable path")
-          (is_none (URust_Item_Scope.lookup_function alias_ctxt rust_name));
+          (is_none (Parser_Test_Calls.lookup alias_ctxt rust_name));
         require (label ^ ": optout emitted a synthetic function declaration")
-          (null (entities "urust_function" reports));
+          (null (entities "micro_rust_notation" reports));
         require (label ^ ": Rust name does not navigate to the explicit HOL alias")
           (exists
             (fn (name, properties) =>
@@ -2358,593 +2371,312 @@ ML_val \<open>
   end
 \<close>
 
-section\<open> Registration context merges \<close>
+section\<open> Overloadable registration and context merges \<close>
 
 ML_val \<open>
   local
     open Parser_Function_Regression_Test
     val parent = \<^theory>
+    val base = run_from (initial parent) "registration-same-name-selector"
+      ("datatype_record signature_call_record = SignatureOverloaded :: " ^ cartouche " bool ")
+    fun entries state = Parser_Test_Calls.entries (Toplevel.context_of state) "SignatureOverloaded"
+    val first = run_from base "registration-first-backend"
+      (command "" "signature_overloaded_word" "fn SignatureOverloaded(value: u8) -> u8 { value }")
+    val second = run_from first "registration-second-backend"
+      (command "" "signature_overloaded_bool" "fn SignatureOverloaded(value: bool) -> bool { value }")
+    val _ = require "distinct types did not accumulate" (length (entries second) = 2)
+    val clients = run_from second "registration-typed-clients"
+      (command "[register_notation = false]" "signature_word_client"
+         "fn WordClient(value: u8) -> u8 { SignatureOverloaded(value) }" ^ "\n" ^
+       command "[register_notation = false]" "signature_bool_client"
+         "fn BoolClient(value: bool) -> bool { value.SignatureOverloaded() }")
+    val _ = require "direct call did not select the word backend"
+      (Term.exists_subterm (fn Const (name, _) =>
+        name = Proof_Context.intern_const (Toplevel.context_of clients) "signature_overloaded_word"
+        | _ => false) (rhs (Toplevel.context_of clients) "signature_word_client"))
+    val _ = require "method call did not select the bool backend"
+      (Term.exists_subterm (fn Const (name, _) =>
+        name = Proof_Context.intern_const (Toplevel.context_of clients) "signature_overloaded_bool"
+        | _ => false) (rhs (Toplevel.context_of clients) "signature_bool_client"))
+    val duplicate = run_from clients "registration-explicit-duplicate"
+      "micro_rust_notation (call) signature_overloaded_word (\"SignatureOverloaded\")"
+    val _ = require "duplicate explicit registration introduced ambiguity" (length (entries duplicate) = 2)
+    val duplicate_wrapper = run_from duplicate "registration-wrapper-duplicate"
+      "urust_notation (call) signature_overloaded_word (\"SignatureOverloaded\")"
+    val _ = require "parser-aware duplicate introduced ambiguity" (length (entries duplicate_wrapper) = 2)
+    val third = run_from duplicate_wrapper "registration-same-type-backend"
+      (command "" "signature_overloaded_other_word" "fn SignatureOverloaded(value: u8) -> u8 { value }")
+    val failure = Exn.result (fn () => run_from third "registration-ambiguous-client"
+      (command "" "signature_ambiguous_client"
+        "fn AmbiguousClient(value: u8) -> u8 { SignatureOverloaded(value) }")) () |> message
+    val _ = require "indistinguishable backends did not reject at use"
+      (String.isSubstring "Ambiguous uRust notation" failure andalso
+        String.isSubstring "signature_overloaded_word" failure andalso
+        String.isSubstring "signature_overloaded_other_word" failure)
 
-    (* Independent synthetic theories exercise the real Generic_Data merge without
-       requiring another imported test theory or leaking a conflicting registry. *)
     fun branch name options =
       let
         val thy = Theory.begin_theory (name, start name) [parent]
-        val state =
-          run_from (initial thy) name
-            (command options "signature_merge_function"
-              "fn SignatureMergeFunction(value: u8) -> u8 { value }")
+        val state = run_from (initial thy) name
+          (command options "signature_merge_function"
+            "fn SignatureMergeFunction(value: u8) -> u8 { value }")
       in Theory.end_theory (Toplevel.theory_of state) end
-
     fun merge name left right =
-      Theory.begin_theory (name, start name) [left, right]
-      |> Proof_Context.init_global
-
-    val disabled_left =
-      branch "Signature_Function_Merge_Disabled_Left" "[register_notation = false]"
-    val disabled_right =
-      branch "Signature_Function_Merge_Disabled_Right" "[register_notation = false]"
-    val disabled =
-      merge "Signature_Function_Merge_Disabled" disabled_left disabled_right
-    val _ =
-      require "disabled function registrations conflicted during context merge"
-        (is_none (URust_Item_Scope.lookup_function disabled "SignatureMergeFunction"))
-    val _ =
-      List.app
-        (fn name => ignore (theorem disabled (name ^ ".signature_merge_function")))
-        ["Signature_Function_Merge_Disabled_Left", "Signature_Function_Merge_Disabled_Right"]
-
-    val enabled_left = branch "Signature_Function_Merge_Enabled_Left" "[register_notation]"
-    val enabled_right = branch "Signature_Function_Merge_Enabled_Right" "[register_notation]"
-    val enabled_failure =
-      Exn.result
-        (fn () =>
-          merge "Signature_Function_Merge_Enabled" enabled_left enabled_right
-          |> (fn ctxt => URust_Item_Scope.lookup_function ctxt "SignatureMergeFunction")) ()
-      |> message
-    val _ =
-      require "different enabled backends merged for one Rust function path"
-        (String.isSubstring "conflicting Rust function path" enabled_failure)
-
-    val notation_name = "Signature_Function_Merge_Call_Notation"
-    val notation_context =
-      Theory.begin_theory (notation_name, start notation_name) [parent]
-      |> Context.Theory
-      |> Micro_Rust_Names.register Micro_Rust_Names.NFunction "SignatureMergeFunction"
-          \<^term>\<open>signature_existing_call\<close> (start notation_name)
-    val notation_thy = notation_context |> Context.the_theory |> Theory.end_theory
-
-    val constructor_name = "Signature_Function_Merge_Constructor"
-    val constructor_state =
-      Theory.begin_theory (constructor_name, start constructor_name) [parent]
-      |> initial
-      |> (fn state =>
-          run_from state constructor_name
-            ("urust_datatype signature_merge_constructor " ^
-              cartouche " struct SignatureMergeFunction; "))
-    val constructor_thy =
-      constructor_state |> Toplevel.theory_of |> Theory.end_theory
-
-    fun reject_merge (label, left, right, expected) =
+      Theory.begin_theory (name, start name) [left, right] |> Proof_Context.init_global
+    val left = branch "Signature_Function_Merge_Left" ""
+    val right = branch "Signature_Function_Merge_Right" ""
+    val disabled = branch "Signature_Function_Merge_Disabled" "[register_notation = false]"
+    val constructor = run_from
+      (initial (Theory.begin_theory ("Signature_Function_Merge_Constructor", Position.none) [parent]))
+      "registration-merge-constructor"
+      ("urust_datatype signature_merge_constructor " ^ cartouche " struct SignatureMergeFunction; ")
+      |> Toplevel.theory_of |> Theory.end_theory
+    val named_constructor = run_from
+      (initial (Theory.begin_theory ("Signature_Function_Merge_Named", Position.none) [parent]))
+      "registration-merge-named-constructor"
+      ("urust_datatype signature_merge_named " ^
+        cartouche " struct SignatureMergeFunction { value: u8 } ")
+      |> Toplevel.theory_of |> Theory.end_theory
+    val _ = List.app (fn (label, a, b) =>
+      require (label ^ ": overload union lost a backend")
+        (length (Parser_Test_Calls.entries (merge label a b) "SignatureMergeFunction") = 2))
+      [("Signature_Merge_Left_Right", left, right), ("Signature_Merge_Right_Left", right, left)]
+    val _ = List.app (fn (label, a, b) =>
       let
-        val failure =
-          Exn.result
-            (fn () =>
-              let
-                val ctxt = merge label left right
-                (* Force both owning data structures, including lazy theory merges. *)
-                val _ = Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NFunction
-                  "SignatureMergeFunction"
-                val _ = URust_Item_Scope.lookup_function ctxt "SignatureMergeFunction"
-                val _ = URust_Item_Scope.lookup_constructor ctxt "SignatureMergeFunction"
-              in () end) ()
-          |> message
-      in
-        require (label ^ ": wrong merge conflict: " ^ failure)
-          (String.isSubstring expected failure andalso
-            String.isSubstring "SignatureMergeFunction" failure)
-      end
-
-    val _ =
-      List.app reject_merge
-        [("Signature_Function_Then_Notation_Merge", enabled_left, notation_thy,
-          "conflicts with an existing micro_rust_notation (call) declaration"),
-         ("Signature_Notation_Then_Function_Merge", notation_thy, enabled_left,
-          "conflicts with an existing micro_rust_notation (call) declaration"),
-         ("Signature_Function_Then_Constructor_Merge", enabled_left, constructor_thy,
-          "already owned by a Rust constructor item"),
-         ("Signature_Constructor_Then_Function_Merge", constructor_thy, enabled_left,
-          "already owned by a Rust constructor item")]
-
-    val disabled_notation =
-      merge "Signature_Disabled_Function_Notation_Merge" disabled_left notation_thy
-    val _ =
-      require "opted-out function reserved the call-notation path during merge"
-        (is_none (URust_Item_Scope.lookup_function disabled_notation "SignatureMergeFunction") andalso
-          length (Micro_Rust_Names.lookups disabled_notation
-            Micro_Rust_Names.NFunction "SignatureMergeFunction") = 1)
-    val disabled_constructor =
-      merge "Signature_Disabled_Function_Constructor_Merge" disabled_left constructor_thy
-    val _ =
-      require "opted-out function reserved the constructor path during merge"
-        (is_none (URust_Item_Scope.lookup_function disabled_constructor "SignatureMergeFunction") andalso
-          is_some (URust_Item_Scope.lookup_constructor disabled_constructor "SignatureMergeFunction"))
-
-    val function_then_notation =
-      Exn.result
-        (fn () =>
-          Context.Theory enabled_left
-          |> Micro_Rust_Names.register Micro_Rust_Names.NFunction "SignatureMergeFunction"
-              \<^term>\<open>signature_existing_call\<close>
-              (start "signature-notation-replay-after-function")) ()
-      |> message
-    val _ =
-      require "call-notation replay ignored a reserved function path"
-        (String.isSubstring
-          "conflicts with an existing micro_rust_notation (call) declaration"
-          function_then_notation)
-    val notation_then_function =
-      Exn.result
-        (fn () =>
-          run_from (initial notation_thy) "signature-function-replay-after-notation"
-            (command "" "signature_replay_after_notation"
-              "fn SignatureMergeFunction(value: u8) -> u8 { value }")) ()
-      |> message
-    val _ =
-      require "function replay ignored an occupied call-notation path"
-        (String.isSubstring
-          "conflicts with an existing micro_rust_notation (call) declaration"
-          notation_then_function)
-    val _ =
-      require "synthetic merge fixtures leaked into the enclosing context"
-        (is_none (URust_Item_Scope.lookup_function \<^context> "SignatureMergeFunction"))
-  in
-    val _ = ()
-  end
+        val failure = Exn.result (fn () =>
+          let val ctxt = merge label a b
+              val _ = Micro_Rust_Names.Declaration_Owners.get (Context.Proof ctxt)
+          in () end) () |> message
+      in require (label ^ ": constructor ownership did not reject")
+        (String.isSubstring "already owned by a Rust constructor item" failure) end)
+      [("Signature_Merge_Function_Constructor", left, constructor),
+       ("Signature_Merge_Constructor_Function", constructor, left),
+       ("Signature_Merge_Function_Named", left, named_constructor),
+       ("Signature_Merge_Named_Function", named_constructor, left)]
+    val _ = require "optout reserved constructor ownership"
+      (is_some (URust_Item_Scope.lookup_constructor
+        (merge "Signature_Merge_Disabled_Constructor" disabled constructor) "SignatureMergeFunction"))
+    val _ = require "merge fixture leaked into parent" (null
+      (Parser_Test_Calls.entries \<^context> "SignatureMergeFunction"))
+  in val _ = () end
 \<close>
 
-section\<open> Registration failure reports \<close>
+section\<open> Shadow warnings at automatic calls \<close>
 
 ML_val \<open>
   local
     open Parser_Function_Regression_Test
+    fun warnings_of label action =
+      let
+        val captured = Synchronized.var ("shadow_warnings_" ^ label) ([]: string list)
+        val result =
+          Parser_Test_Report_Lock.run (fn () =>
+            Unsynchronized.setmp Private_Output.warning_fn
+              (fn chunks => Synchronized.change captured (append chunks)) action ())
+      in (result, map (XML.content_of o YXML.parse_body) (Synchronized.value captured)) end
+    (* Warning capture is process-wide, so each probe matches only its own name. *)
+    fun ambiguous name =
+      exists (String.isSubstring ("Ambiguous uRust notation \<open>" ^ name ^ "\<close>"))
     val base = initial \<^theory>
-    val function_state =
-      run_from base "signature-report-function-prefix"
-        (command "" "signature_report_function"
-          "fn SignatureReportReserved(value: u8) -> u8 { value }")
-    val function_ctxt =
-      Toplevel.context_of function_state |> Context_Position.set_visible true
-    val backend = \<^term>\<open>signature_existing_call\<close>
-
-    (* Success controls prove the capture sees each declaration protocol. *)
-    val notation_control_position = start "signature-notation-report-control"
-    val (_, notation_control_markup) =
-      Parser_Test_Reports.markup (fn () =>
-        Micro_Rust_Names.register Micro_Rust_Names.NFunction "SignatureNotationReportControl"
-          backend notation_control_position (Context.Proof function_ctxt))
-    val _ =
-      require "notation report capture did not observe the success control"
-        (not (null (entity_ids "micro_rust_notation" Markup.defN
-          "SignatureNotationReportControl" notation_control_position notation_control_markup)))
-
-    val (notation_failure_result, notation_failure_markup) =
-      Parser_Test_Reports.markup (fn () =>
-        Exn.result
-          (fn () =>
-            Micro_Rust_Names.register Micro_Rust_Names.NFunction "SignatureReportReserved"
-              backend (start "signature-notation-report-failure")
-              (Context.Proof function_ctxt)) ())
-    val notation_failure = message notation_failure_result
-    val _ =
-      require "reverse notation registration did not reject the occupied function path"
-        (String.isSubstring
-          "conflicts with an existing micro_rust_notation (call) declaration"
-          notation_failure)
-    val _ =
-      require "failed reverse notation registration emitted declaration entities"
-        (null (declaration_definitions notation_failure_markup))
-
-    val notation_state =
-      run_from base "signature-report-notation-prefix"
-        "urust_notation (call) signature_existing_call (\"SignatureReportOccupied\")"
-    val notation_lthy =
-      Named_Target.theory_init (Toplevel.theory_of notation_state)
-      |> Context_Position.set_visible true
-    val item_control_position = start "signature-item-report-control"
-    val (_, item_control_markup) =
-      Parser_Test_Reports.markup (fn () =>
-        URust_Item_Scope.register_function
-          {rust_name = "SignatureItemReportControl",
-           rust_pos = item_control_position,
-           function = backend}
-          notation_lthy)
-    val _ =
-      require "item report capture did not observe the success control"
-        (not (null (entity_ids "urust_function" Markup.defN
-          "SignatureItemReportControl" item_control_position item_control_markup)))
-
-    (* Bypass command preflight to exercise the public declaration callback itself. *)
-    val (item_failure_result, item_failure_markup) =
-      Parser_Test_Reports.markup (fn () =>
-        Exn.result
-          (fn () =>
-            URust_Item_Scope.register_function
-              {rust_name = "SignatureReportOccupied",
-               rust_pos = start "signature-item-report-failure",
-               function = backend}
-              notation_lthy) ())
-    val item_failure = message item_failure_result
-    val _ =
-      require "reverse function callback did not reject the occupied notation path"
-        (String.isSubstring
-          "conflicts with an existing micro_rust_notation (call) declaration"
-          item_failure)
-    val _ =
-      require "failed reverse function callback emitted declaration entities"
-        (null (declaration_definitions item_failure_markup))
-    val _ =
-      require "failed notation registration changed the existing function path"
-        (is_some (URust_Item_Scope.lookup_function function_ctxt "SignatureReportReserved") andalso
-          null (Micro_Rust_Names.lookups function_ctxt
-            Micro_Rust_Names.NFunction "SignatureReportReserved"))
-    val _ =
-      require "failed function callback changed the existing notation path"
-        (is_none (URust_Item_Scope.lookup_function notation_lthy "SignatureReportOccupied") andalso
-          length (Micro_Rust_Names.lookups notation_lthy
-            Micro_Rust_Names.NFunction "SignatureReportOccupied") = 1)
-  in
-    val _ = ()
-  end
+    (* The same-named HOL constant is the automatically registered backend itself. *)
+    val (declared, declaration_warnings) = warnings_of "automatic-backend" (fn () =>
+      run_from base "shadow-automatic-backend"
+        (command "" "ShadowSameName" "fn ShadowSameName(value: u8) -> u8 { value }"))
+    val (_, call_warnings) = warnings_of "automatic-call" (fn () =>
+      run_from declared "shadow-automatic-call"
+        (command "" "shadow_same_name_client"
+          "fn ShadowSameNameClient(value: u8) -> u8 { ShadowSameName(value) }"))
+    val _ = require "an automatic call warned about its own backend"
+      (not (ambiguous "ShadowSameName" (declaration_warnings @ call_warnings)))
+    (* An abbreviated function registers its expansion; the abbreviation itself is no shadow. *)
+    val (abbreviated, _) = warnings_of "abbreviated-backend" (fn () =>
+      run_from declared "shadow-abbreviated-backend"
+        (command "[abbrev]" "ShadowAbbreviated" "fn ShadowAbbreviated(value: u8) -> u8 { value }"))
+    val (_, abbreviated_call_warnings) = warnings_of "abbreviated-call" (fn () =>
+      run_from abbreviated "shadow-abbreviated-call"
+        (command "" "shadow_abbreviated_client"
+          "fn ShadowAbbreviatedClient(value: u8) -> u8 { ShadowAbbreviated(value) }"))
+    val _ = require "an abbreviated automatic call warned about its own backend"
+      (not (ambiguous "ShadowAbbreviated" abbreviated_call_warnings))
+    (* An explicit registration of a constant under its own name is no shadow either. *)
+    val self_registered = run_from abbreviated "shadow-self-registration"
+      (command "[register_notation = false]" "ShadowSelf"
+         "fn ShadowSelfHelper(value: u8) -> u8 { value }" ^ "\n" ^
+       "micro_rust_notation (call) ShadowSelf (\"ShadowSelf\")")
+    val (_, self_warnings) = warnings_of "self-registered-call" (fn () =>
+      run_from self_registered "shadow-self-registered-call"
+        (command "[register_notation = false]" "shadow_self_client"
+          "fn ShadowSelfClient(value: u8) -> u8 { ShadowSelf(value) }"))
+    val _ = require "an explicit self-registration warned about its own backend"
+      (not (ambiguous "ShadowSelf" self_warnings))
+    (* An unregistered same-named HOL constant still shadows an explicit notation. *)
+    val shadowed = run_from declared "shadow-unregistered-constant"
+      (command "[register_notation = false]" "ShadowedConstant"
+         "fn ShadowedConstantHelper(value: u8) -> u8 { value }" ^ "\n" ^
+       "micro_rust_notation (call) ShadowSameName (\"ShadowedConstant\")")
+    val (_, shadow_warnings) = warnings_of "unregistered-call" (fn () =>
+      run_from shadowed "shadow-unregistered-call"
+        (command "[register_notation = false]" "shadow_constant_client"
+          "fn ShadowConstantClient(value: u8) -> u8 { ShadowedConstant(value) }"))
+    val _ = require "an unregistered same-named constant lost its shadow warning"
+      (ambiguous "ShadowedConstant" shadow_warnings)
+  in val _ = () end
 \<close>
 
 section\<open> Repeated locale interpretations \<close>
 
-context signature_registration_disabled
-begin
-
-ML_val \<open>
-  val _ =
-    Parser_Function_Regression_Test.require "disabled locale registered a Rust path"
-      (is_none (URust_Item_Scope.lookup_function \<^context> "SignatureRepeatedLocale"))
-\<close>
-
-end
-
 ML_val \<open>
   local
     open Parser_Function_Regression_Test
     val base = initial \<^theory>
-    val first =
-      run_from base "signature-enabled-first-interpretation"
-        ("interpretation signature_enabled_first: signature_registration_enabled 1\n" ^
-          "by unfold_locales")
-    val first_ctxt = Toplevel.context_of first
-    val SOME first_entry =
-      URust_Item_Scope.lookup_function first_ctxt "SignatureRepeatedEnabled"
-    val failure =
-      Exn.result
-        (fn () =>
-          run_from first "signature-enabled-second-interpretation"
-            ("interpretation signature_enabled_second: signature_registration_enabled 2\n" ^
-              "by unfold_locales")) ()
-      |> message
-    val _ =
-      require "enabled repeat interpretation did not report a function mapping conflict"
-        (String.isSubstring "function" failure andalso
-          (String.isSubstring "conflict" failure orelse
-            String.isSubstring "already mapped" failure))
-    val SOME retained =
-      URust_Item_Scope.lookup_function
-        (Toplevel.context_of first) "SignatureRepeatedEnabled"
-    val _ =
-      require "failed repeat interpretation changed the first function mapping"
-        (Term.aconv
-          (URust_Item_Scope.function_term first_entry,
-           URust_Item_Scope.function_term retained))
-    val _ =
-      require "disabled interpretations leaked a Rust path globally"
-        (is_none (URust_Item_Scope.lookup_function \<^context> "SignatureRepeatedLocale"))
-    val _ =
-      require "isolated enabled interpretation leaked into the surrounding theory"
-        (is_none (URust_Item_Scope.lookup_function \<^context> "SignatureRepeatedEnabled"))
-  in
-    val _ = ()
-  end
+    val first = run_from base "registration-first-locale"
+      "interpretation signature_enabled_first: signature_registration_enabled 1\nby unfold_locales"
+    val second = run_from first "registration-second-locale"
+      "interpretation signature_enabled_second: signature_registration_enabled 2\nby unfold_locales"
+    val _ = require "same-typed interpretations did not coexist"
+      (length (Parser_Test_Calls.entries (Toplevel.context_of second) "SignatureRepeatedEnabled") = 2)
+    val repeated_ambiguity = Exn.result (fn () => run_from second "registration-same-typed-locale-client"
+      (command "[register_notation = false]" "signature_same_typed_locale_client"
+        "fn SameTypedLocaleClient(value: SignatureCount) -> SignatureCount { SignatureRepeatedEnabled(value) }")) () |> message
+    val _ = require "distinct same-typed locale operations were deduplicated"
+      (String.isSubstring "Ambiguous uRust notation" repeated_ambiguity)
+    val first_typed = run_from base "registration-nat-locale"
+      ("interpretation signature_type_only_nat: signature_type_only_registration " ^
+        quote "TYPE(nat)" ^ "\nby unfold_locales")
+    val duplicate_typed = run_from first_typed "registration-duplicate-nat-locale"
+      ("interpretation signature_type_only_nat_again: signature_type_only_registration " ^
+        quote "TYPE(nat)" ^ "\nby unfold_locales")
+    val _ = require "identical interpretation was not deduplicated"
+      (length (Parser_Test_Calls.entries (Toplevel.context_of duplicate_typed)
+        "SignatureTypeOnlyFunction") = 1)
+    val both_typed = run_from duplicate_typed "registration-bool-locale"
+      ("interpretation signature_type_only_bool: signature_type_only_registration " ^
+        quote "TYPE(bool)" ^ "\nby unfold_locales")
+    val ctxt = Toplevel.context_of both_typed
+    val _ = require "typed interpretation was lost by untyped deduplication"
+      (length (Parser_Test_Calls.entries ctxt "SignatureTypeOnlyFunction") = 2)
+    val clients = run_from both_typed "registration-locale-clients"
+      (command "[register_notation = false]" "signature_nat_locale_client"
+         "fn NatLocaleClient(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { SignatureTypeOnlyFunction(value) }" ^ "\n" ^
+       command "[register_notation = false]" "signature_bool_locale_client"
+         "fn BoolLocaleClient(value: bool) -> bool { SignatureTypeOnlyFunction(value) }")
+    val _ = List.app (fn name => ignore (theorem (Toplevel.context_of clients) name))
+      ["signature_nat_locale_client", "signature_bool_locale_client"]
+    val _ = require "disabled locale interpretations registered"
+      (null (Parser_Test_Calls.entries \<^context> "SignatureRepeatedLocale"))
+  in val _ = () end
 \<close>
 
-ML_val \<open>
-  local
-    open Parser_Function_Regression_Test
-    val base = initial \<^theory>
-    val first =
-      run_from base "signature-type-only-first-interpretation"
-        ("interpretation signature_type_only_first: signature_type_only_registration " ^
-          quote "TYPE(nat)" ^ "\nby unfold_locales")
-    val first_ctxt = Toplevel.context_of first
-    val SOME first_entry =
-      URust_Item_Scope.lookup_function first_ctxt "SignatureTypeOnlyFunction"
-    val first_term = URust_Item_Scope.function_term first_entry
-    val (_, first_result, _, _, _) = channels (fastype_of first_term)
-    val _ =
-      require "type-only interpretation did not instantiate the function at nat"
-        (binder_types (fastype_of first_term) = [\<^typ>\<open>nat\<close>] andalso
-          first_result = \<^typ>\<open>nat\<close>)
-
-    val identical =
-      run_from first "signature-type-only-identical-interpretation"
-        ("interpretation signature_type_only_identical: signature_type_only_registration " ^
-          quote "TYPE(nat)" ^ "\nby unfold_locales")
-    val identical_ctxt = Toplevel.context_of identical
-    val SOME identical_entry =
-      URust_Item_Scope.lookup_function identical_ctxt "SignatureTypeOnlyFunction"
-    val _ =
-      require "identical type-only interpretation changed the typed function mapping"
-        (Term.aconv
-          (apply2 Term_Subst.zero_var_indexes
-            (first_term, URust_Item_Scope.function_term identical_entry)))
-
-    val different_failure =
-      Exn.result
-        (fn () =>
-          run_from identical "signature-type-only-different-interpretation"
-            ("interpretation signature_type_only_different: signature_type_only_registration " ^
-              quote "TYPE(bool)" ^ "\nby unfold_locales")) ()
-      |> message
-    val _ =
-      require "different type-only interpretation reused the nat function mapping"
-        (String.isSubstring "SignatureTypeOnlyFunction" different_failure andalso
-          (String.isSubstring "conflicting Rust function path" different_failure orelse
-            String.isSubstring "already mapped to a different HOL function" different_failure))
-    val _ =
-      registry_unchanged "failed type-only interpretation" identical_ctxt
-        (Toplevel.context_of identical)
-
-    (* These terms have the same constant and value syntax; only their types differ.
-       Exercise the two public registration owners separately. *)
-    fun bool_instance (Type (name, arguments)) =
-          if name = \<^type_name>\<open>nat\<close> andalso null arguments then \<^typ>\<open>bool\<close>
-          else Type (name, map bool_instance arguments)
-      | bool_instance typ = typ
-    val bool_term =
-      Term.map_types bool_instance first_term
-    val normalized_instances =
-      apply2 Term_Subst.zero_var_indexes (first_term, bool_term)
-    val (_, bool_result, _, _, _) = channels (fastype_of bool_term)
-    val _ =
-      require "type-only conflict fixture changed value syntax"
-        (Term.aconv_untyped normalized_instances andalso
-          not (Term.aconv normalized_instances) andalso
-          binder_types (fastype_of bool_term) = [\<^typ>\<open>bool\<close>] andalso
-          bool_result = \<^typ>\<open>bool\<close>)
-    val identical_reservation =
-      Micro_Rust_Names.reserve_function_item "SignatureTypeOnlyFunction" first_term
-        (start "signature-type-only-identical-reservation")
-        (Context.Theory (Toplevel.theory_of identical))
-    val _ =
-      require "identical reservation changed the existing function entry"
-        (case URust_Item_Scope.lookup_function
-            (Context.proof_of identical_reservation) "SignatureTypeOnlyFunction" of
-           SOME entry =>
-             Term.aconv
-               (apply2 Term_Subst.zero_var_indexes
-                 (first_term, URust_Item_Scope.function_term entry))
-         | NONE => false)
-    val reservation_failure =
-      Exn.result
-        (fn () =>
-          Micro_Rust_Names.reserve_function_item "SignatureTypeOnlyFunction" bool_term
-            (start "signature-type-only-different-reservation")
-            identical_reservation) ()
-      |> message
-    val _ =
-      require "exclusive reservations compared only untyped function syntax"
-        (String.isSubstring "conflicting Rust function path" reservation_failure)
-
-    val item_lthy =
-      Named_Target.theory_init (Toplevel.theory_of identical)
-      |> Context_Position.set_visible true
-    val item_failure =
-      Exn.result
-        (fn () =>
-          URust_Item_Scope.register_function
-            {rust_name = "SignatureTypeOnlyFunction",
-             rust_pos = start "signature-type-only-different-item",
-             function = bool_term}
-            item_lthy) ()
-      |> message
-    val _ =
-      require "item registration delegated a type-only conflict to another registry"
-        (String.isSubstring "already mapped to a different HOL function" item_failure)
-    val _ =
-      require "isolated type-only interpretations leaked into the enclosing theory"
-        (is_none (URust_Item_Scope.lookup_function \<^context> "SignatureTypeOnlyFunction"))
-  in
-    val _ = ()
-  end
-\<close>
-
-section\<open> Schematic index replay and call freshness \<close>
+section\<open> Schematic replay, independent calls and fixed ambient types \<close>
 
 ML_val \<open>
   local
     open Parser_Function_Regression_Test
     val base = Named_Target.theory_init \<^theory>
-    val identity_name = \<^const_name>\<open>signature_plain_identity\<close>
-    val polymorphic =
-      Const (identity_name, declared_type base "signature_plain_identity")
-      |> Term_Subst.zero_var_indexes
-    val variables = Term.add_tvars polymorphic []
-    val _ =
-      require "schematic replay fixture is not a generalized HOL constant"
-        (length variables > 1 andalso null (Term.add_tfrees polymorphic []))
-    val index_ten = Term.map_types (Logic.incr_tvar 10) polymorphic
-    val index_hundred = Term.map_types (Logic.incr_tvar 100) polymorphic
-    val _ =
-      require "schematic replay fixture did not change only its indices"
-        (not (Term.aconv (index_ten, index_hundred)) andalso
-          Term.aconv
-            (apply2 Term_Subst.zero_var_indexes (index_ten, index_hundred)))
-
-    fun register_replay term position ctxt =
-      URust_Item_Scope.register_function
-        {rust_name = "SignatureSchematicReplay",
-         rust_pos = start position,
-         function = term}
-        ctxt
-    val first = register_replay index_ten "signature-replay-index-ten" base
-    val repeated =
-      register_replay index_hundred "signature-replay-index-hundred" first
-    val _ =
-      registry_unchanged "same polymorphic item with different schematic indices"
-        first repeated
-    val SOME replayed_entry =
-      URust_Item_Scope.lookup_function repeated "SignatureSchematicReplay"
-    val _ =
-      require "schematic replay changed the typed polymorphic backend"
-        (Term.aconv
-          (apply2 Term_Subst.zero_var_indexes
-            (URust_Item_Scope.function_term replayed_entry, polymorphic)))
-
-    (* Test the other owner directly, independently of the item callback. *)
-    val reserved =
-      Context.Theory \<^theory>
-      |> Micro_Rust_Names.reserve_function_item "SignatureReservationReplay" index_ten
-          (start "signature-reservation-index-ten")
-      |> Micro_Rust_Names.reserve_function_item "SignatureReservationReplay" index_hundred
-          (start "signature-reservation-index-hundred")
-    val _ =
-      require "schematic reservation replay changed ordinary notation entries"
-        (notation_snapshot base = notation_snapshot (Context.proof_of reserved))
-
-    (* Give distinct variables one spelling and different indices. Both the signature
-       variable and the independent effects must retain their own identities. *)
-    val mixed_substitutions =
-      map_index
-        (fn (index, (variable, sort)) =>
-          ((variable, sort), TVar (("'signature_stored", index + 10), sort)))
-        variables
-      |> TVars.make
-    val mixed =
-      Term.map_types (Term_Subst.instantiateT mixed_substitutions) polymorphic
-    val _ =
-      require "mixed-index call fixture did not retain independent variables"
-        (length (Term.add_tvars mixed []) = length variables andalso
-          length (distinct (op =) (map (snd o fst) (Term.add_tvars mixed []))) > 1)
-    val mixed_ctxt =
-      URust_Item_Scope.register_function
-        {rust_name = "SignatureStoredMixed",
-         rust_pos = start "signature-stored-mixed-registration",
-         function = mixed}
-        base
-    val SOME mixed_entry =
-      URust_Item_Scope.lookup_function mixed_ctxt "SignatureStoredMixed"
-    val _ =
-      require "registration erased the mixed-index regression fixture"
-        (Term.aconv (URust_Item_Scope.function_term mixed_entry, mixed))
-    val SOME (URust_AST.UE_Call (URust_AST.UC_Path path, _, _)) =
-      URust_Parser.parse_source mixed_ctxt
-        (source "signature-stored-mixed-path" "SignatureStoredMixed(value)")
-
-    fun resolve_call () =
-      Navigation.capture (fn () =>
-        URust_Item_Scope.capture_function_reports (fn () =>
-          URust_Resolution.function_path mixed_ctxt
-            URust_Resolution.empty_environment path 1))
-      |> fst |> fst
-    val first_call = resolve_call ()
-    val second_call = resolve_call ()
-    val first_variables = Term.add_tvars first_call []
-    val second_variables = Term.add_tvars second_call []
-    val _ =
-      require "call resolution lost or shared stored signature/effect variables"
-        (length first_variables = length variables andalso
-          length second_variables = length variables andalso
-          not (exists (member (op =) second_variables) first_variables))
-    val _ =
-      require "call freshness shifted heterogeneous indices without normalizing them"
-        (length (distinct (op =) (map (snd o fst) first_variables)) = 1 andalso
-          length (distinct (op =) (map (snd o fst) second_variables)) = 1)
-
-    val mixed_call =
-      Parser_Test_Elaboration.function mixed_ctxt
-        {raw_type =
-           ("8 word \<Rightarrow> bool \<Rightarrow> " ^
-             "(_, 8 word \<times> bool \<times> tnil, _, _, _) function_body",
-            start "signature-stored-mixed-call-type"),
-         parameters =
-           [("value", start "signature-stored-mixed-value"),
-            ("flag", start "signature-stored-mixed-flag")],
-         parameters_pos = start "signature-stored-mixed-parameters",
-         body = source "signature-stored-mixed-body"
-           "(SignatureStoredMixed(value), SignatureStoredMixed(flag))"}
-    val (_, mixed_result, _, _, _) = channels (fastype_of mixed_call)
-    val _ =
-      require "stored mixed indices prevented two different call instantiations"
-        (binder_types (fastype_of mixed_call) = [\<^typ>\<open>8 word\<close>, \<^typ>\<open>bool\<close>] andalso
-          mixed_result = \<^typ>\<open>8 word \<times> bool \<times> tnil\<close>)
-
-    (* A locale's fixed type variable is rigid even when its unused effect variables
-       are schematic and need fresh instances at each call. *)
-    val [mixed_value_variable] = binder_types (fastype_of mixed)
-
-    fun ambient_call (locale_name, rust_name, label, required_sort) =
+    val identity = Const (\<^const_name>\<open>signature_plain_identity\<close>,
+      declared_type base "signature_plain_identity") |> Term_Subst.zero_var_indexes
+    val index_ten = Term.map_types (Logic.incr_tvar 10) identity
+    val index_hundred = Term.map_types (Logic.incr_tvar 100) identity
+    fun register term position ctxt = Parser_Test_Calls.declare
+      {rust_name = "SignatureSchematicReplay", rust_pos = start position, function = term} ctxt
+    val polymorphic_duplicate = run_from (initial \<^theory>) "registration-polymorphic-explicit-duplicate"
+      ("micro_rust_notation (call) " ^ cartouche
+        " signature_plain_identity :: 'renamed \<Rightarrow> ('effects, 'renamed, 'abort, 'input, 'output) function_body " ^
+        " (\"SignaturePlainIdentity\")")
+    val _ = require "alpha-renamed explicit registration duplicates automatic polymorphic backend"
+      (length (Parser_Test_Calls.entries (Toplevel.context_of polymorphic_duplicate)
+        "SignaturePlainIdentity") = 1)
+    val specialized_duplicate = run_from polymorphic_duplicate "registration-specialized-explicit-duplicate"
+      ("micro_rust_notation (call) " ^ cartouche
+        " signature_plain_identity :: nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body " ^
+        " (\"SignaturePlainIdentity\")")
+    val _ = require "specialized explicit registration duplicates a covering polymorphic backend"
+      (length (Parser_Test_Calls.entries (Toplevel.context_of specialized_duplicate)
+        "SignaturePlainIdentity") = 1)
+    val specialized = Syntax.read_term base
+      "signature_plain_identity :: nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body"
+    fun register_coverage term context =
+      Micro_Rust_Names.register Micro_Rust_Names.NFunction "SignatureCoverageReplay"
+        term Position.none context
+    val generic_then_concrete = Context.Theory \<^theory>
+      |> register_coverage identity |> register_coverage specialized
+    val concrete_then_generic = Context.Theory \<^theory>
+      |> register_coverage specialized |> register_coverage identity
+    val _ = List.app (fn context => require "specialization duplicate depends on registration order"
+      (length (Parser_Test_Calls.entries (Context.proof_of context) "SignatureCoverageReplay") = 1))
+      [generic_then_concrete, concrete_then_generic]
+    fun branch name term =
+      Theory.begin_theory (name, Position.none) [\<^theory>] |> Context.Theory
+      |> register_coverage term |> Context.the_theory |> Theory.end_theory
+    val generic_branch = branch "Signature_Coverage_Generic" identity
+    val concrete_branch = branch "Signature_Coverage_Concrete" specialized
+    fun check_merge (name, left, right) =
       let
-        val ambient_ctxt =
-          Named_Target.init [] (Locale.intern \<^theory> locale_name) \<^theory>
+        val ctxt = Theory.begin_theory (name, Position.none) [left, right]
+          |> Proof_Context.init_global
+        val _ = require "merge equality lost distinct typed schemes"
+          (length (Parser_Test_Calls.entries ctxt "SignatureCoverageReplay") = 2)
+        val compatible = Micro_Rust_Dispatch.candidates ctxt Micro_Rust_Names.NFunction
+          "SignatureCoverageReplay" (fastype_of specialized)
+        val _ = require "generic/specialized theory union creates ambiguity"
+          (length compatible = 1)
+        val checked_call = Parser_Test_Elaboration.function ctxt
+          {raw_type = ("nat \<Rightarrow> (_, nat, _, _, _) function_body", Position.none),
+           parameters = [("value", Position.none)], parameters_pos = Position.none,
+           body = source (name ^ "-body") "SignatureCoverageReplay(value)"}
+        val (_, checked_result, _, _, _) = channels (fastype_of checked_call)
+        val _ = require "merged generic/specialized call failed elaboration"
+          (checked_result = \<^typ>\<open>nat\<close>)
+      in () end
+    val _ = List.app check_merge
+      [("Signature_Coverage_Generic_Concrete", generic_branch, concrete_branch),
+       ("Signature_Coverage_Concrete_Generic", concrete_branch, generic_branch)]
+    val first = register index_ten "registration-replay-ten" base
+    val repeated_indices = register index_hundred "registration-replay-hundred" first
+    val renamed = Term.map_types (Term.map_atyps
+      (fn TVar ((name, index), sort) => TVar ((name ^ "_renamed", index), sort) | typ => typ)) identity
+    val repeated = register renamed "registration-replay-renamed" repeated_indices
+    val _ = registry_unchanged "schematic-index replay" first repeated
+    val first_call = Micro_Rust_Dispatch.fresh_backend repeated identity
+    val second_call = Micro_Rust_Dispatch.fresh_backend repeated identity
+    val _ = require "calls share signature or effect inference variables"
+      (not (exists (member (op =) (Term.add_tvars second_call [])) (Term.add_tvars first_call [])))
+    val mixed_call = Parser_Test_Elaboration.function repeated
+      {raw_type = ("8 word \<Rightarrow> bool \<Rightarrow> (_, 8 word \<times> bool \<times> tnil, _, _, _) function_body",
+         start "registration-independent-type"),
+       parameters = [("value", Position.none), ("flag", Position.none)],
+       parameters_pos = Position.none,
+       body = source "registration-independent-body"
+         "(SignatureSchematicReplay(value), SignatureSchematicReplay(flag))"}
+    val (_, mixed_result, _, _, _) = channels (fastype_of mixed_call)
+    val _ = require "one registration did not instantiate independently"
+      (mixed_result = \<^typ>\<open>8 word \<times> bool \<times> tnil\<close>)
+    fun ambient_call (locale_name, required_sort) =
+      let
+        val ambient_ctxt = Named_Target.init [] (Locale.intern \<^theory> locale_name) \<^theory>
         val ambient = Syntax.read_typ ambient_ctxt "'a"
-        val _ =
-          require (label ^ ": fixture lost its rigid locale type or sort")
-            (case ambient of
-               TFree (name, sort) =>
-                 is_some (Variable.def_sort ambient_ctxt (name, ~1)) andalso
-                 Sign.subsort (Proof_Context.theory_of ambient_ctxt) (sort, required_sort)
-             | _ => false)
-        val rigid =
-          Term.map_types (Term.typ_subst_atomic [(mixed_value_variable, ambient)]) mixed
-        val rigid_ctxt =
-          URust_Item_Scope.register_function
-            {rust_name = rust_name,
-             rust_pos = start (label ^ "-registration"),
-             function = rigid}
-            ambient_ctxt
-        val rigid_call =
-          Parser_Test_Elaboration.function rigid_ctxt
-            {raw_type =
-               ("'a \<Rightarrow> (_, 'a, _, _, _) function_body",
-                start (label ^ "-call-type")),
-             parameters = [("value", start (label ^ "-value"))],
-             parameters_pos = start (label ^ "-value"),
-             body = source (label ^ "-body") (rust_name ^ "(value)")}
-        val (_, rigid_result, _, _, _) = channels (fastype_of rigid_call)
-        val _ =
-          require (label ^ ": call freshness changed an ambient fixed type or its sort")
-            (binder_types (fastype_of rigid_call) = [ambient] andalso rigid_result = ambient)
-        val rigid_failure =
-          Exn.result
-            (fn () =>
-              Parser_Test_Elaboration.function rigid_ctxt
-                {raw_type =
-                   ("(_, bool, _, _, _) function_body",
-                    start (label ^ "-rejection-type")),
-                 parameters = [],
-                 parameters_pos = start (label ^ "-rejection"),
-                 body = source (label ^ "-rejection") (rust_name ^ "(true)")}) ()
-          |> message
-      in
-        require (label ^ ": Boolean call instantiated an ambient rigid type variable")
-          (String.isSubstring "Type" rigid_failure)
-      end
-
-    val _ =
-      List.app ambient_call
-        [("signature_type_only_registration", "SignatureStoredRigid",
-          "signature-stored-rigid", \<^sort>\<open>type\<close>),
-         ("signature_ordered_ambient", "SignatureStoredRigidOrdered",
-          "signature-stored-rigid-ordered", \<^sort>\<open>linorder\<close>)]
-  in
-    val _ = ()
-  end
+        val value_type = hd (binder_types (fastype_of identity))
+        val rigid = Term.map_types (Term.typ_subst_atomic [(value_type, ambient)]) identity
+        val rigid_ctxt = Parser_Test_Calls.declare
+          {rust_name = "SignatureStoredRigid", rust_pos = Position.none, function = rigid} ambient_ctxt
+        val successful = Parser_Test_Elaboration.function rigid_ctxt
+          {raw_type = ("'a \<Rightarrow> (_, 'a, _, _, _) function_body", Position.none),
+           parameters = [("value", Position.none)], parameters_pos = Position.none,
+           body = source "registration-rigid-body" "SignatureStoredRigid(value)"}
+        val (_, result, _, _, _) = channels (fastype_of successful)
+        val _ = require "ambient fixed type lost rigidity or sort"
+          (result = ambient andalso Sign.subsort (Proof_Context.theory_of rigid_ctxt)
+            (sort_of ambient, required_sort))
+        val rejected = Exn.result (fn () => Parser_Test_Elaboration.function rigid_ctxt
+          {raw_type = ("(_, bool, _, _, _) function_body", Position.none), parameters = [],
+           parameters_pos = Position.none,
+           body = source "registration-rigid-reject" "SignatureStoredRigid(true)"}) () |> message
+        val _ = require "ambient fixed type was generalized at dispatch"
+          (String.isSubstring "no backend matches" rejected orelse String.isSubstring "Type" rejected)
+      in () end
+    val _ = List.app ambient_call [("signature_type_only_registration", \<^sort>\<open>type\<close>),
+      ("signature_ordered_ambient", \<^sort>\<open>linorder\<close>)]
+  in val _ = () end
 \<close>
 
 chapter\<open> Semantic function types \<close>
@@ -4312,9 +4044,9 @@ local
   val _ = require "constructor rename changed the original Rust path identity"
     (dest_Const_name (URust_Item_Scope.constructor_term native) =
       \<^const_name>\<open>CompositionModelStored\<close>)
-  val function = the (URust_Item_Scope.lookup_function ctxt "CompositionRead")
+  val function = the (Parser_Test_Calls.lookup ctxt "CompositionRead")
   val _ = require "typed receiver function lost default callable registration"
-    (dest_Const_name (URust_Item_Scope.function_term function) =
+    (dest_Const_name ((fn (entry: Micro_Rust_Names.entry) => #hol_term entry) function) =
       \<^const_name>\<open>composition_read\<close>)
 in val _ = () end
 \<close>
@@ -4342,8 +4074,8 @@ urust_fn [register_notation] \<open>
 
 ML_val \<open>
   val ctxt = \<^context>
-  val _ = if is_none (URust_Item_Scope.lookup_function ctxt "CompositionScopedOff") andalso
-    is_some (URust_Item_Scope.lookup_function ctxt "CompositionScopedOn") andalso
+  val _ = if is_none (Parser_Test_Calls.lookup ctxt "CompositionScopedOff") andalso
+    is_some (Parser_Test_Calls.lookup ctxt "CompositionScopedOn") andalso
     is_some (URust_Item_Scope.lookup_type ctxt "CompositionLocal") andalso
     is_some (URust_Type_Mappings.lookup ctxt "CompositionLocalAlias")
     then () else error "scoped registration suppressed complete mappings or ignored inline precedence"
@@ -4356,7 +4088,7 @@ ML_val \<open>
   val _ = if is_none (URust_Item_Scope.lookup_type ctxt "CompositionLocal") andalso
     is_none (URust_Item_Scope.lookup_constructor ctxt "CompositionLocal") andalso
     is_none (URust_Type_Mappings.lookup ctxt "CompositionLocalAlias") andalso
-    forall (is_none o URust_Item_Scope.lookup_function ctxt)
+    forall (is_none o Parser_Test_Calls.lookup ctxt)
       ["CompositionScopedOff", "CompositionScopedOn", "CompositionScopedClient"]
     then () else error "generic declaration or typed receiver registration escaped its locale"
 \<close>
@@ -4396,7 +4128,7 @@ local
   val _ = require "composed pretty replay changed the constructor count"
     (length (URust_Item_Scope.dump_constructors plain) = length (URust_Item_Scope.dump_constructors replayed))
   val _ = require "composed pretty replay changed the function count"
-    (length (URust_Item_Scope.dump_functions plain) = length (URust_Item_Scope.dump_functions replayed))
+    (length (Parser_Test_Calls.dump plain) = length (Parser_Test_Calls.dump replayed))
   val _ = List.app (fn name =>
     require (name ^ ": composed replay changed the complete HOL type or body")
       (Sign.typ_equiv thy (declared_type plain name, declared_type replayed name) andalso

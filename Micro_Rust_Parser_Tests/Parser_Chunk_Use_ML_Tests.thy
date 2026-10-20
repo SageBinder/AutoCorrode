@@ -68,8 +68,8 @@ section\<open> Locale contexts \<close>
 declare [[urust_pretty = true, urust_verbosity = 2]]
 
 ML_val \<open>
-  @{assert} (is_none (URust_Item_Scope.lookup_function \<^context> "ChunkConfinedOne"));
-  @{assert} (is_none (URust_Item_Scope.lookup_function \<^context> "ChunkConfinedTwo"))
+  @{assert} (is_none (Parser_Test_Calls.lookup \<^context> "ChunkConfinedOne"));
+  @{assert} (is_none (Parser_Test_Calls.lookup \<^context> "ChunkConfinedTwo"))
 \<close>
 
 chapter\<open> Chunk audits \<close>
@@ -244,7 +244,7 @@ struct
      mapping) and resolved references to HOL constants and types. The parse-only baseline below
      is the stricter audit; this coarse filter keeps diagnostics short. *)
   val authored_kinds =
-    ["urust_item", "urust_constructor", "urust_field", "urust_function",
+    ["urust_item", "urust_constructor", "urust_field", "micro_rust_notation",
      Micro_Rust_Names.notationN, "micro_rust_type_mapping"]
 
   fun semantic_entities reports =
@@ -338,7 +338,7 @@ struct
      constructors =
        map URust_Item_Scope.constructor_rust_path (URust_Item_Scope.dump_constructors ctxt),
      functions =
-       map URust_Item_Scope.function_rust_name (URust_Item_Scope.dump_functions ctxt),
+       map #1 (Parser_Test_Calls.dump ctxt),
      mappings = map #1 (URust_Type_Mappings.dump ctxt)}
 
   (* Name-space lookups, independent of the theory that declared the entity. *)
@@ -740,7 +740,7 @@ local
     require "an annotation leaked abbreviation mode to the next item"
       (not (fact_declared ctxt "chunk_order_first_def") andalso
         fact_declared ctxt "chunk_order_second_def")
-  val functions = map URust_Item_Scope.function_rust_name (URust_Item_Scope.dump_functions ctxt)
+  val functions = map #1 (Parser_Test_Calls.dump ctxt)
   val _ =
     require "outer register_notation did not override the scoped setting"
       (member (op =) functions "ChunkOrderSecond" andalso
@@ -817,7 +817,7 @@ local
     require "annotation attrs did not decorate the definition like the outer list"
       (in_simps "chunk_with_attributes" andalso in_simps "control_with_attributes" andalso
         not (in_simps "chunk_packet_value"))
-  val functions = map URust_Item_Scope.function_rust_name (URust_Item_Scope.dump_functions ctxt)
+  val functions = map #1 (Parser_Test_Calls.dump ctxt)
   val _ =
     require "callable registration differs from the single-item commands"
       (member (op =) functions "ChunkPacketValue" andalso
@@ -929,7 +929,7 @@ struct
      facts = filter (fact_declared ctxt) (#facts names),
      rust_types = filter (is_some o URust_Item_Scope.lookup_type ctxt) (#rust_types names),
      mappings = filter (is_some o URust_Type_Mappings.lookup ctxt) (#rust_types names),
-     functions = filter (is_some o URust_Item_Scope.lookup_function ctxt) (#functions names),
+     functions = filter (is_some o Parser_Test_Calls.lookup ctxt) (#functions names),
      notations =
        filter (fn (_, name, _) => String.isPrefix "Atomic" name orelse name = "atomicValue")
          (Micro_Rust_Names.dump ctxt)
@@ -964,8 +964,6 @@ struct
        ["unresolved body name \"AtomicSelf\""]),
      ("recursive-datatype", "  struct AtomicNode { next: AtomicNode }\n",
        ["recursive Rust datatype reference \"AtomicNode\" is not supported"]),
-     ("existing-function", "  fn ChunkRegistered() {}\n",
-       ["Rust function path \"ChunkRegistered\" is already owned by a Rust function item"]),
      ("existing-datatype", "  struct ChunkPacket { other: u32 }\n",
        ["conflicting active mappings for \"ChunkPacket\""]),
      ("rename-collision",
@@ -1053,7 +1051,7 @@ local
       (member (op =) (entity_kinds_at (range_of success_text "AtomicRecord" 0) reports)
           "urust_item" andalso
         member (op =) (entity_kinds_at (range_of success_text "AtomicFirst" 0) reports)
-          "urust_function")
+          "micro_rust_notation")
   (* A failed chunk followed by the corrected chunk in one document sequence. *)
   val sequence =
     loud ^ "urust " ^ command_source (earlier ^ "  fn AtomicBroken() -> bool { 1u32 }\n") ^
@@ -1208,7 +1206,7 @@ local
     require "declaration navigation after escaped payload symbols is misplaced"
       (member (op =) (entity_kinds_at (range_of annotated "MarkupPacket" 0) reports) "urust_item" andalso
         member (op =) (entity_kinds_at (range_of annotated "sampleValue" 1) reports) "urust_field" andalso
-        member (op =) (entity_kinds_at (range_of annotated "MarkupRead" 0) reports) "urust_function")
+        member (op =) (entity_kinds_at (range_of annotated "MarkupRead" 0) reports) "micro_rust_notation")
 in
   val _ = writeln "chunk markup matches single-item commands and annotation sources"
 end
@@ -1332,7 +1330,7 @@ local
       (forall (fn index =>
           let val n = string_of_int index in
             definitions "urust_item" ("struct BulkCell" ^ n ^ " ") ("BulkCell" ^ n) = 1 andalso
-            definitions "urust_function" ("fn BulkRead" ^ n ^ "(") ("BulkRead" ^ n) = 1
+            definitions "micro_rust_notation" ("fn BulkRead" ^ n ^ "(") ("BulkRead" ^ n) = 1
           end)
         (1 upto count))
 in
@@ -1776,7 +1774,7 @@ local
       lookup_roles shapes value_ns "UseUnit" = SOME [S.Generated_Constructor] andalso
       lookup_roles shapes type_ns "UseUnit" = SOME [S.Generated_Struct, S.Mapped_Type])
   val _ = require "generated function"
-    (lookup_roles shapes value_ns "inc" = SOME [S.Generated_Function] andalso
+    (lookup_roles shapes value_ns "inc" = SOME [S.Call_Notation] andalso
       is_none (S.lookup shapes type_ns "inc"))
   val _ = require "exact notation roles"
     (lookup_roles shapes value_ns "call" = SOME [S.Call_Notation] andalso
@@ -2102,7 +2100,7 @@ in
     ("urust " ^ cartouche
       " use demo::value as recovered_value; fn UseRecovered() -> u32 { recovered_value() } ")
   val _ = require "recovery after a failed use declaration"
-    (is_some (URust_Item_Scope.lookup_function (Toplevel.context_of recovered) "UseRecovered"))
+    (is_some (Parser_Test_Calls.lookup (Toplevel.context_of recovered) "UseRecovered"))
   val _ = require "successful and failed declarations retain no aliases"
     (forall (is_none o S.lookup (Toplevel.context_of recovered) S.Value_Namespace)
       ["atomic_value", "recovered_value", "removed_value"] andalso
@@ -2333,7 +2331,7 @@ local
   val thy = \<^theory>
   fun inventory ctxt =
     (length (URust_Item_Scope.dump_types ctxt), length (URust_Item_Scope.dump_constructors ctxt),
-     length (URust_Item_Scope.dump_functions ctxt), length (URust_Type_Mappings.dump ctxt),
+     length (Parser_Test_Calls.dump ctxt), length (URust_Type_Mappings.dump ctxt),
      length (Micro_Rust_Names.dump ctxt))
   fun output_of action =
     let
@@ -2486,12 +2484,12 @@ local
     (fn () => prepare_with allow ctxt [leaf ["UseTuple"] (SOME "Pick"), leaf ["demo", "value"] (SOME "Pick")])
 
   val declared =
-    URust_Item_Scope.register_function
+    Parser_Test_Calls.declare
       {rust_name = "LaterItem", rust_pos = Position.none, function = \<^term>\<open>use_increment\<close>}
       (Named_Target.theory_init \<^theory>)
   val completed = prepare_with require_targets declared (take 3 trees)
   val _ = require "re-preparing the validated batch after the target appears"
-    (lookup_roles completed value_ns "later" = SOME [S.Generated_Function] andalso
+    (lookup_roles completed value_ns "later" = SOME [S.Call_Notation] andalso
       lookup_key completed value_ns "dependent" = SOME "LaterItem")
 in
   val _ = ()
@@ -2914,8 +2912,8 @@ local
   val value_ns = S.Value_Namespace
   val later =
     URust_Imports.Declared_Later
-      [{key = "LaterItem", namespace = value_ns, roles = [S.Generated_Function]},
-       {key = "UseChoice", namespace = value_ns, roles = [S.Generated_Function]},
+      [{key = "LaterItem", namespace = value_ns, roles = [S.Call_Notation]},
+       {key = "UseChoice", namespace = value_ns, roles = [S.Call_Notation]},
        {key = "LaterEnum", namespace = type_ns, roles = [S.Generated_Enum, S.Mapped_Type]},
        {key = "LaterEnum::Ready", namespace = type_ns, roles = [S.Enum_Variant]},
        {key = "LaterEnum::Ready", namespace = value_ns, roles = [S.Generated_Constructor]}]
@@ -2983,6 +2981,14 @@ in
   val _ = later_value "enum with a later function, outer item fallback"
     "ChunkImportFG" "ChunkImportFG2"
   val _ = later_value "enum with a later function, no fallback" "ChunkImportFN" "ChunkImportFNAlias"
+  (* A new overload is still a declaration in this chunk even though its registry key already
+     existed at entry. Prepared entities, rather than initial/final key presence, own collisions. *)
+  val _ = rejects_at \<^theory> "import alias collides with an overload of an existing key"
+    ["collides with the same-scope generated Rust function"]
+    ("  use demo::value as ChunkImportFG2;\n" ^
+     "  " ^ annotation "name = chunk_import_existing_key_overload" ^ "\n" ^
+     "  fn ChunkImportFG2() -> u32 { 9 }\n")
+    "ChunkImportFG2" 0
   (* Targets without a Rust registration are unknown at their path, before the first declaration. *)
   val _ = rejects_at \<^theory> "unregistered function target" ["unknown import target \"ChunkImportHidden\""]
     (broken ^ "  " ^ annotation "register_notation = false" ^ "\n" ^
@@ -3216,21 +3222,33 @@ local
   open Chunk_Use_Audit
   val value_clash =
     ["value import \"ChunkImportClash\" collides with the same-scope generated Rust function"]
+  (* The diagnostic is at the import alias and also names the item's declaration. *)
+  fun rejects_with_item label expected body name alias_occurrence item_occurrence =
+    let
+      val text = quiet ^ chunk body
+      val message = #message (rejected \<^theory> label expected text)
+    in
+      require (label ^ " positioned at " ^ quote name ^ ": " ^ plain message)
+        (message_range message = range_of text name alias_occurrence);
+      require (label ^ " lost the item position: " ^ plain message)
+        (exists (fn pos => position_range pos = range_of text name item_occurrence)
+          (message_positions message))
+    end
 in
-  val _ = rejects_at \<^theory> "import before item" value_clash
+  val _ = rejects_with_item "import before item" value_clash
     ("  use demo::value as ChunkImportClash;\n  fn ChunkImportClash() -> u32 { 1 }\n")
-    "ChunkImportClash" 0
-  val _ = rejects_at \<^theory> "import after item" value_clash
+    "ChunkImportClash" 0 1
+  val _ = rejects_with_item "import after item" value_clash
     ("  fn ChunkImportClash() -> u32 { 1 }\n  use demo::value as ChunkImportClash;\n")
-    "ChunkImportClash" 1
-  val _ = rejects_at \<^theory> "type import and struct"
+    "ChunkImportClash" 1 0
+  val _ = rejects_with_item "type import and struct"
     ["type import \"ChunkImportClashType\" collides with the same-scope generated Rust item"]
     ("  use UsePacket as ChunkImportClashType;\n  struct ChunkImportClashType { value: u32 }\n")
-    "ChunkImportClashType" 0
-  val _ = rejects_at \<^theory> "value import and unit struct"
+    "ChunkImportClashType" 0 1
+  val _ = rejects_with_item "value import and unit struct"
     ["value import \"ChunkImportClashUnit\" collides with the same-scope generated Rust constructor"]
     ("  struct ChunkImportClashUnit;\n  use demo::value as ChunkImportClashUnit;\n")
-    "ChunkImportClashUnit" 1
+    "ChunkImportClashUnit" 1 0
 end
 \<close>
 
@@ -3347,7 +3365,7 @@ struct
 
   val functions = ["ChunkImportAtomicFirst", "ChunkImportAtomicSecond"]
   fun declared ctxt =
-    {functions = filter (is_some o URust_Item_Scope.lookup_function ctxt) functions,
+    {functions = filter (is_some o Parser_Test_Calls.lookup ctxt) functions,
      types =
        filter (is_some o URust_Item_Scope.lookup_type ctxt)
          ["ChunkImportAtomicRecord", "ChunkImportAtomicLater", "ChunkImportAtomicLaterStruct"],

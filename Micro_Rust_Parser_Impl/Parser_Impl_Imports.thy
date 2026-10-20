@@ -28,7 +28,6 @@ sig
      type_mappings: string list,
      constructors:
        (string * URust_Item_Scope.constructor_origin * URust_Item_Scope.constructor_shape) list,
-     functions: string list,
      literal_notations: string list,
      call_notations: string list}
   val no_registrations: registrations
@@ -45,7 +44,7 @@ sig
       URust_Import_Scope.binding list
   val prepare_batch: target_policy -> Proof.context -> batch -> Proof.context
   val prepare_batch_unreported: target_policy -> Proof.context -> batch -> Proof.context
-  val conclude_batch: {initial: Proof.context} -> Proof.context -> batch -> unit
+  val conclude_batch: {declared: entity list} -> Proof.context -> batch -> unit
   val same_scope_item:
     Proof.context -> URust_Import_Scope.namespace -> string ->
       {item: string, pos: Position.T} option
@@ -104,14 +103,13 @@ end
     the same frame without semantic reports; such a composer uses it for every preparation of the
     batch except the one that reports it. conclude_batch is that composer's final step: it
     resolves the batch with Require_Targets and reports it, and rejects an import whose alias
-    shares a namespace with an item declared alongside the batch, that is, present in the final
-    context but not in the initial one, as Rust rejects an import and an item of one name in one
-    scope.
-  - same_scope_item finds the generated function or unit/tuple constructor (value namespace) or the
+    shares a namespace with a prepared item declared alongside the batch, including a new overload
+    of an existing call-notation key, as Rust rejects an import and an item of one name in one scope.
+  - same_scope_item finds the generated unit/tuple constructor (value namespace) or the
     Rust type (type namespace) whose single-segment key is a given name.
   - registrations describes the entries one key has, or one declaration will make, in each source
     registry: generated item types (and whether they are structs), type mappings, generated
-    constructors with their origin and shape, generated functions, and literal and call
+    constructors with their origin and shape, and literal and call
     notations. registration_entities is the single derivation of namespace memberships from them;
     resolution applies it to installed_registrations, the entries a context holds for a key, and
     a composer applies it to the registrations that its declaration backends report before
@@ -183,12 +181,11 @@ struct
     {item_types: (string * bool) list,
      type_mappings: string list,
      constructors: (string * I.constructor_origin * I.constructor_shape) list,
-     functions: string list,
      literal_notations: string list,
      call_notations: string list}
 
   val no_registrations: registrations =
-    {item_types = [], type_mappings = [], constructors = [], functions = [],
+    {item_types = [], type_mappings = [], constructors = [],
      literal_notations = [], call_notations = []}
 
   type entity = {key: string, namespace: S.namespace, roles: S.role list}
@@ -196,7 +193,7 @@ struct
   (* The single derivation of namespace memberships from registrations, for installed registry
      entries and for the registrations a declaration will make alike. *)
   fun registration_entities
-      ({item_types, type_mappings, constructors, functions, literal_notations, call_notations}:
+      ({item_types, type_mappings, constructors, literal_notations, call_notations}:
         registrations) =
     let
       fun type_roles key =
@@ -211,7 +208,6 @@ struct
             constructors
          then [S.Enum_Variant] else [])
       fun value_roles key =
-        (if member (op =) functions key then [S.Generated_Function] else []) @
         (if exists (fn (other, _, shape) => other = key andalso shape <> I.Named_Constructor)
             constructors
          then [S.Generated_Constructor] else []) @
@@ -219,7 +215,7 @@ struct
         (if member (op =) call_notations key then [S.Call_Notation] else [])
       val keys =
         distinct (op =)
-          (map #1 item_types @ type_mappings @ map #1 constructors @ functions @
+          (map #1 item_types @ type_mappings @ map #1 constructors @
             literal_notations @ call_notations)
       fun entities key =
         map_filter
@@ -242,7 +238,6 @@ struct
          (case I.lookup_constructor ctxt key of
             SOME entry => [(key, I.constructor_origin entry, I.constructor_shape entry)]
           | NONE => []),
-       functions = when (is_some (I.lookup_function ctxt key)),
        literal_notations =
          when (not (null (Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NLiteral key))),
        call_notations =
@@ -313,14 +308,11 @@ struct
             pos)
 
   fun same_scope_item ctxt S.Value_Namespace name =
-        (case I.lookup_function ctxt name of
-           SOME entry => SOME {item = "generated Rust function", pos = I.function_position entry}
-         | NONE =>
-             (case I.lookup_constructor ctxt name of
-                SOME entry =>
-                  if I.constructor_shape entry = I.Named_Constructor then NONE
-                  else SOME {item = "generated Rust constructor", pos = I.constructor_position entry}
-              | NONE => NONE))
+        (case I.lookup_constructor ctxt name of
+           SOME entry =>
+             if I.constructor_shape entry = I.Named_Constructor then NONE
+             else SOME {item = "generated Rust constructor", pos = I.constructor_position entry}
+         | NONE => NONE)
     | same_scope_item ctxt S.Type_Namespace name =
         (case I.lookup_type ctxt name of
            SOME entry => SOME {item = "generated Rust item", pos = I.type_position entry}
@@ -624,8 +616,6 @@ struct
                   (Navigation.defer_report ctxt pos Markup.keyword3;
                    I.report_constructor_reference ctxt pos entry))
               (I.lookup_constructor ctxt key)
-        | role S.Generated_Function =
-            Option.app (I.defer_function_reference ctxt pos) (I.lookup_function ctxt key)
         | role S.Literal_Notation = notations Micro_Rust_Names.NLiteral
         | role S.Call_Notation = notations Micro_Rust_Names.NFunction
       and notations kind =
@@ -745,14 +735,24 @@ struct
   val prepare_batch = gen_prepare_batch true
   val prepare_batch_unreported = gen_prepare_batch false
 
-  fun conclude_batch {initial} ctxt batch =
+  fun conclude_batch {declared: entity list} ctxt batch =
     let
       val bindings = resolve_batch Require_Targets ctxt batch
+      (* The final context locates a prepared item; a function overload is its newest entry. *)
       fun declared_alongside namespace name =
-        (case same_scope_item ctxt namespace name of
-           SOME found =>
-             if is_none (same_scope_item initial namespace name) then SOME found else NONE
-         | NONE => NONE)
+        (case find_first (fn entity => #namespace entity = namespace andalso #key entity = name) declared of
+           NONE => NONE
+         | SOME {roles, ...} =>
+             (case same_scope_item ctxt namespace name of
+                SOME found => SOME found
+              | NONE =>
+                  if member (op =) roles S.Call_Notation then
+                    SOME {item = "generated Rust function",
+                      pos =
+                        (case Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NFunction name of
+                           (entry: Micro_Rust_Names.entry) :: _ => #reg_pos entry
+                         | [] => Position.none)}
+                  else SOME {item = "generated Rust item", pos = Position.none}))
     in List.app (check_scope_items declared_alongside) bindings end
 
 end

@@ -1222,6 +1222,23 @@ urust_expr  showoff_improvements
     }
   \<close>
 
+section\<open> Type-directed automatic call notation \<close>
+
+text\<open>
+Two functions may share a Rust call name when their argument types distinguish them. Direct and
+method calls use the same notation registry, and repeating an explicit notation is idempotent.
+\<close>
+
+urust_fn showcase_echo_word \<open> fn showcaseEcho(value: u8) -> u8 { value } \<close>
+urust_fn showcase_echo_flag \<open> fn showcaseEcho(value: bool) -> bool { value } \<close>
+micro_rust_notation (call) showcase_echo_word ("showcaseEcho")
+
+urust_fn showcase_echo_pair \<open>
+  fn showcaseEchoPair(value: u8, flag: bool) -> (u8, bool) {
+    (value.showcaseEcho(), showcaseEcho(flag))
+  }
+\<close>
+
 no_adhoc_overloading store_dereference_const \<rightleftharpoons> showoff_dereference
 no_adhoc_overloading store_reference_const \<rightleftharpoons> showoff_reference
 no_adhoc_overloading store_update_const \<rightleftharpoons> showoff_update
