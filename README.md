@@ -370,9 +370,12 @@ only when automatic registration occurred.
 
 Datatype verbosity is cumulative. Level 0 is quiet, level 1 reports the completed public type,
 constructors, selectors, lenses, and installed Rust mappings, and level 2 additionally prints the
-normalized generated HOL declaration and public selector/lens definitions. With `pretty = true`,
-levels 1 and 2 insert the normalized uRust declaration immediately after the artifact manifest.
-Output is emitted only after the whole declaration and item-scope registration succeed.
+normalized generated HOL declaration and public selector/lens definitions. Selectors are listed
+from the actual generated ones: named fields under their Rust names, and positional fields, whether
+named by a `"Variant.N"` key or automatically by Ctr_Sugar (`un_…`), under their tuple index, such
+as `Event::Stored.0`. With `pretty = true`, levels 1 and 2 insert the normalized uRust declaration
+immediately after the artifact manifest. Output is emitted only after the whole declaration and
+item-scope registration succeed.
 
 Resolved use navigation is released after term checking succeeds. Generated datatype definitions
 use Isabelle's normal datatype and record reporting: those native definition reports are outside

@@ -410,7 +410,10 @@ the native `datatype` declaration that names the same field: selector constants,
 values, the absent attribute and scoped setting, rejection on `simple_word_enum`, unprefixed
 collisions and invalid defaults, and two declarations sharing an unprefixed name: record
 selectors shadow by short name and keep their own field positions, while custom-enum payload
-selectors raise the native duplicate-constant error at the later field.
+selectors raise the native duplicate-constant error at the later field. The generated-output rows
+check that keyed, unprefixed and automatic positional selectors appear in the manifest, the
+normalized generated declaration and the named verbosity-2 definitions, and that keyed and
+unprefixed selectors have definition entities at their targets or fields.
 
 ## Rust-fidelity boundaries
 

@@ -1207,6 +1207,69 @@ fun report_generated_datatype_replay lthy
            in () end)
   in () end
 
+fun constructor_argument_types entry =
+  (case URust_Item_Scope.constructor_scheme entry of
+     Const (_, typ) => binder_types (Type.legacy_freeze_type typ)
+   | _ => [])
+
+(* Every generated selector, of Ctr_Sugar (including its automatic un_ names) and of the custom
+   enum, is defined by cases over the constructors, possibly applied to the datatype argument.
+   The branches that return one of their constructor arguments locate the fields it selects. *)
+fun selector_definition_fields definition =
+  let
+    val (lhs, rhs) =
+      (case Thm.prop_of definition of
+         Const (\<^const_name>\<open>Pure.eq\<close>, _) $ lhs $ rhs => (lhs, rhs)
+       | prop => HOLogic.dest_eq (HOLogic.dest_Trueprop prop))
+    val (selector, arguments) = strip_comb lhs
+    val (_, case_arguments) = strip_comb rhs
+    val branches = take (length case_arguments - length arguments) case_arguments
+    fun selected_field branch =
+      (case Term.strip_abs branch of
+         (variables, Bound index) =>
+           if index < length variables then SOME (length variables - 1 - index) else NONE
+       | _ => NONE)
+  in
+    (const_name_of selector,
+     map_filter I
+       (map_index
+         (fn (constructor, branch) => Option.map (pair constructor) (selected_field branch))
+         branches))
+  end
+
+(* The fields of each constructor in source order, as a Rust field name or tuple index with its
+   generated selector. Named fields take their selectors from the Rust field metadata. Positional
+   fields have no Rust names; their selectors, keyed or automatic, come from the generated
+   selector definitions. *)
+fun constructor_selector_rows
+    ({constructors, item, selector_definitions, ...}: generated_artifacts) =
+  let
+    val located =
+      maps
+        (fn definition =>
+          let val (selector, fields) = selector_definition_fields definition
+          in map (rpair selector) fields end)
+        selector_definitions
+    fun row (index, ((_, entry), (_, _, _, shape))) =
+      (case shape of
+         URust_AST.Named_Shape (_ :: _) =>
+           map (fn (field, selector) => (field, SOME (const_name_of selector)))
+             (URust_Item_Scope.constructor_fields entry)
+       | _ =>
+           map_index
+             (fn (field, _) =>
+               (string_of_int field, AList.lookup (op =) located (index, field)))
+             (constructor_argument_types entry))
+  in map_index row (constructors ~~ item_constructor_descriptors item) end
+
+fun generated_selectors (artifacts as {constructors, ...}: generated_artifacts) =
+  maps
+    (fn ((rust_path, _), row) =>
+      map_filter
+        (fn (member, selector) => Option.map (pair (selector_label rust_path member)) selector)
+        row)
+    (constructors ~~ constructor_selector_rows artifacts)
+
 fun pretty_type_identity lthy name =
   Pretty.mark
     (Name_Space.markup
@@ -1232,7 +1295,7 @@ fun pretty_manifest_section _ [] = []
       Pretty.str ("  " ^ title ^ ":") :: rows
 
 fun pretty_datatype_manifest lthy
-    ({rust_name, hol_type_name, constructors, selectors, lenses, register_notation,
+    (artifacts as {rust_name, hol_type_name, constructors, lenses, register_notation,
       backend, source_descriptors, source_parameters, backend_parameters, ...}:
       generated_artifacts) =
   let
@@ -1245,7 +1308,7 @@ fun pretty_datatype_manifest lthy
                (URust_Item_Scope.constructor_term entry)))
         constructors
     val selector_rows =
-      map (pretty_manifest_mapping lthy) selectors
+      map (pretty_manifest_mapping lthy) (generated_selectors artifacts)
     val lens_rows =
       map (pretty_manifest_mapping lthy) lenses
     val mapping_rows =
@@ -1286,33 +1349,26 @@ fun pretty_datatype_manifest lthy
          mapping_rows)
   end
 
-fun constructor_argument_types entry =
-  (case URust_Item_Scope.constructor_scheme entry of
-     Const (_, typ) => binder_types (Type.legacy_freeze_type typ)
-   | _ => [])
-
 fun pretty_constructor_declaration lthy
-    (rust_path, entry) =
+    ((rust_path, entry), row) =
   let
     val constructor_name =
       const_name_of
         (URust_Item_Scope.constructor_term entry)
     val arguments = constructor_argument_types entry
-    val fields = URust_Item_Scope.constructor_fields entry
     val argument_pretties =
-      if null fields
-      then map (Syntax.pretty_typ lthy) arguments
-      else
-        map2
-          (fn (_, selector) => fn typ =>
-            Pretty.block
-              [Pretty.str "(",
-               pretty_const_identity lthy
-                 (const_name_of selector),
-               Pretty.str ": ",
-               Syntax.pretty_typ lthy typ,
-               Pretty.str ")"])
-          fields arguments
+      map2
+        (fn (_, selector) => fn typ =>
+          (case selector of
+             NONE => Syntax.pretty_typ lthy typ
+           | SOME selector =>
+               Pretty.block
+                 [Pretty.str "(",
+                  pretty_const_identity lthy selector,
+                  Pretty.str ": ",
+                  Syntax.pretty_typ lthy typ,
+                  Pretty.str ")"]))
+        row arguments
   in
     Pretty.block
       ([Pretty.str "  | ",
@@ -1357,18 +1413,18 @@ fun pretty_record_declaration lthy hol_type_name backend_parameters constructors
        field_rows)
   end
 
-fun pretty_standard_datatype_declaration lthy backend hol_type_name parameters constructors =
+fun pretty_standard_datatype_declaration lthy backend hol_type_name parameters constructors rows =
   Pretty.chunks
     (Pretty.block
        [Pretty.keyword1 (if backend = "hol" then "datatype" else backend),
         Pretty.brk 1,
         pretty_parameterized_type_identity lthy hol_type_name parameters,
         Pretty.str " ="] ::
-     map (pretty_constructor_declaration lthy) constructors)
+     map (pretty_constructor_declaration lthy) (constructors ~~ rows))
 
 fun pretty_normalized_declaration lthy
-    ({hol_type_name, source_parameters, backend_parameters, backend, constructors, item, ...}:
-      generated_artifacts) =
+    (artifacts as {hol_type_name, source_parameters, backend_parameters, backend, constructors,
+      item, ...}: generated_artifacts) =
   let
     val parameters = source_parameters @ backend_parameters
   in
@@ -1377,7 +1433,8 @@ fun pretty_normalized_declaration lthy
          pretty_record_declaration lthy hol_type_name parameters constructors
      | _ =>
          pretty_standard_datatype_declaration
-           lthy backend hol_type_name parameters constructors)
+           lthy backend hol_type_name parameters constructors
+           (constructor_selector_rows artifacts))
   end
 
 fun pretty_public_definition lthy (name, theorem) =
@@ -1406,12 +1463,12 @@ fun print_generated_datatype
           [Pretty.str "",
            Pretty.keyword1 "normalized generated declaration",
            pretty_normalized_declaration lthy artifacts] @
+          (* Generated selector definitions carry no name hint; name each after its selector. *)
           map
             (pretty_public_definition lthy)
             (#selector_definitions artifacts
               |> map (fn theorem =>
-                  (Thm_Name.short
-                    (Thm.get_name_hint theorem), theorem))) @
+                  (Thm.def_name (#1 (selector_definition_fields theorem)), theorem))) @
           map
             (pretty_public_definition lthy)
             (#lens_definitions artifacts)
@@ -1537,7 +1594,7 @@ fun prepare
 (* Authored definition entities of the completed artifacts, regenerated after the invisible
    backend run. *)
 fun artifact_definitions lthy
-    ({hol_type_name, constructors, selectors, lenses, selector_definitions,
+    (artifacts as {hol_type_name, constructors, lenses, selector_definitions,
       lens_definitions, ...}: generated_artifacts) =
   let
     val consts = Consts.space_of (Proof_Context.consts_of lthy)
@@ -1551,7 +1608,8 @@ fun artifact_definitions lthy
         constructors
   in
     [(Proof_Context.type_space lthy, hol_type_name)] @
-    map (pair consts) (constructor_names @ map #2 selectors @ map #2 lenses) @
+    map (pair consts)
+      (constructor_names @ map #2 (generated_selectors artifacts) @ map #2 lenses) @
     map (pair facts)
       (map (Thm_Name.short o Thm.get_name_hint) selector_definitions @
         map #1 lens_definitions)

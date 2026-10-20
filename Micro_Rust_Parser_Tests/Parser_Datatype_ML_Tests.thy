@@ -5855,16 +5855,48 @@ struct
     "[" ^ commas (map (fn (source, target) =>
       quote source ^ " \<rightarrow> " ^ quote target) entries) ^ "]"
 
-  fun run thy label text =
+  fun run_from start thy text =
     let
-      val transitions =
-        Outer_Syntax.parse_text thy (K thy) (Position.line_file 1 label) (quiet ^ text)
+      val transitions = Outer_Syntax.parse_text thy (K thy) start (quiet ^ text)
     in
       Print_Mode.with_modes [Print_Mode.PIDE] (fn () =>
         Exn.result (fn () =>
           fold (Toplevel.command_exception true) transitions
             (Toplevel.make_state (SOME thy))) ()) ()
     end
+
+  fun run thy label = run_from (Position.line_file 1 label) thy
+
+  (* Output and reports of one run. Reports need a document identity in their positions. *)
+  fun run_output thy label text =
+    let
+      val output = Synchronized.var ("selector_name_output_" ^ label) ([]: string list)
+      val reports = Synchronized.var ("selector_name_reports_" ^ label) ([]: string list)
+      fun collect target chunks =
+        if Position.file_of (Position.thread_data ()) = SOME label
+        then Synchronized.change target (append chunks) else ()
+      val result =
+        Parser_Test_Report_Lock.run (fn () =>
+          Unsynchronized.setmp Private_Output.report_fn (collect reports) (fn () =>
+            Unsynchronized.setmp Private_Output.writeln_fn (collect output) (fn () =>
+              run_from (Position.make0 1 1 0 "" label label) thy text) ()) ())
+      val plain =
+        XML.content_of (YXML.parse_body (implode (Synchronized.value output)))
+        |> Symbol.explode |> filter_out Symbol.is_control |> implode
+      val markup =
+        fold Parser_Test_Reports.collect_markup
+          (maps YXML.parse_body (Synchronized.value reports)) []
+    in {result = result, plain = plain, markup = markup} end
+
+  fun has_definition_entity markup name (start, stop) =
+    exists
+      (fn (element, properties) =>
+        element = Markup.entityN andalso
+        Properties.get properties Markup.nameN = SOME name andalso
+        is_some (Properties.get properties Markup.defN) andalso
+        Properties.get properties Markup.offsetN = SOME (Value.print_int start) andalso
+        Properties.get properties Markup.end_offsetN = SOME (Value.print_int stop))
+      markup
 
   fun plain_message exn =
     XML.content_of (YXML.parse_body (Runtime.exn_message exn))
@@ -6427,6 +6459,107 @@ ML_val\<open>
     val _ =
       T.rejected_at thy enum_label "Duplicate constant declaration"
         (T.source_range enum_text 2 ("{ ", "selector_name_level")) enum_text
+  end
+\<close>
+
+section\<open> Generated selector output \<close>
+
+text\<open>
+Manifests, normalized generated declarations and definition entities derive from the actual
+generated selectors: keyed and automatic positional selectors appear with the named ones.
+\<close>
+
+ML_val\<open>
+  local
+    structure T = Selector_Name_Test
+    val thy = \<^theory>
+    val item =
+      " enum SelectorNameOutput { Unset, Packed(u32, bool), Marked { value: u32, other: bool } } "
+    val entries =
+      [("Packed.1", "selector_name_packed_flag"), ("Marked.value", "selector_name_marked_value")]
+    fun require label condition = if condition then () else error ("selector output: " ^ label)
+    fun index_of text plain =
+      (case Substring.position text (Substring.full plain) of
+         (before_text, rest) =>
+           if Substring.isEmpty rest then error ("selector output is missing " ^ quote text)
+           else Substring.size before_text)
+  in
+    val _ =
+      List.app (fn (suffix, backend, hol) =>
+        let
+          val label = "selector-name-output" ^ suffix
+          val text =
+            "urust_datatype [" ^ backend ^ "verbosity = 2, renames = " ^
+              T.rename_list entries ^ "] " ^ T.cartouche item
+          val {result, plain, markup} = T.run_output thy label text
+          val ctxt =
+            (case result of
+               Exn.Res state => Toplevel.context_of state
+             | Exn.Exn exn => Exn.reraise exn)
+          fun full name =
+            dest_Const_name (Proof_Context.read_const {proper = true, strict = false} ctxt name)
+          val flag = full "selector_name_packed_flag"
+          val value = full "selector_name_marked_value"
+          val other = full "selector_name_output_marked_other"
+          val manifest =
+            ["SelectorNameOutput::Packed.1 -> " ^ flag,
+             "SelectorNameOutput::Marked.value -> " ^ value,
+             "SelectorNameOutput::Marked.other -> " ^ other]
+          val positional_default = "SelectorNameOutput::Packed.0 -> "
+          (* Ctr_Sugar names the remaining positional field; the custom enum defines nothing. *)
+          val _ =
+            if hol then
+              let val default = full "un_Packed1"
+              in
+                require ("automatic hol selector in the manifest" ^ suffix)
+                  (index_of (positional_default ^ default) plain <
+                    index_of (hd manifest) plain);
+                require ("automatic hol selector in the declaration" ^ suffix)
+                  (String.isSubstring ("(" ^ default ^ ": 32 word)") plain)
+              end
+            else
+              require ("custom enum invented a positional selector" ^ suffix)
+                (not (String.isSubstring positional_default plain))
+          val _ =
+            require ("manifest selector order" ^ suffix)
+              (index_of (nth manifest 0) plain < index_of (nth manifest 1) plain andalso
+                index_of (nth manifest 1) plain < index_of (nth manifest 2) plain)
+          val _ =
+            List.app (fn expected =>
+              require ("normalized declaration lacks " ^ expected ^ suffix)
+                (String.isSubstring expected plain))
+              ["(" ^ flag ^ ": bool)", "(" ^ value ^ ": 32 word)", "(" ^ other ^ ": bool)",
+               "definition selector_name_packed_flag_def:",
+               "definition selector_name_marked_value_def:"]
+          val _ =
+            List.app (fn (target, name) =>
+              require ("definition entity of " ^ name ^ suffix)
+                (T.has_definition_entity markup name (T.key_range text 1 target)))
+              [("selector_name_packed_flag", flag), ("selector_name_marked_value", value)]
+        in () end)
+        [("-enum", "", false), ("-hol", "backend = hol, ", true)]
+
+    (* An unprefixed custom-enum payload selector is defined at its source field. *)
+    val label = "selector-name-output-unprefixed"
+    val text =
+      "urust_datatype [verbosity = 1, unprefixed_selectors] " ^
+        T.cartouche " enum SelectorNameUnprefixedOutput { Tone { selector_name_pitch_level: u32 } } "
+    val {result, plain, markup} = T.run_output thy label text
+    val ctxt =
+      (case result of
+         Exn.Res state => Toplevel.context_of state
+       | Exn.Exn exn => Exn.reraise exn)
+    val pitch =
+      dest_Const_name (Proof_Context.read_const {proper = true, strict = false} ctxt
+        "selector_name_pitch_level")
+    val _ =
+      require "unprefixed selector in the manifest"
+        (String.isSubstring
+          ("SelectorNameUnprefixedOutput::Tone.selector_name_pitch_level -> " ^ pitch) plain)
+    val _ =
+      require "definition entity of an unprefixed selector"
+        (T.has_definition_entity markup pitch
+          (T.source_range text 1 ("{ ", "selector_name_pitch_level")))
   end
 \<close>
 
