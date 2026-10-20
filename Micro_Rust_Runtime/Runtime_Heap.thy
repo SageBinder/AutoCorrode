@@ -279,6 +279,7 @@ global_interpretation References: reference \<open>\<lambda>_ _ _ _ _ _. ()\<clo
        and urust_heap_modify_raw_fun = \<open>References.modify_raw_fun\<close>
        and urust_heap_modify_fun = \<open>References.modify_fun\<close>
        and urust_heap_update_fun = \<open>References.update_fun\<close>
+       and urust_heap_assign_add_ref = \<open>References.assign_add_ref\<close>
        and urust_heap_slice_index = \<open>References.slice_index\<close>
        and urust_heap_slice_index_array = \<open>References.slice_index_array\<close>
        and urust_heap_take_mut_ref_option = \<open>References.take_mut_ref_option\<close>

@@ -20,6 +20,7 @@ session Micro_Rust_Examples = HOL +
     Linked_List_Executable_Hybrid
     Linked_List_Executable_Physical_Memory
     Reference_Examples
+    Reference_Arithmetic_Examples
     Showcase
     MLKEM_Parameters
     MLKEM_Specification

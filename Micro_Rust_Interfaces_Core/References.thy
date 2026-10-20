@@ -9,6 +9,7 @@ theory References
     Shallow_Separation_Logic.Triple 
     Shallow_Separation_Logic.Weakest_Precondition
     Shallow_Micro_Rust.Core_Expression
+    Shallow_Micro_Rust.Numeric_Types
     Micro_Rust_Parser_Impl.Parser_Impl_Command
 begin
 
@@ -119,6 +120,20 @@ urust_fn [attrs = [all_reference_defs'], register_notation = false] dereference_
 
 urust_fn [attrs = [all_reference_defs'], register_notation = false] ro_dereference_fun
   \<open> fn ro_dereference_fun(r: \<tau>\<open>('a, 'b, 'v) ro_ref\<close>) -> \<tau>\<open>'v\<close> { dereference_fun(\<llangle>unsafe_ref_from_ro_ref\<rrangle>\<^sub>1(r)) } \<close>
+
+\<comment>\<open>Generic compound-assignment helper backing the \<^verbatim>\<open>+=\<close> surface syntax.
+   Uses the checked uRust addition (\<^const>\<open>word_add_no_wrap\<close>), so it panics on
+   overflow -- matching the checked \<^verbatim>\<open>-=\<close> lowering and the \<^verbatim>\<open>ref = *ref + addend\<close>
+   helper it replaces. Calls \<^const>\<open>update_fun\<close> / \<^const>\<open>dereference_fun\<close> directly rather
+   than the surface \<^verbatim>\<open>=\<close>/\<^verbatim>\<open>*\<close>, whose store overloads are not in scope in this locale.
+   Overload \<^const>\<open>assign_add_const\<close> onto this where \<^verbatim>\<open>+=\<close> is used.\<close>
+urust_fn [register_notation = false] assign_add_ref
+  \<open>
+  fn assign_add_ref(ref_value: \<tau>\<open>('a, 'b, 'l::{len} word) ref\<close>, addend: \<tau>\<open>'l word\<close>) -> () {
+    let current = dereference_fun(ref_value);
+    update_fun(ref_value, current + addend)
+  }
+  \<close>
 
 definition is_valid_ref_for :: \<open>('a, 'b, 'v) Global_Store.ref \<Rightarrow> 'b set \<Rightarrow> bool\<close>
   where \<open>is_valid_ref_for r P \<equiv> focus_dom (get_focus r) \<subseteq> P\<close>

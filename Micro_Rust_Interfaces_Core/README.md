@@ -16,3 +16,11 @@ assumptions of the generic locale.
 separation-lens pullback. Physical memory continues to reject allocation: its stack assertion and
 new-value domain are empty. See `Micro_Rust_Examples/Reference_Examples.thy` and
 `Micro_Rust_Examples/Pullback_Example.thy` for concrete uses.
+
+`assign_add_ref` is the locale's checked compound addition on word references, generic in the word
+length. It reads the reference, adds with the overflow-checked µRust addition, so it panics on
+overflow before any update, and writes the result. It opts out of automatic call registration,
+like its `dereference_fun` neighbours. The heap backend exports it as executable
+`urust_heap_assign_add_ref`. A context that uses `+=` on references overloads `assign_add_const`
+onto it; `Micro_Rust_Examples/Reference_Arithmetic_Examples.thy` does so for 32- and 64-bit heap
+references.
