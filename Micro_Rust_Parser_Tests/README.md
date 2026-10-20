@@ -282,7 +282,9 @@ to its HOL entity.
 Dispatch markers and semantic-navigation targets carry the complete position of their use site,
 including its file, through their payloads. A source whose file is not the command's node, such as
 a synthetic test source, therefore reports only into its own source and never into the node at its
-offsets. `Parser_Function_ML_Tests.thy` checks the exact payload round trip and the use-site reports.
+offsets. A payload name that no encoder produced is rejected with its owner's diagnostic.
+`Parser_Function_ML_Tests.thy` checks the exact payload round trip, the rejection of malformed
+payloads and every positioned report of a labelled synthetic source.
 
 Single-segment names, unresolved identifiers, diagnostics, ASTs, and checked terms are unchanged.
 The consolidated markup audits cover both selections of overloaded literals and calls, fields,

@@ -488,33 +488,32 @@ fun encode_payload_positions scope kind name
            if exists Position.is_reported positions then with_positions else tag)
   end;
 
+\<comment>\<open>A payload body that no encoding produced, with a malformed escape, position
+  field or qualifier count, is rejected with the dispatch marker's diagnostic.\<close>
 fun decode_payload s =
   let
+    fun malformed () = error "malformed urust_dispatch payload"
     val parts =
       (case Micro_Rust_Semantic_Navigation.unescape_payload_name s of
          SOME body => String.fields (fn ch => ch = Char.chr 0) body
-       | NONE => error "malformed urust_dispatch payload")
+       | NONE => malformed ())
+    fun decode_positions enc =
+      (case Micro_Rust_Semantic_Navigation.decode_positions enc of
+         SOME decoded => decoded
+       | NONE => malformed ())
     fun decoded_positions qualifier_count enc =
-      let
-        val decoded = Micro_Rust_Semantic_Navigation.decode_positions enc
-      in
-        (case decoded of
-           terminal_pos :: rest =>
-             let
-               val qualifier_positions =
-                 take qualifier_count rest
-               val backend_only_positions =
-                 drop qualifier_count rest
-             in
-               {terminal_pos = terminal_pos,
-                qualifier_positions = qualifier_positions,
-                backend_only_positions = backend_only_positions}
-             end
-         | [] =>
-             {terminal_pos = Position.none,
-              qualifier_positions = [],
-              backend_only_positions = []})
-      end
+      (case (try Value.parse_nat qualifier_count, decode_positions enc) of
+         (SOME count, terminal_pos :: rest) =>
+           if count > length rest then malformed ()
+           else
+             {terminal_pos = terminal_pos,
+              qualifier_positions = take count rest,
+              backend_only_positions = drop count rest}
+       | (SOME _, []) =>
+           {terminal_pos = Position.none,
+            qualifier_positions = [],
+            backend_only_positions = []}
+       | (NONE, _) => malformed ())
     val (kind_str, name, positions) =
       (case parts of
          [k, n] =>
@@ -523,32 +522,24 @@ fun decode_payload s =
              qualifier_positions = [],
              backend_only_positions = []})
        | [k, n, enc] =>
-           let
-             val decoded = Micro_Rust_Semantic_Navigation.decode_positions enc
-           in
-             (case decoded of
-                terminal_pos :: qualifier_positions =>
-                  (k, n,
-                   {terminal_pos = terminal_pos,
-                    qualifier_positions = qualifier_positions,
-                    backend_only_positions = []})
-              | [] =>
-                  (k, n,
-                   {terminal_pos = Position.none,
-                    qualifier_positions = [],
-                    backend_only_positions = []}))
-           end
+           (case decode_positions enc of
+              terminal_pos :: qualifier_positions =>
+                (k, n,
+                 {terminal_pos = terminal_pos,
+                  qualifier_positions = qualifier_positions,
+                  backend_only_positions = []})
+            | [] =>
+                (k, n,
+                 {terminal_pos = Position.none,
+                  qualifier_positions = [],
+                  backend_only_positions = []}))
        | [k, n, qualifier_count, enc] =>
-           (k, n,
-            decoded_positions
-              (Value.parse_int qualifier_count) enc)
+           (k, n, decoded_positions qualifier_count enc)
        | [k, n, qualifier_count, enc, scope] =>
            if scope = explicit_scope_field then
-             (k, n,
-              decoded_positions
-                (Value.parse_int qualifier_count) enc)
-           else error "malformed urust_dispatch payload"
-       | _ => error "malformed urust_dispatch payload")
+             (k, n, decoded_positions qualifier_count enc)
+           else malformed ()
+       | _ => malformed ())
     val scope =
       if length parts = 5 then Explicit_Backends else All_Backends
   in (Micro_Rust_Names.string_to_kind kind_str, name, positions, scope) end;

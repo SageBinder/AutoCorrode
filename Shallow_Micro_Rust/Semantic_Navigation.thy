@@ -48,7 +48,7 @@ sig
     term -> term -> term
 
   val encode_positions: Position.T list -> string
-  val decode_positions: string -> Position.T list
+  val decode_positions: string -> Position.T list option
   val escape_payload_name: string -> string
   val unescape_payload_name: string -> string option
 end
@@ -155,20 +155,23 @@ struct
   (* Position payloads of term markers, shared with the uRust dispatch markers. Positions keep
      every property and decode to exactly themselves. PIDE assigns a report to the chunk named by
      its file, so a use-site report of a source other than the command's node must keep that
-     source's file; without it, the report lands in the node at the source's offsets. *)
+     source's file; without it, the report lands in the node at the source's offsets. Decoding
+     input that no encoding produced yields NONE, so each payload owner reports its own
+     malformed-payload error. *)
   fun encode_positions positions =
     YXML.string_of_body
       (XML.Encode.list XML.Encode.properties
         (map Position.properties_of positions))
 
-  fun decode_positions encoded =
-    map Position.of_properties
-      (XML.Decode.list XML.Decode.properties (YXML.parse_body encoded))
+  val decode_positions =
+    try
+      (map Position.of_properties o
+        XML.Decode.list XML.Decode.properties o YXML.parse_body)
 
   (* Files and labels contain dots. A qualified Free name is not a free variable for
      Proof_Context.lookup_free, so Syntax_Phases.decode_term would read the payload as a constant
      and raise "Undefined constant". Payload names therefore escape the separator, and the escape
-     character itself, bijectively. *)
+     character itself, bijectively; unescaping accepts exactly the escaped names. *)
   val name_escape = Char.chr 1
   val name_separator = String.sub (Long_Name.separator, 0)
 
@@ -185,7 +188,8 @@ struct
   fun unescape_payload_name name =
     let
       fun unescape (character :: rest) =
-            if character <> name_escape
+            if character = name_separator then NONE
+            else if character <> name_escape
             then Option.map (cons character) (unescape rest)
             else
               (case rest of
@@ -222,9 +226,11 @@ struct
                   (String.extract
                     (name, size payload_prefix, NONE))) of
              SOME [kind, encoded_positions] =>
-               SOME
-                 (tag_kind kind,
-                  decode_positions encoded_positions)
+               (case decode_positions encoded_positions of
+                  SOME positions => SOME (tag_kind kind, positions)
+                | NONE =>
+                    error
+                      "Micro_Rust_Semantic_Navigation: malformed target payload")
            | _ =>
                error
                  "Micro_Rust_Semantic_Navigation: malformed target payload")
