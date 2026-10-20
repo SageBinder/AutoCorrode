@@ -295,8 +295,12 @@ fun item_field_types item =
            map snd (shape_fields shape))
          variants)
 
+(* Source and implicit backend parameters are live, as the native datatype commands declare them
+   by default (SOME Binding.empty; NONE is the explicit dead marker). BNF itself makes a parameter
+   dead when it occurs in a dead position, such as an argument of a non-BNF type or a function
+   domain. *)
 fun datatype_parameters parameters =
-  map (fn parameter as (_, sort) => (NONE, (TFree parameter, sort)))
+  map (fn parameter as (_, sort) => (SOME Binding.empty, (TFree parameter, sort)))
     parameters
 
 fun validate_shape constructor_name constructor_pos shape =
