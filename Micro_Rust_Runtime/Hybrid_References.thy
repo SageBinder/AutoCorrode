@@ -46,7 +46,7 @@ global_interpretation Heap_Transfer: reference_transfer SL_Heap \<open>\<lambda>
   urust_heap_reference_raw_fun
   urust_heap_points_to_raw'
   \<open>\<lambda>_. UNIV\<close> UNIV
-  urust_heap_can_alloc_reference
+  urust_heap_reference_stack
    defines pb_urust_heap_update_raw_fun = \<open>Heap_Transfer.update_raw_fun\<close>
        and pb_urust_heap_dereference_raw_fun = \<open>Heap_Transfer.dereference_raw_fun\<close>
        and pb_urust_heap_reference_raw_fun = \<open>Heap_Transfer.reference_raw_fun\<close>  
@@ -64,7 +64,7 @@ global_interpretation PB_Heap: reference \<open>\<lambda> _ _ _ _ _ _. ()\<close
   pb_urust_heap_reference_raw_fun
   Heap_Transfer.points_to_raw'
   \<open>\<lambda>_. UNIV\<close> UNIV
-  Heap_Transfer.can_alloc_reference 
+  Heap_Transfer.reference_stack
   defines 
            pb_urust_heap_reference_fun = \<open>PB_Heap.reference_fun\<close>
        and pb_urust_heap_dereference_fun = \<open>PB_Heap.dereference_fun\<close>
@@ -108,7 +108,7 @@ global_interpretation PMemRefs_Transfer: reference_transfer SL_PMem \<open>\<lam
   raw_pmem_trie_memrefs.points_to_raw'
   raw_pmem_trie_memrefs.gref_can_store
   raw_pmem_trie_memrefs.new_gref_can_store
-  raw_pmem_trie_memrefs.can_alloc_reference
+  raw_pmem_trie_memrefs.reference_stack
    defines raw_pmem_trie_update_raw_fun = \<open>PMemRefs_Transfer.update_raw_fun\<close>
        and raw_pmem_trie_dereference_raw_fun = \<open>PMemRefs_Transfer.dereference_raw_fun\<close>
        and raw_pmem_trie_reference_raw_fun = \<open>PMemRefs_Transfer.reference_raw_fun\<close>  
@@ -127,7 +127,7 @@ global_interpretation PB_PMemRefs: reference \<open>\<lambda> _ _ _ _ _ _. ()\<c
   PMemRefs_Transfer.points_to_raw'
   raw_pmem_trie_memrefs.gref_can_store
   raw_pmem_trie_memrefs.new_gref_can_store
-  PMemRefs_Transfer.can_alloc_reference
+  PMemRefs_Transfer.reference_stack
   defines 
            pb_raw_pmem_trie_reference_fun = \<open>PB_PMemRefs.reference_fun\<close>
        and pb_raw_pmem_trie_dereference_fun = \<open>PB_PMemRefs.dereference_fun\<close>
@@ -168,7 +168,7 @@ global_interpretation RefPair: Reference_Pair \<open>\<lambda>_ _ _ _ _ _. ()\<c
   pb_urust_heap_reference_raw_fun
   Heap_Transfer.points_to_raw'
   \<open>\<lambda>_. UNIV\<close> UNIV
-  Heap_Transfer.can_alloc_reference 
+  Heap_Transfer.reference_stack
   \<comment>\<open>Physical memory based implementation\<close>
   raw_pmem_trie_update_raw_fun
   raw_pmem_trie_dereference_raw_fun
@@ -176,7 +176,7 @@ global_interpretation RefPair: Reference_Pair \<open>\<lambda>_ _ _ _ _ _. ()\<c
   PMemRefs_Transfer.points_to_raw'
   raw_pmem_trie_memrefs.gref_can_store
   raw_pmem_trie_memrefs.new_gref_can_store
-  PMemRefs_Transfer.can_alloc_reference
+  PMemRefs_Transfer.reference_stack
    defines hybrid_update_raw_fun = \<open>RefPair.update_raw_fun\<close>
        and hybrid_dereference_raw_fun = \<open>RefPair.dereference_raw_fun\<close>
        and hybrid_reference_raw_fun = \<open>RefPair.reference_raw_fun\<close>  ..
@@ -194,7 +194,7 @@ global_interpretation Hybrid_Refs: reference \<open>\<lambda>_ _ _ _ _ _. ()\<cl
    RefPair.points_to_raw'
    RefPair.gref_can_store
    RefPair.new_gref_can_store
-   RefPair.can_alloc_reference
+   RefPair.reference_stack
    defines 
            hybrid_reference_fun = \<open>Hybrid_Refs.reference_fun\<close>
        and hybrid_dereference_fun = \<open>Hybrid_Refs.dereference_fun\<close>
@@ -241,7 +241,7 @@ interpretation Hybrid_Refs: reference \<open>\<lambda>_ _ (_ :: unit + byte list
    RefPair.points_to_raw'
    RefPair.gref_can_store
    RefPair.new_gref_can_store
-   RefPair.can_alloc_reference ..
+   RefPair.reference_stack ..
 
 end
 

@@ -183,7 +183,7 @@ global_interpretation ll_example_hybrid: ll_example
    RefPair.points_to_raw'
    RefPair.gref_can_store
    RefPair.new_gref_can_store
-   RefPair.can_alloc_reference
+   RefPair.reference_stack
    \<open>\<lambda>_ _ (_ :: heap_gv + byte list) (_ :: unit) (_::unit prompt) (_::unit prompt_output). ()\<close>
    gv_addr_opt_prism caddr_prism ll_focus
   rewrites \<open>reference_defs.dereference_fun hybrid_dereference_raw_fun = hybrid_dereference_fun\<close>

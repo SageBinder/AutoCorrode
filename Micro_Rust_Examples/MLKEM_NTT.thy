@@ -186,15 +186,17 @@ urust_fn ntt
   \<close>
 
 definition ntt_contract ::
-    \<open>(('addr, 'gv) gref, 'gv, mlkem_poly) focused \<Rightarrow> 'gv \<Rightarrow> mlkem_poly \<Rightarrow>
-     ('s::{sepalg}, unit, 'b) function_contract\<close> where
-  [crush_contracts]: \<open>ntt_contract f_ref g p \<equiv>
+    \<open>('addr, 'gv) gref list \<Rightarrow>
+      (('addr, 'gv) gref, 'gv, mlkem_poly) focused \<Rightarrow>
+      'gv \<Rightarrow> mlkem_poly \<Rightarrow>
+      ('s::{sepalg}, unit, 'b) function_contract\<close> where
+  [crush_contracts]: \<open>ntt_contract \<Phi> f_ref g p \<equiv>
      let pre  = f_ref \<mapsto>\<langle>\<top>\<rangle> g\<down>p \<star>
                 \<langle>poly_wf p\<rangle> \<star>
-                can_alloc_reference;
+                reference_stack\<^sub>\<top> \<Phi>;
          post = \<lambda>_. (\<Squnion> g'. f_ref \<mapsto>\<langle>\<top>\<rangle> g'\<down>(MLKEM_Specification.ntt p)) \<star>
                 \<langle>poly_wf (MLKEM_Specification.ntt p)\<rangle> \<star>
-                can_alloc_reference
+                reference_stack\<^sub>\<top> \<Phi>
       in make_function_contract pre post\<close>
 
 text\<open>The NTT proof is the most involved verification in this development.
@@ -435,7 +437,7 @@ proof -
 qed
 
 lemma ntt_spec:
-  shows \<open>\<Gamma>; ntt f_ref \<Turnstile>\<^sub>F ntt_contract f_ref g p\<close>
+  shows \<open>\<Gamma>; ntt f_ref \<Turnstile>\<^sub>F ntt_contract \<Phi> f_ref g p\<close>
 proof (crush_boot f: ntt_def contract: ntt_contract_def, goal_cases)
   case 1
   moreover note ntt_inner_loop_snoc ntt_butterfly_wf ntt_inner_loop_wf

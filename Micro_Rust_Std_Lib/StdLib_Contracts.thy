@@ -142,6 +142,7 @@ lemmas satisfies_function_contract_weaken_wp_lambda19 = satisfies_function_contr
 lemmas satisfies_function_contract_weaken_wp_lambda20 = satisfies_function_contract_weaken_wp_lambda19[of _ _ \<open>\<lambda>(x0,x1). _ x0 x1\<close>, simplified split_tupled_all Union_split, simplified]
 lemmas satisfies_function_contract_weaken_wp_lambda21 = satisfies_function_contract_weaken_wp_lambda20[of _ _ \<open>\<lambda>(x0,x1). _ x0 x1\<close>, simplified split_tupled_all Union_split, simplified]
 lemmas satisfies_function_contract_weaken_wp_lambda22 = satisfies_function_contract_weaken_wp_lambda21[of _ _ \<open>\<lambda>(x0,x1). _ x0 x1\<close>, simplified split_tupled_all Union_split, simplified]
+lemmas satisfies_function_contract_weaken_wp_lambda23 = satisfies_function_contract_weaken_wp_lambda22[of _ _ \<open>\<lambda>(x0,x1). _ x0 x1\<close>, simplified split_tupled_all Union_split, simplified]
 
 lemmas satisfies_function_contract_weaken_wp_lambda_many =
   satisfies_function_contract_weaken_wp_lambda
@@ -166,6 +167,7 @@ lemmas satisfies_function_contract_weaken_wp_lambda_many =
   satisfies_function_contract_weaken_wp_lambda20
   satisfies_function_contract_weaken_wp_lambda21
   satisfies_function_contract_weaken_wp_lambda22
+  satisfies_function_contract_weaken_wp_lambda23
 
 lemma satisfies_function_contract_assume_precondition:
   assumes \<open>is_sat (function_contract_pre \<C>) \<Longrightarrow> (\<Gamma> ; f \<Turnstile>\<^sub>F \<C>)\<close>

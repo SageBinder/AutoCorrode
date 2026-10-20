@@ -50,16 +50,16 @@ by means of reference transfer.\<close>
 
 locale Reference_Pair = refA: reference reference_typesA update_raw_funA dereference_raw_funA
      reference_raw_funA points_to_raw'A gref_can_storeA new_gref_can_storeA 
-     can_alloc_referenceA +
+     reference_stackA +
   refB: reference reference_typesB update_raw_funB dereference_raw_funB
      reference_raw_funB points_to_raw'B gref_can_storeB new_gref_can_storeB 
-     can_alloc_referenceB for
+     reference_stackB for
    reference_typesA :: \<open>'s::sepalg \<Rightarrow> 'a0 \<Rightarrow> 'b0 \<Rightarrow> 'abort \<Rightarrow> 'i prompt \<Rightarrow> 'o prompt_output \<Rightarrow> unit\<close> and
    reference_typesB :: \<open>'s::sepalg \<Rightarrow> 'a1 \<Rightarrow> 'b1 \<Rightarrow> 'abort \<Rightarrow> 'i prompt \<Rightarrow> 'o prompt_output \<Rightarrow> unit\<close> and
     update_raw_funA dereference_raw_funA reference_raw_funA 
-    points_to_raw'A gref_can_storeA new_gref_can_storeA can_alloc_referenceA and
+    points_to_raw'A gref_can_storeA new_gref_can_storeA reference_stackA and
     update_raw_funB dereference_raw_funB reference_raw_funB 
-    points_to_raw'B gref_can_storeB new_gref_can_storeB can_alloc_referenceB 
+    points_to_raw'B gref_can_storeB new_gref_can_storeB reference_stackB
 begin
 
 text\<open>We now define the reference interface for the combined interpretation. 
@@ -106,11 +106,37 @@ definition points_to_raw' :: \<open>('a0 + 'a1, 'b0 + 'b1) gref \<Rightarrow> sh
        | (Inr r1, Inr b1) \<Rightarrow> points_to_raw'B r1 sh b1
        | _ \<Rightarrow> {}\<close>
 
-definition can_alloc_reference :: \<open>'s set\<close>
-  where \<open>can_alloc_reference \<equiv> can_alloc_referenceA\<close>
-\<comment>\<open>The \<^verbatim>\<open>reference\<close> locale requires allocator availability to be upwards
-closed; the registered fact discharges that interpretation obligation below.\<close>
-ucincl_auto can_alloc_reference
+definition is_left_gref :: \<open>('a0 + 'a1, 'b0 + 'b1) gref \<Rightarrow> bool\<close>
+  where \<open>is_left_gref r \<equiv>
+    case plus_gref r of Inl _ \<Rightarrow> True | Inr _ \<Rightarrow> False\<close>
+
+definition project_left_gref ::
+    \<open>('a0 + 'a1, 'b0 + 'b1) gref \<Rightarrow> ('a0, 'b0) gref\<close>
+  where \<open>project_left_gref r \<equiv>
+    case plus_gref r of Inl r0 \<Rightarrow> r0 | Inr _ \<Rightarrow> undefined\<close>
+
+lemma is_left_gref_Inl_gref[simp]:
+  \<open>is_left_gref (Inl_gref r) = True\<close>
+  by (simp add: is_left_gref_def Inl_Inr_plus_gref)
+
+lemma is_left_gref_Inr_gref[simp]:
+  \<open>is_left_gref
+      (Inr_gref r :: ('a0 + 'a1, 'b0 + 'b1) gref) = False\<close>
+  by (simp add: is_left_gref_def Inl_Inr_plus_gref)
+
+lemma project_left_gref_Inl_gref[simp]:
+  \<open>project_left_gref (Inl_gref r) = r\<close>
+  by (simp add: project_left_gref_def Inl_Inr_plus_gref)
+
+text\<open>Since allocation is inherited from the first interpretation, a valid
+combined stack contains only left-hand references. The precise-pure side
+condition makes stacks containing a right-hand reference impossible.\<close>
+definition reference_stack ::
+    \<open>('b0 + 'b1 \<Rightarrow> bool) \<Rightarrow>
+      ('a0 + 'a1, 'b0 + 'b1) gref list \<Rightarrow> 's set\<close>
+  where \<open>reference_stack F \<Phi> \<equiv>
+    \<langle>\<forall>r \<in> set \<Phi>. is_left_gref r\<rangle> \<star>
+    reference_stackA (\<lambda>b. F (Inl b)) (List.map project_left_gref \<Phi>)\<close>
 
 definition gref_can_store :: \<open>('a0 + 'a1, 'b0 + 'b1) gref \<Rightarrow> ('b0 + 'b1) set\<close> where
   \<open>gref_can_store r \<equiv>
@@ -147,16 +173,83 @@ lemma dereference_raw_fun_spec:
 lemma reference_raw_fun_spec:
   \<open>\<Gamma> ; reference_raw_fun
                 g \<Turnstile>\<^sub>F reference_defs.reference_raw_contract points_to_raw' gref_can_store
-                        new_gref_can_store can_alloc_reference g\<close>
+                        new_gref_can_store reference_stack F \<Phi> g\<close>
   apply (crush_boot f: reference_raw_fun_def contract:
     reference_defs.reference_raw_contract_def)
   apply (cases g; crush_base
-    simp add: new_gref_can_store_def can_alloc_reference_def gref_can_store_def Inl_Inr_plus_gref
+    simp add: new_gref_can_store_def reference_stack_def
+      is_left_gref_def project_left_gref_def gref_can_store_def Inl_Inr_plus_gref
       reference_defs.points_to_raw_def points_to_raw'_def  gref_can_store_def Inl_Inr_image_in
     specs add: refA.reference_raw_spec
     contracts add: refA.reference_raw_contract_def) 
   apply blast
   done
+
+lemma reference_stack_pop_general:
+  assumes \<open>r \<in> set \<Phi>\<close>
+  shows \<open>(reference_defs.points_to_raw points_to_raw' r \<top> g \<star>
+      reference_stack F \<Phi>) \<star> \<langle>F g\<rangle>
+    \<longlongrightarrow>
+      (\<Squnion>\<Phi>\<^sub>1 \<Phi>\<^sub>2.
+        reference_stack F (\<Phi>\<^sub>1 @ \<Phi>\<^sub>2) \<star>
+        \<langle>\<Phi> = \<Phi>\<^sub>1 @ [r] @ \<Phi>\<^sub>2\<rangle>)\<close>
+proof -
+  obtain \<Phi>\<^sub>1 \<Phi>\<^sub>2 where split: \<open>\<Phi> = \<Phi>\<^sub>1 @ r # \<Phi>\<^sub>2\<close>
+    using assms by (meson split_list)
+  have pop:
+      \<open>(reference_defs.points_to_raw points_to_raw' r \<top> g \<star>
+          reference_stack F \<Phi>) \<star> \<langle>F g\<rangle>
+        \<longlongrightarrow> reference_stack F (\<Phi>\<^sub>1 @ \<Phi>\<^sub>2)\<close>
+    using split
+    by (cases \<open>plus_gref r\<close>; cases g;
+      fastcrush_base
+        simp add: reference_stack_def is_left_gref_def project_left_gref_def
+          reference_defs.points_to_raw_def points_to_raw'_def
+        seplog rule add: refA.reference_stack_pop_at)
+  have package:
+      \<open>reference_stack F (\<Phi>\<^sub>1 @ \<Phi>\<^sub>2)
+        \<longlongrightarrow>
+        (\<Squnion>\<Phi>\<^sub>1 \<Phi>\<^sub>2.
+          reference_stack F (\<Phi>\<^sub>1 @ \<Phi>\<^sub>2) \<star>
+          \<langle>\<Phi> = \<Phi>\<^sub>1 @ [r] @ \<Phi>\<^sub>2\<rangle>)\<close>
+    apply (rule aexists_entailsR[where x=\<Phi>\<^sub>1])
+    apply (rule aexists_entailsR[where x=\<Phi>\<^sub>2])
+    using split
+    apply (simp add: asepconj_simp aentails_refl)
+    done
+  show ?thesis
+    by (rule aentails_trans[OF pop package])
+qed
+
+lemma reference_stack_distinct:
+  shows \<open>reference_stack F \<Phi>
+    \<longlongrightarrow> \<langle>distinct \<Phi>\<rangle> \<star> reference_stack F \<Phi>\<close>
+proof (rule aentailsI)
+  fix s
+  assume sat: \<open>s \<Turnstile> reference_stack F \<Phi>\<close>
+  have stackA:
+      \<open>s \<Turnstile> reference_stackA (\<lambda>b. F (Inl b))
+        (List.map project_left_gref \<Phi>)\<close>
+    using sat
+    by (simp add: reference_stack_def asat_apure_precise_distrib)
+  have with_distinct:
+      \<open>s \<Turnstile>
+        \<langle>distinct (List.map project_left_gref \<Phi>)\<rangle> \<star>
+        reference_stackA (\<lambda>b. F (Inl b))
+          (List.map project_left_gref \<Phi>)\<close>
+    using refA.reference_stack_distinct[
+      where F=\<open>\<lambda>b. F (Inl b)\<close>
+        and \<Phi>=\<open>List.map project_left_gref \<Phi>\<close>] stackA
+    by (auto simp add: aentails_def)
+  have mapped: \<open>distinct (List.map project_left_gref \<Phi>)\<close>
+    using with_distinct
+    by (simp add: asat_apure_precise_distrib)
+  then have distinct: \<open>distinct \<Phi>\<close>
+    by (induction \<Phi>) auto
+  with sat show
+      \<open>s \<Turnstile> \<langle>distinct \<Phi>\<rangle> \<star> reference_stack F \<Phi>\<close>
+    by (simp add: asat_apure_precise_distrib)
+qed
 
 lemma points_to_combine:
   shows \<open>reference_defs.points_to_raw points_to_raw' r sh1 v1 \<star>
@@ -183,7 +276,7 @@ lemma points_to_split:
       aentails_simp bot_aentails_all) 
 
 lemma pair_reference_sublocale: \<open>reference update_raw_fun dereference_raw_fun 
-  reference_raw_fun points_to_raw' gref_can_store new_gref_can_store can_alloc_reference\<close>
+  reference_raw_fun points_to_raw' gref_can_store new_gref_can_store reference_stack\<close>
 proof standard
   show \<open>\<And>\<Gamma> r g g0.
        \<Gamma> ; update_raw_fun r
@@ -194,13 +287,23 @@ next
        \<Gamma> ; dereference_raw_fun r \<Turnstile>\<^sub>F reference_defs.dereference_raw_contract points_to_raw' r sh g\<close>
     by (rule dereference_raw_fun_spec)
 next
-  show \<open>\<And>\<Gamma> g. \<Gamma> ; reference_raw_fun
+  show \<open>\<And>\<Gamma> F \<Phi> g. \<Gamma> ; reference_raw_fun
                 g \<Turnstile>\<^sub>F reference_defs.reference_raw_contract points_to_raw' gref_can_store
-                        new_gref_can_store can_alloc_reference g\<close>
+                        new_gref_can_store reference_stack F \<Phi> g\<close>
     by (rule reference_raw_fun_spec)
 next
-  show \<open>ucincl can_alloc_reference\<close>
-    by ucincl_solve
+  show \<open>\<And>F \<Phi> r g. r \<in> set \<Phi> \<Longrightarrow>
+       (reference_defs.points_to_raw points_to_raw' r \<top> g \<star>
+         reference_stack F \<Phi>) \<star> \<langle>F g\<rangle>
+       \<longlongrightarrow>
+       (\<Squnion>\<Phi>\<^sub>1 \<Phi>\<^sub>2.
+         reference_stack F (\<Phi>\<^sub>1 @ \<Phi>\<^sub>2) \<star>
+         \<langle>\<Phi> = \<Phi>\<^sub>1 @ [r] @ \<Phi>\<^sub>2\<rangle>)\<close>
+    by (rule reference_stack_pop_general)
+next
+  show \<open>\<And>F \<Phi>. reference_stack F \<Phi>
+      \<longlongrightarrow> \<langle>distinct \<Phi>\<rangle> \<star> reference_stack F \<Phi>\<close>
+    by (rule reference_stack_distinct)
 next
   show \<open>\<And>r sh1 sh2 v1 v2.
        reference_defs.points_to_raw points_to_raw' r sh1 v1 \<star>

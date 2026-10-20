@@ -44,7 +44,7 @@ global_interpretation raw_pmem_trie_refs: reference \<open>\<lambda>_ _ _ _ _ _.
   raw_pmem_trie_memrefs.points_to_raw'
   raw_pmem_trie_memrefs.gref_can_store
   raw_pmem_trie_memrefs.new_gref_can_store
-  raw_pmem_trie_memrefs.can_alloc_reference
+  raw_pmem_trie_memrefs.reference_stack
    defines raw_pmem_trie_reference_fun = \<open>raw_pmem_trie_refs.reference_fun\<close>
        and raw_pmem_trie_dereference_fun = \<open>raw_pmem_trie_refs.dereference_fun\<close>
        and raw_pmem_trie_ro_dereference_fun = \<open>raw_pmem_trie_refs.ro_dereference_fun\<close>

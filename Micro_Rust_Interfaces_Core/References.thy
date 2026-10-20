@@ -28,10 +28,17 @@ locale reference_defs =
     and gref_can_store :: \<open>('a, 'b) gref \<Rightarrow> 'b set\<close>
     and new_gref_can_store :: \<open>'b set\<close>
 
-    and can_alloc_reference :: \<open>'s assert\<close>
+    and reference_stack ::
+      \<open>('b \<Rightarrow> bool) \<Rightarrow> ('a, 'b) gref list \<Rightarrow> 's assert\<close>
 begin
 
 named_theorems all_reference_defs'
+
+abbreviation reference_stack_unrestricted ::
+    \<open>('a, 'b) gref list \<Rightarrow> 's assert\<close>
+    (\<open>reference'_stack\<^sub>\<top> _\<close> [1000] 1000)
+  where
+  \<open>reference_stack\<^sub>\<top> \<Phi> \<equiv> reference_stack (\<lambda>_. True) \<Phi>\<close>
 
 definition [all_reference_defs']: \<open>points_to_raw \<equiv> points_to_raw'\<close>
 notation points_to_raw ("(_) \<mapsto> \<langle>_\<rangle> (_)" [69,0,69]70)
@@ -44,12 +51,19 @@ definition update_raw_contract :: \<open>('a, 'b) gref \<Rightarrow> 'b \<Righta
      let post = \<lambda>_. (points_to_raw r \<top> g) in
      make_function_contract pre post\<close>
 
-definition reference_raw_contract :: \<open>'b \<Rightarrow> ('s, ('a, 'b) gref, 'abort) function_contract\<close> where 
-  [all_reference_defs']: \<open>reference_raw_contract g \<equiv>
-      let pre = can_alloc_reference \<star> \<langle>g \<in> new_gref_can_store\<rangle> in
-     let post = \<lambda>r. points_to_raw r \<top> g \<star> 
-                    \<langle>new_gref_can_store \<subseteq> gref_can_store r\<rangle> \<star> can_alloc_reference in
-     make_function_contract pre post\<close>
+definition reference_raw_contract ::
+    \<open>('b \<Rightarrow> bool) \<Rightarrow> ('a, 'b) gref list \<Rightarrow> 'b \<Rightarrow>
+      ('s, ('a, 'b) gref, 'abort) function_contract\<close>
+  where [all_reference_defs']:
+  \<open>reference_raw_contract F \<Phi> g \<equiv>
+    let pre =
+          reference_stack F \<Phi> \<star>
+          \<langle>g \<in> new_gref_can_store\<rangle>;
+        post = \<lambda>r.
+          points_to_raw r \<top> g \<star>
+          \<langle>new_gref_can_store \<subseteq> gref_can_store r\<rangle> \<star>
+          reference_stack F (\<Phi> @ [r])
+    in make_function_contract pre post\<close>
 
 definition dereference_raw_contract 
   :: \<open>('a, 'b) gref \<Rightarrow> share \<Rightarrow> 'b \<Rightarrow> ('s, 'b, 'abort) function_contract\<close> where 
@@ -162,12 +176,18 @@ definition ro_dereference_contract
      let post = \<lambda>v'. points_to (unsafe_ref_from_ro_ref r) sh g v \<star> \<langle>v=v'\<rangle> in
      make_function_contract pre post\<close>
 
-definition reference_contract :: \<open>('b, 'v) prism \<Rightarrow> 'v \<Rightarrow> ('s, ('a, 'b, 'v) Global_Store.ref, 'abort) function_contract\<close> where 
-  [all_reference_defs']: \<open>reference_contract p v \<equiv>
-     let pre = can_alloc_reference in
-     let post = \<lambda>r. points_to r \<top> (prism_embed p v) v \<star>
-       \<langle>\<integral>r = prism_to_focus p\<rangle> \<star> can_alloc_reference in
-     make_function_contract pre post\<close>
+definition reference_contract ::
+    \<open>('b \<Rightarrow> bool) \<Rightarrow> ('a, 'b) gref list \<Rightarrow>
+      ('b, 'v) prism \<Rightarrow> 'v \<Rightarrow>
+      ('s, ('a, 'b, 'v) Global_Store.ref, 'abort) function_contract\<close>
+  where [all_reference_defs']:
+  \<open>reference_contract F \<Phi> p v \<equiv>
+    let pre = reference_stack F \<Phi>;
+        post = \<lambda>r.
+          points_to r \<top> (prism_embed p v) v \<star>
+          \<langle>\<integral>r = prism_to_focus p\<rangle> \<star>
+          reference_stack F (\<Phi> @ [\<flat> r])
+    in make_function_contract pre post\<close>
 
 lemmas all_reference_defs = all_reference_defs'
 named_theorems all_reference_specs
@@ -181,18 +201,30 @@ locale reference = reference_defs reference_types
     points_to_raw'
     gref_can_store
     new_gref_can_store
-    can_alloc_reference
+    reference_stack
   for reference_types :: \<open>'s::{sepalg} \<Rightarrow> 'a \<Rightarrow> 'b \<Rightarrow> 'abort \<Rightarrow> 'i prompt \<Rightarrow> 'o prompt_output \<Rightarrow> unit\<close> 
     and update_raw_fun dereference_raw_fun reference_raw_fun points_to_raw' gref_can_store 
-      new_gref_can_store can_alloc_reference +
+      new_gref_can_store reference_stack +
 
   assumes update_raw_spec [all_reference_specs]:      \<open>\<Gamma> ; update_raw_fun r g    \<Turnstile>\<^sub>F update_raw_contract r g0 g\<close>
       and dereference_raw_spec[all_reference_specs]: \<open>\<Gamma> ; dereference_raw_fun r \<Turnstile>\<^sub>F dereference_raw_contract r sh g\<close>
-      and reference_raw_spec[all_reference_specs]:   \<open>\<Gamma> ; reference_raw_fun g   \<Turnstile>\<^sub>F reference_raw_contract g\<close>
+      and reference_raw_spec[all_reference_specs]:   \<open>\<Gamma> ; reference_raw_fun g   \<Turnstile>\<^sub>F reference_raw_contract F \<Phi> g\<close>
 
-      \<comment>\<open>Points-to assertions account for concrete resource and carry no upwards-closure
-      assumption; allocator availability remains upwards closed.\<close>
-      and ucincl_can_alloc_reference[ucincl_intros, all_reference_specs]: \<open>ucincl can_alloc_reference\<close>
+      \<comment>\<open>A full reference known to occur in the live-reference list
+      may be absorbed into the stack.  The conclusion exposes the list
+      decomposition rather than requiring the caller to know it in advance.\<close>
+      and reference_stack_pop_general[all_reference_specs]:
+        \<open>\<And>F \<Phi> r g. r \<in> set \<Phi> \<Longrightarrow>
+          (r \<mapsto>\<langle>\<top>\<rangle> g \<star> reference_stack F \<Phi>) \<star> \<langle>F g\<rangle>
+          \<longlongrightarrow>
+          (\<Squnion>\<Phi>\<^sub>1 \<Phi>\<^sub>2.
+            reference_stack F (\<Phi>\<^sub>1 @ \<Phi>\<^sub>2) \<star>
+            \<langle>\<Phi> = \<Phi>\<^sub>1 @ [r] @ \<Phi>\<^sub>2\<rangle>)\<close>
+
+      \<comment>\<open>The live-reference list contains no duplicates.\<close>
+      and reference_stack_distinct[all_reference_specs]:
+        \<open>\<And>F \<Phi>. reference_stack F \<Phi>
+          \<longlongrightarrow> \<langle>distinct \<Phi>\<rangle> \<star> reference_stack F \<Phi>\<close>
 
       \<comment>\<open>Share combination returns value agreement as a precise-pure factor, preserving all
       resource ownership.\<close>
@@ -203,6 +235,82 @@ locale reference = reference_defs reference_types
          \<open>\<And>sh shA shB r v. sh = shA+shB \<Longrightarrow> shA \<sharp> shB \<Longrightarrow> 0 < shA \<Longrightarrow> 0 < shB \<Longrightarrow> 
             r \<mapsto>\<langle>sh\<rangle> v \<longlongrightarrow> r \<mapsto>\<langle>shA\<rangle> v \<star> r \<mapsto>\<langle>shB\<rangle> v\<close>
 begin
+
+lemma remove1_distinct_split:
+  assumes \<open>distinct xs\<close>
+      and \<open>xs = ys @ [x] @ zs\<close>
+    shows \<open>remove1 x xs = ys @ zs\<close>
+proof -
+  have \<open>x \<notin> set ys\<close> and \<open>x \<notin> set zs\<close>
+    using assms by auto
+  then show ?thesis
+    using assms by (simp add: remove1_append)
+qed
+
+lemma reference_stack_pop_split:
+  assumes split0: \<open>\<Lambda> = \<Phi> @ [r] @ \<Psi>\<close>
+  shows \<open>(reference_stack F \<Lambda> \<star>
+      r \<mapsto>\<langle>\<top>\<rangle> g) \<star> \<langle>F g\<rangle>
+    \<longlongrightarrow> reference_stack F (\<Phi> @ \<Psi>)\<close>
+proof (rule aentailsI)
+  fix s
+  assume sat:
+    \<open>s \<Turnstile> (reference_stack F \<Lambda> \<star>
+      r \<mapsto>\<langle>\<top>\<rangle> g) \<star> \<langle>F g\<rangle>\<close>
+  have distinct: \<open>distinct \<Lambda>\<close>
+  proof -
+    from sat obtain stack cell where
+        stack_sat: \<open>stack \<Turnstile> reference_stack F \<Lambda>\<close>
+      by (auto simp add: asat_apure_precise_distrib2 elim!: asepconjE)
+    have \<open>stack \<Turnstile>
+        \<langle>distinct \<Lambda>\<rangle> \<star> reference_stack F \<Lambda>\<close>
+      using reference_stack_distinct[
+        where F=F and \<Phi>=\<Lambda>] stack_sat
+      by (auto simp add: aentails_def asat_def)
+    then show ?thesis
+      by (simp add: asat_apure_precise_distrib)
+  qed
+  have member: \<open>r \<in> set \<Lambda>\<close>
+    using split0 by simp
+  have located:
+    \<open>s \<Turnstile> (\<Squnion>\<Phi>\<^sub>1 \<Phi>\<^sub>2.
+      reference_stack F (\<Phi>\<^sub>1 @ \<Phi>\<^sub>2) \<star>
+      \<langle>\<Lambda> = \<Phi>\<^sub>1 @ [r] @ \<Phi>\<^sub>2\<rangle>)\<close>
+    using reference_stack_pop_general[
+      where F=F and \<Phi>=\<Lambda> and r=r and g=g, OF member] sat
+    by (auto simp add: aentails_def asat_def asepconj_comm)
+  from located obtain \<Phi>\<^sub>1 \<Phi>\<^sub>2 where
+      popped: \<open>s \<Turnstile> reference_stack F (\<Phi>\<^sub>1 @ \<Phi>\<^sub>2)\<close>
+    and split1: \<open>\<Lambda> = \<Phi>\<^sub>1 @ [r] @ \<Phi>\<^sub>2\<close>
+    by (auto simp add: asat_apure_precise_distrib2)
+  have expected: \<open>remove1 r \<Lambda> = \<Phi> @ \<Psi>\<close>
+    using remove1_distinct_split[OF distinct split0] .
+  have actual: \<open>remove1 r \<Lambda> = \<Phi>\<^sub>1 @ \<Phi>\<^sub>2\<close>
+    using remove1_distinct_split[OF distinct split1] .
+  have \<open>\<Phi>\<^sub>1 @ \<Phi>\<^sub>2 = \<Phi> @ \<Psi>\<close>
+    using expected actual
+    by simp
+  with popped show \<open>s \<Turnstile> reference_stack F (\<Phi> @ \<Psi>)\<close>
+    by simp
+qed
+
+lemma reference_stack_pop[all_reference_specs]:
+  \<open>(reference_stack F (\<Phi> @ [r]) \<star>
+      r \<mapsto>\<langle>\<top>\<rangle> g) \<star> \<langle>F g\<rangle>
+    \<longlongrightarrow> reference_stack F \<Phi>\<close>
+  using reference_stack_pop_split[
+    where \<Lambda>=\<open>\<Phi> @ [r]\<close> and \<Phi>=\<Phi> and \<Psi>=\<open>[]\<close>
+      and F=F and r=r and g=g]
+  by simp
+
+lemma reference_stack_pop_at:
+  \<open>(reference_stack F (\<Phi> @ r # \<Psi>) \<star>
+      r \<mapsto>\<langle>\<top>\<rangle> g) \<star> \<langle>F g\<rangle>
+    \<longlongrightarrow> reference_stack F (\<Phi> @ \<Psi>)\<close>
+  using reference_stack_pop_split[
+    where \<Lambda>=\<open>\<Phi> @ r # \<Psi>\<close> and \<Phi>=\<Phi> and \<Psi>=\<Psi>
+      and F=F and r=r and g=g]
+  by simp
 
 lemma points_to_raw_aentails[intro]:
   assumes \<open>g0 = g1\<close>  

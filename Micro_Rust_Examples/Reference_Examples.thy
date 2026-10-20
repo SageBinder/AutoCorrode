@@ -47,7 +47,7 @@ locale SwapRefContext
     and points_to_raw' :: "('addr, 'gv) gref \<Rightarrow> share \<Rightarrow> 'gv \<Rightarrow> 's set"
     and gref_can_store :: "('addr, 'gv) gref \<Rightarrow> 'gv set"
     and new_gref_can_store :: "'gv set"
-    and can_alloc_reference :: "'s set"
+    and reference_stack :: "('gv \<Rightarrow> bool) \<Rightarrow> ('addr, 'gv) gref list \<Rightarrow> 's set"
     and reference_types :: "'s \<Rightarrow> 'addr \<Rightarrow> 'gv \<Rightarrow> 'abort \<Rightarrow> 'i prompt \<Rightarrow> 'o prompt_output \<Rightarrow> unit"
      ...
     \<close>\<close>
@@ -80,6 +80,28 @@ urust_fn [register_notation = false] swap_ref
   }
   \<close>
 thm swap_ref_def
+
+subsection\<open>Reference stack rules\<close>
+
+text\<open>
+The stack records live references rather than just an allocation capability. Distinctness is
+available in every reference implementation, and a full cell can be absorbed at an interior
+position when its value satisfies the stack predicate.
+\<close>
+
+lemma stack_two_references_distinct:
+  \<open>reference_stack F [left, right]
+    \<longlongrightarrow> \<langle>left \<noteq> right\<rangle> \<star> reference_stack F [left, right]\<close>
+  using reference_stack_distinct[where F=F and \<Phi>=\<open>[left, right]\<close>]
+  by simp
+
+lemma stack_pop_middle:
+  \<open>(reference_stack F [left, middle, right] \<star>
+      middle \<mapsto>\<langle>\<top>\<rangle> stored) \<star> \<langle>F stored\<rangle>
+    \<longlongrightarrow> reference_stack F [left, right]\<close>
+  using reference_stack_pop_at[
+    where F=F and \<Phi>=\<open>[left]\<close> and r=middle and \<Psi>=\<open>[right]\<close> and g=stored]
+  by simp
 
 end
 
@@ -117,7 +139,7 @@ global_interpretation SwapRefContext_Heap: SwapRefContext
   urust_heap_reference_raw_fun
   urust_heap_points_to_raw'
   \<open>\<lambda>_. UNIV\<close> UNIV
-  urust_heap_can_alloc_reference
+  urust_heap_reference_stack
   (* reference_types :: "'s \<Rightarrow> 'addr \<Rightarrow> 'gv \<Rightarrow> 'abort \<Rightarrow> 'i prompt \<Rightarrow> 'o prompt_output \<Rightarrow> unit" *)
   \<open>\<lambda>(_ :: heap_ex_gv mem) (_ :: nat) (_ :: heap_ex_gv) (_ :: unit) (_ :: unit prompt) (_ :: unit prompt_output). ()\<close>
   \<comment>\<open>Normally, \<^verbatim>\<open>global_interpretation\<close> offers the \<^verbatim>\<open>defines\<close> clause as a convenient way to
@@ -127,7 +149,8 @@ global_interpretation SwapRefContext_Heap: SwapRefContext
   rewrites \<open>reference_defs.dereference_fun urust_heap_dereference_raw_fun = urust_heap_dereference_fun\<close>
     and \<open>reference_defs.update_fun urust_heap_update_raw_fun urust_heap_dereference_raw_fun = urust_heap_update_fun\<close>
   defines heap_ex_swap_ref = \<open>SwapRefContext_Heap.swap_ref\<close>
-  by (auto simp add: Global_Perm_Store.reference_sublocale SwapRefContext_def
+  using References.reference_axioms
+  by (auto simp add: SwapRefContext_def
      urust_heap_dereference_fun_def urust_heap_update_fun_def urust_heap_reference_fun_def)
 
 text\<open>We are now in a position to (code-)evaluate the \<^verbatim>\<open>swap_ref\<close> function, as witnessed by the
@@ -194,6 +217,25 @@ definition eval :: \<open>('s, 'a, unit, unit prompt, unit prompt_output) functi
 definition h\<^sub>2 where \<open>h\<^sub>2 \<equiv> snd (eval (heap_ex_swap_ref ref0 ref1) h\<^sub>1)\<close>
 value[code] \<open>mem_to_alist h\<^sub>2\<close> (* "[(0, make_heap_ex_gv 0x2A), (1, make_heap_ex_gv 0xC)]" *)
 
+text\<open>
+The heap backend additionally proves membership for a separately owned full cell. Its concrete
+stack assertion permits reordering while retaining the same live-reference set. The abstract
+reference locale does not assume this reordering property.
+\<close>
+
+lemma heap_stack_membership:
+  \<open>urust_heap_points_to_raw' (r :: (nat, heap_ex_gv) gref) \<top> stored \<star>
+      urust_heap_reference_stack F [left, right]
+    \<longlongrightarrow> \<langle>r = left \<or> r = right\<rangle> \<star> UNIV\<close>
+  using urust_heap_reference_stack_member[
+    where r=r and g=stored and F=F and \<Phi>=\<open>[left, right]\<close>]
+  by simp
+
+lemma heap_stack_reordering:
+  \<open>urust_heap_reference_stack F [left, right] =
+    urust_heap_reference_stack F [right, left]\<close>
+  by (auto simp add: Global_Perm_Store.reference_stack_def)
+
 subsection\<open>Memory-based feferences\<close>
 
 text\<open>As demonstrated in \<^file>\<open>../Micro_Rust_Runtime/Raw_Physical_References.thy\<close>, our physical memory
@@ -215,7 +257,7 @@ global_interpretation SwapRefContext_PMem: SwapRefContext
   raw_pmem_trie_memrefs.points_to_raw'
   raw_pmem_trie_memrefs.gref_can_store
   raw_pmem_trie_memrefs.new_gref_can_store
-  raw_pmem_trie_memrefs.can_alloc_reference
+  raw_pmem_trie_memrefs.reference_stack
   (* reference_types :: "'s \<Rightarrow> 'addr \<Rightarrow> 'gv \<Rightarrow> 'abort \<Rightarrow> 'i prompt \<Rightarrow> 'o prompt_output \<Rightarrow> unit" *)
   \<open>\<lambda>(_ :: pmem_ex_ty) (_ :: raw_pmem_region) (_ :: byte list) (_ :: unit) (_ :: unit prompt) (_ :: unit prompt_output). ()\<close>
   rewrites \<open>reference_defs.dereference_fun raw_pmem_trie_dereference_raw_fun = raw_pmem_trie_dereference_fun\<close>

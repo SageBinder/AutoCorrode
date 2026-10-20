@@ -57,19 +57,20 @@ see \<^file>\<open>Basic_Micro_Rust.thy\<close>.\<close>
 
 text\<open>We can now write down the specification or \<^emph>\<open>contract\<close> of this function:
 it should always return \<^term>\<open>12 :: nat\<close>. However, executing this functions requires
-the allocation of local mutables. Owning the \<^term>\<open>can_alloc_reference\<close> resource makes
-sure that we have the capability to do this.
+the allocation of local mutables. The reference stack records the references
+that were already live on entry and requires the function to return that same
+stack after dropping its local references.
 Note also the embedding of a pure fact \<^verbatim>\<open>r = 12\<close> into separation logic via the
 \<^verbatim>\<open>\<langle>_\<rangle>\<close> antiquotation.\<close>
 definition ref_test_contract where
-  \<open>ref_test_contract \<equiv>
-     let pre  = can_alloc_reference in
-     let post = \<lambda>r. can_alloc_reference \<star> \<langle>r = 12\<rangle> in
+  \<open>ref_test_contract \<Phi> \<equiv>
+     let pre  = reference_stack\<^sub>\<top> \<Phi> in
+     let post = \<lambda>r. reference_stack\<^sub>\<top> \<Phi> \<star> \<langle>r = 12\<rangle> in
      make_function_contract pre post\<close>
 
 text\<open>Now we prove that the function satisfies the contract!\<close>
 lemma ref_test_spec:
-  shows \<open>\<Gamma>; ref_test \<Turnstile>\<^sub>F ref_test_contract\<close>
+  shows \<open>\<Gamma>; ref_test \<Turnstile>\<^sub>F ref_test_contract \<Phi>\<close>
 \<comment> \<open>\<^verbatim>\<open>crush_boot\<close> unfolds function and contract, and turns the satisfies contract goal \<^verbatim>\<open>\<Turnstile>\<^sub>F\<close>
 into a symbolic execution goal \<^verbatim>\<open>\<Delta> \<turnstile> WP e _\<close> in weakest-precondition style.\<close>
   apply (crush_boot f: ref_test_def contract: ref_test_contract_def)
@@ -126,22 +127,23 @@ urust_fn swap_client
 
 text\<open>After swapping, the variable left should now contain the value \<^term>\<open>72 :: nat\<close>\<close>
 definition swap_client_contract where
-  \<open>swap_client_contract \<equiv>
-    let pre  = can_alloc_reference in
-    let post = \<lambda> r. \<langle>r = (72 :: nat)\<rangle> \<star> can_alloc_reference in
+  \<open>swap_client_contract \<Phi> \<equiv>
+    let pre  = reference_stack\<^sub>\<top> \<Phi> in
+    let post = \<lambda> r. \<langle>r = (72 :: nat)\<rangle> \<star>
+      reference_stack\<^sub>\<top> \<Phi> in
     make_function_contract pre post\<close>
 
 text\<open>We can verify this in two ways. Firstly, we can tell the automation to use the verified
 specification of \<^term>\<open>swap_ref\<close>, using the \<^verbatim>\<open>specs add:\<close> and \<^verbatim>\<open>contracts add:\<close> modifiers\<close>
 lemma swap_client_spec_using_swap_spec:
-  shows \<open>\<Gamma>; swap_client \<Turnstile>\<^sub>F swap_client_contract\<close>
+  shows \<open>\<Gamma>; swap_client \<Turnstile>\<^sub>F swap_client_contract \<Phi>\<close>
   apply (crush_boot f: swap_client_def contract: swap_client_contract_def)
   apply (crush_base specs add: swap_ref_spec contracts add: swap_ref_contract_def )
   done
 
 text\<open>Alternatively, we can just choose to inline/unfold \<^term>\<open>swap_ref\<close>, and symbolically execute.\<close>
 lemma swap_client_inline_spec:
-  shows \<open>\<Gamma>; swap_client  \<Turnstile>\<^sub>F swap_client_contract\<close>
+  shows \<open>\<Gamma>; swap_client  \<Turnstile>\<^sub>F swap_client_contract \<Phi>\<close>
   apply (crush_boot f: swap_client_def contract: swap_client_contract_def)
   apply (crush_base inline: swap_ref_def)
   done
@@ -173,16 +175,21 @@ urust_fn sum_array
 
 text\<open>The contract for \<^term>\<open>sum_array\<close>: the stateful implementations returns the same value
 as the functional implementation that uses \<^term>\<open>sum_list\<close>\<close>
-definition sum_array_contract :: \<open>(nat, 'a::len) array \<Rightarrow> 64 word \<Rightarrow> ('s, nat, 'b) function_contract\<close> where
-  \<open>sum_array_contract nums l \<equiv>
-    let pre  = can_alloc_reference \<star> \<langle>unat l = LENGTH('a)\<rangle> in
+definition sum_array_contract ::
+    \<open>('addr, 'gv) gref list \<Rightarrow> (nat, 'a::len) array \<Rightarrow>
+      64 word \<Rightarrow> ('s, nat, 'b) function_contract\<close> where
+  \<open>sum_array_contract \<Phi> nums l \<equiv>
+    let pre  = reference_stack\<^sub>\<top> \<Phi> \<star>
+      \<langle>unat l = LENGTH('a)\<rangle> in
     let post = \<lambda> r.
-               \<langle>r = sum_list (array_to_list nums)\<rangle> \<star> can_alloc_reference in
+               \<langle>r = sum_list (array_to_list nums)\<rangle> \<star>
+               reference_stack\<^sub>\<top> \<Phi> in
     make_function_contract pre post\<close>
 
 text\<open>The proof of the specification is a bit more involved, since we need to deal with the loop\<close>
 lemma sum_spec:
-  shows \<open>\<Gamma>; sum_array nums l \<Turnstile>\<^sub>F sum_array_contract nums l\<close>
+  shows \<open>\<Gamma>; sum_array nums l
+    \<Turnstile>\<^sub>F sum_array_contract \<Phi> nums l\<close>
 proof (crush_boot f: sum_array_def contract: sum_array_contract_def, goal_cases)
   case 1
 \<comment> \<open>We follow the Isar \<^verbatim>\<open>moreover\<close> .. \<^verbatim>\<open>ultimately\<close> pattern, first gathering required facts.

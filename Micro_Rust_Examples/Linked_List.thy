@@ -100,16 +100,14 @@ definition reverse_unlink_contract ::
    \<Rightarrow> ('addr, 'gv, ('caddr, 'gv) gref option) Global_Store.ref
    \<Rightarrow> ('addr, 'gv, ('caddr, 'gv) gref option) Global_Store.ref
    \<Rightarrow> 't list
-   \<Rightarrow> ('caddr, 'gv) gref option
+  \<Rightarrow> ('caddr, 'gv) gref option
    \<Rightarrow> ('s, ('caddr, 'gv) gref option \<times> ('caddr, 'gv) gref option \<times> tnil, 'abort) function_contract\<close> where
   [crush_contracts]: \<open>reverse_unlink_contract n ll tmp0 tmp1 ts rem \<equiv>
-     let pre = can_alloc_reference
-       \<star> (\<Squnion>g v. tmp0 \<mapsto>\<langle>\<top>\<rangle> g\<down>v) \<comment>\<open>The temporaries are valid references\<close>
+     let pre = (\<Squnion>g v. tmp0 \<mapsto>\<langle>\<top>\<rangle> g\<down>v) \<comment>\<open>The temporaries are valid references\<close>
        \<star> (\<Squnion>g v. tmp1 \<mapsto>\<langle>\<top>\<rangle> g\<down>v)
        \<star> ll_points_to ts ll rem \<star> \<langle>unat n = length ts\<rangle> in
      let post = (\<lambda>r. let (a,b,_) = r in
-         can_alloc_reference
-       \<star> (\<Squnion>g v. tmp0 \<mapsto>\<langle>\<top>\<rangle> g\<down>v) \<comment>\<open>The temporaries are still valid\<close>
+         (\<Squnion>g v. tmp0 \<mapsto>\<langle>\<top>\<rangle> g\<down>v) \<comment>\<open>The temporaries are still valid\<close>
        \<star> (\<Squnion>g v. tmp1 \<mapsto>\<langle>\<top>\<rangle> g\<down>v)
        \<star> \<langle>b = rem\<rangle> \<comment>\<open>Tail of initial list\<close>
        \<star> ll_points_to (rev ts) a None \<comment>\<open>Reversed head of initial list\<close>
@@ -121,7 +119,6 @@ lemma reverse_unlink_spec [crush_specs]:
   apply crush_base
   apply (ucincl_discharge\<open>
     rule_tac INV=\<open>\<lambda>_ i.
-       can_alloc_reference \<star>
        (\<Squnion>g_last g_cur v_last v_cur.
            tmp1\<mapsto>\<langle>\<top>\<rangle> g_last\<down>v_last \<star>
            tmp0\<mapsto>\<langle>\<top>\<rangle> g_cur\<down>v_cur \<star>
@@ -163,21 +160,24 @@ urust_fn [register_notation = false] reverse_unlink'
   \<close>
 
 definition reverse_unlink'_contract ::
-   \<open>64 word
+   \<open>('addr, 'gv) gref list
+   \<Rightarrow> 64 word
    \<Rightarrow> ('caddr, 'gv) gref option
    \<Rightarrow> 't list
    \<Rightarrow> ('caddr, 'gv) gref option
    \<Rightarrow> ('s, ('caddr, 'gv) gref option \<times> ('caddr, 'gv) gref option \<times> tnil, 'abort) function_contract\<close> where
-  \<open>reverse_unlink'_contract n ll ts rem \<equiv>
-     let pre = can_alloc_reference \<star> ll_points_to ts ll rem \<star> \<langle>unat n = length ts\<rangle> in
+  \<open>reverse_unlink'_contract \<Phi> n ll ts rem \<equiv>
+     let pre = reference_stack\<^sub>\<top> \<Phi> \<star>
+       ll_points_to ts ll rem \<star> \<langle>unat n = length ts\<rangle> in
      let post = (\<lambda>r. let (a,b,_) = r in
-         can_alloc_reference
+         reference_stack\<^sub>\<top> \<Phi>
        \<star> \<langle>b = rem\<rangle> \<comment>\<open>Tail of initial list\<close>
        \<star> ll_points_to (rev ts) a None \<comment>\<open>Reversed head of initial list\<close>
     ) in  make_function_contract pre post\<close>
 
 lemma reverse_unlink'_spec:
-  shows \<open>\<Gamma>; reverse_unlink' n ll \<Turnstile>\<^sub>F reverse_unlink'_contract n ll ts rem\<close>
+  shows \<open>\<Gamma>; reverse_unlink' n ll
+    \<Turnstile>\<^sub>F reverse_unlink'_contract \<Phi> n ll ts rem\<close>
 by (crush_boot f:reverse_unlink'_def contract: reverse_unlink'_contract_def) crush_base
 
 (*<*)

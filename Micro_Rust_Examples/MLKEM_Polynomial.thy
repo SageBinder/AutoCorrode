@@ -78,19 +78,20 @@ urust_fn poly_add
   }
   \<close>
 
-definition poly_add_contract :: \<open>mlkem_poly \<Rightarrow> mlkem_poly \<Rightarrow>
+definition poly_add_contract ::
+    \<open>('addr, 'gv) gref list \<Rightarrow> mlkem_poly \<Rightarrow> mlkem_poly \<Rightarrow>
         ('s::{sepalg}, mlkem_poly, 'b) function_contract\<close> where
-  [crush_contracts]: \<open>poly_add_contract a b \<equiv>
-     let pre  = can_alloc_reference \<star>
+  [crush_contracts]: \<open>poly_add_contract \<Phi> a b \<equiv>
+     let pre  = reference_stack\<^sub>\<top> \<Phi> \<star>
                 \<langle>poly_wf a\<rangle> \<star>
                 \<langle>poly_wf b\<rangle>;
-         post = \<lambda>r. can_alloc_reference \<star>
+         post = \<lambda>r. reference_stack\<^sub>\<top> \<Phi> \<star>
                 \<langle>r = MLKEM_Specification.poly_add a b\<rangle> \<star>
                 \<langle>poly_wf r\<rangle>
       in make_function_contract pre post\<close>
 
 lemma poly_add_spec [crush_specs]:
-  shows \<open>\<Gamma>; poly_add a b \<Turnstile>\<^sub>F poly_add_contract a b\<close>
+  shows \<open>\<Gamma>; poly_add a b \<Turnstile>\<^sub>F poly_add_contract \<Phi> a b\<close>
   apply (crush_boot f: poly_add_def contract: poly_add_contract_def)
   apply crush_base
   subgoal for result_ref
@@ -131,19 +132,20 @@ urust_fn poly_sub
   }
   \<close>
 
-definition poly_sub_contract :: \<open>mlkem_poly \<Rightarrow> mlkem_poly \<Rightarrow>
+definition poly_sub_contract ::
+    \<open>('addr, 'gv) gref list \<Rightarrow> mlkem_poly \<Rightarrow> mlkem_poly \<Rightarrow>
       ('s::{sepalg}, mlkem_poly, 'b) function_contract\<close> where
-  [crush_contracts]: \<open>poly_sub_contract a b \<equiv>
-     let pre  = can_alloc_reference \<star>
+  [crush_contracts]: \<open>poly_sub_contract \<Phi> a b \<equiv>
+     let pre  = reference_stack\<^sub>\<top> \<Phi> \<star>
                 \<langle>poly_wf a\<rangle> \<star>
                 \<langle>poly_wf b\<rangle>;
-         post = \<lambda>r. can_alloc_reference \<star>
+         post = \<lambda>r. reference_stack\<^sub>\<top> \<Phi> \<star>
                 \<langle>r = MLKEM_Specification.poly_sub a b\<rangle> \<star>
                 \<langle>poly_wf r\<rangle>
       in make_function_contract pre post\<close>
 
 lemma poly_sub_spec [crush_specs]:
-  shows \<open>\<Gamma>; poly_sub a b \<Turnstile>\<^sub>F poly_sub_contract a b\<close>
+  shows \<open>\<Gamma>; poly_sub a b \<Turnstile>\<^sub>F poly_sub_contract \<Phi> a b\<close>
   apply (crush_boot f: poly_sub_def contract: poly_sub_contract_def)
   apply crush_base
   subgoal for result_ref

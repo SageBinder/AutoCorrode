@@ -139,10 +139,9 @@ section\<open>Exercise 3: Mutable State\<close>
 text\<open>This function computes the absolute difference of two natural numbers
 using a local mutable variable. Note the use of \<^verbatim>\<open>let mut\<close> and dereferencing with \<^verbatim>\<open>*\<close>.
 
-Because we allocate a mutable reference, the precondition must include
-\<^term>\<open>can_alloc_reference\<close> (the capability to allocate). The postcondition
-should return this capability (we are done with the reference) along with
-a pure fact about the result.\<close>
+Because we allocate a mutable reference, the precondition must include the
+incoming reference stack. The postcondition should return the same stack
+(after dropping the local reference) along with a pure fact about the result.\<close>
 
 urust_fn abs_diff
   \<open>
@@ -304,10 +303,16 @@ urust_fn bvec_contains
   }
   \<close>
 
-definition bvec_contains_contract :: \<open>(nat, 'l::len) bounded_vec \<Rightarrow> nat \<Rightarrow> ('s::sepalg, bool, 'b) function_contract\<close> where
-  \<open>bvec_contains_contract v needle \<equiv>
-    let pre  = can_alloc_reference \<star> \<langle>bvec_well_formed v\<rangle> \<star> \<langle>unat (bvec_len v) = LENGTH('l)\<rangle> in
-    let post = \<lambda>r. can_alloc_reference \<star> \<langle>bvec_well_formed v\<rangle> \<star> \<langle>r \<longleftrightarrow> needle \<in> set (bvec_abs v)\<rangle> in
+definition bvec_contains_contract ::
+    \<open>('addr, 'gv) gref list \<Rightarrow> (nat, 'l::len) bounded_vec \<Rightarrow>
+      nat \<Rightarrow> ('s::sepalg, bool, 'b) function_contract\<close> where
+  \<open>bvec_contains_contract \<Phi> v needle \<equiv>
+    let pre  = reference_stack\<^sub>\<top> \<Phi> \<star>
+      \<langle>bvec_well_formed v\<rangle> \<star>
+      \<langle>unat (bvec_len v) = LENGTH('l)\<rangle> in
+    let post = \<lambda>r. reference_stack\<^sub>\<top> \<Phi> \<star>
+      \<langle>bvec_well_formed v\<rangle> \<star>
+      \<langle>r \<longleftrightarrow> needle \<in> set (bvec_abs v)\<rangle> in
     make_function_contract pre post\<close>
 
 text\<open>TODO: Write the loop invariant
@@ -317,7 +322,8 @@ thm wp_raw_for_loop_framedI'
 term \<open>(List.map_filter (array_nth (bvec_values v)) [0..<i])\<close>
 
 lemma bvec_contains_spec:
-  shows \<open>\<Gamma>; bvec_contains v needle \<Turnstile>\<^sub>F bvec_contains_contract v needle\<close>
+  shows \<open>\<Gamma>; bvec_contains v needle
+    \<Turnstile>\<^sub>F bvec_contains_contract \<Phi> v needle\<close>
 proof (crush_boot f: bvec_contains_def contract: bvec_contains_contract_def, goal_cases)
   case 1
   moreover have \<open>unat (bvec_len v) < 2 ^ LENGTH(64)\<close>
@@ -460,13 +466,15 @@ lemma max_of_spec_manual_solution:
 
 paragraph\<open>Exercise 3\<close>
 definition abs_diff_contract_solution where
-  \<open>abs_diff_contract_solution a b \<equiv>
-    let pre  = can_alloc_reference in
-    let post = \<lambda>r. can_alloc_reference \<star> \<langle>r = (max a b) - (min a b)\<rangle> in
+  \<open>abs_diff_contract_solution \<Phi> a b \<equiv>
+    let pre  = reference_stack\<^sub>\<top> \<Phi> in
+    let post = \<lambda>r. reference_stack\<^sub>\<top> \<Phi> \<star>
+      \<langle>r = (max a b) - (min a b)\<rangle> in
     make_function_contract pre post\<close>
 
 lemma abs_diff_spec_solution:
-  shows \<open>\<Gamma>; abs_diff a b \<Turnstile>\<^sub>F abs_diff_contract_solution a b\<close>
+  shows \<open>\<Gamma>; abs_diff a b
+    \<Turnstile>\<^sub>F abs_diff_contract_solution \<Phi> a b\<close>
   apply (crush_boot f: abs_diff_def contract: abs_diff_contract_solution_def)
   apply crush_base
   done
@@ -525,7 +533,8 @@ lemma bvec_get_spec_solution:
 
 paragraph\<open>Exercise 7\<close>
 lemma bvec_contains_spec_solution:
-  shows \<open>\<Gamma>; bvec_contains v needle \<Turnstile>\<^sub>F bvec_contains_contract v needle\<close>
+  shows \<open>\<Gamma>; bvec_contains v needle
+    \<Turnstile>\<^sub>F bvec_contains_contract \<Phi> v needle\<close>
 proof (crush_boot f: bvec_contains_def contract: bvec_contains_contract_def, goal_cases)
   case 1
   moreover note More_Word.unat_lt2p[of \<open>bvec_len v\<close>]

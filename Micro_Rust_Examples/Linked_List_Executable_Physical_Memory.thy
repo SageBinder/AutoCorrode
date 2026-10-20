@@ -89,7 +89,7 @@ global_interpretation ll_basic_pmem: ll_example_basic raw_pmem_trie_memrefs.upda
   raw_pmem_trie_memrefs.points_to_raw'
   raw_pmem_trie_memrefs.gref_can_store
   raw_pmem_trie_memrefs.new_gref_can_store
-  raw_pmem_trie_memrefs.can_alloc_reference
+  raw_pmem_trie_memrefs.reference_stack
   \<open>\<lambda>_ _ _ _ _ _. ()\<close>
   caddr_prism ll_focus
   defines

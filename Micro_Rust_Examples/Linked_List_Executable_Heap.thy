@@ -92,7 +92,7 @@ global_interpretation ll_example_ctxt: ll_example
   urust_heap_reference_raw_fun                                  
   urust_heap_points_to_raw' 
   \<open>\<lambda>_. UNIV\<close> UNIV       
-  urust_heap_can_alloc_reference
+  urust_heap_reference_stack
   \<open>\<lambda> _ _ _ _ _ _. ()\<close>                   
   ll_example_gv_prism_gref_opt
   ll_example_caddr_id_prism
@@ -108,7 +108,8 @@ global_interpretation ll_example_ctxt: ll_example
       and ref_gref_opt_focus = \<open>ll_example_ctxt.ref_gref_opt.focus\<close>
 proof -
   show \<open>ll_example urust_heap_update_raw_fun urust_heap_dereference_raw_fun urust_heap_reference_raw_fun
-     urust_heap_points_to_raw' (\<lambda>_. UNIV) UNIV urust_heap_can_alloc_reference ll_example_gv_prism_gref_opt
+     urust_heap_points_to_raw' (\<lambda>_. UNIV) UNIV urust_heap_reference_stack
+     ll_example_gv_prism_gref_opt
      ll_example_caddr_id_prism\<close>
     apply standard
     apply (simp add: ll_example_caddr_id_prism_valid)

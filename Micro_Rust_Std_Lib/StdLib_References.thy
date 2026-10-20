@@ -17,6 +17,104 @@ adhoc_overloading store_dereference_const \<rightleftharpoons>
 named_theorems crush_points_to_crules
 named_theorems crush_points_to_cond_crules
 
+lemma reference_stack_pop_exists:
+  \<open>reference_stack F (\<Phi> @ [r]) \<star>
+      (\<Squnion>g. r \<mapsto>\<langle>\<top>\<rangle> g \<star> \<langle>F g\<rangle>)
+    \<longlongrightarrow> reference_stack F \<Phi>\<close>
+  apply crush_base
+  subgoal for g
+    using reference_stack_pop[
+      where F=F and \<Phi>=\<Phi> and r=r and g=g]
+    by (crush_base simp add: asepconj_simp)
+  done
+
+lemma reference_stack_pop_value:
+  assumes \<open>F g\<close>
+  shows \<open>reference_stack F (\<Phi> @ [r]) \<star>
+      r \<mapsto>\<langle>\<top>\<rangle> g
+    \<longlongrightarrow> reference_stack F \<Phi>\<close>
+  using assms reference_stack_pop[
+    where F=F and \<Phi>=\<Phi> and r=r and g=g]
+  by (crush_base simp add: asepconj_simp)
+
+lemma reference_stack_pop_value_at:
+  assumes \<open>F g\<close>
+  shows \<open>reference_stack F (\<Phi> @ r # \<Psi>) \<star>
+      r \<mapsto>\<langle>\<top>\<rangle> g
+    \<longlongrightarrow> reference_stack F (\<Phi> @ \<Psi>)\<close>
+  using reference_stack_pop_at[
+    where F=F and \<Phi>=\<Phi> and r=r and \<Psi>=\<Psi> and g=g] assms
+  by (crush_base simp add: asepconj_simp)
+
+lemma reference_stack_pop_suffix_crule:
+  \<open>reference_stack F (\<Phi> @ ls)
+    [\<star>\<star>{# (\<Squnion>g. l \<mapsto>\<langle>\<top>\<rangle> g \<star> \<langle>F g\<rangle>) \<Colon> l \<leftarrow> ls #}]\<longlongrightarrow>[emp]
+    reference_stack F \<Phi>\<close>
+proof (induction ls rule: rev_induct)
+  case Nil
+  then show ?case
+    by (crush_base simp add: aentails_conditional_crule_def)
+next
+  case (snoc x xs)
+  have exchange_snoc:
+    \<open>\<star>\<star>{# (\<Squnion>g. l \<mapsto>\<langle>\<top>\<rangle> g \<star> \<langle>F g\<rangle>) \<Colon>
+        l \<leftarrow> xs @ [x] #} =
+      (\<Squnion>g. x \<mapsto>\<langle>\<top>\<rangle> g \<star> \<langle>F g\<rangle>) \<star>
+      \<star>\<star>{# (\<Squnion>g. l \<mapsto>\<langle>\<top>\<rangle> g \<star> \<langle>F g\<rangle>) \<Colon>
+        l \<leftarrow> xs #}\<close>
+    by (crush_base simp add: asepconj_multi_split')
+  have ih:
+    \<open>\<star>\<star>{# (\<Squnion>g. l \<mapsto>\<langle>\<top>\<rangle> g \<star> \<langle>F g\<rangle>) \<Colon>
+        l \<leftarrow> xs #} \<star>
+      reference_stack F (\<Phi> @ xs)
+    \<longlongrightarrow> reference_stack F \<Phi>\<close>
+    using snoc.IH
+    by (crush_base simp add: aentails_conditional_crule_def asepconj_simp)
+  have pop:
+    \<open>(\<Squnion>g. x \<mapsto>\<langle>\<top>\<rangle> g \<star> \<langle>F g\<rangle>) \<star>
+      reference_stack F (\<Phi> @ xs @ [x])
+    \<longlongrightarrow> reference_stack F (\<Phi> @ xs)\<close>
+    apply crush_base
+    subgoal for g
+      using reference_stack_pop_value[
+        where F=F and \<Phi>=\<open>\<Phi> @ xs\<close> and r=x and g=g]
+      by (crush_base simp add: asepconj_comm)
+    done
+  show ?case
+    unfolding aentails_conditional_crule_def
+    apply (subst exchange_snoc)
+    apply (simp only: asepconj_emp_unit)
+    apply (rule_tac \<phi>'=\<open>
+        \<star>\<star>{# (\<Squnion>g. l \<mapsto>\<langle>\<top>\<rangle> g \<star> \<langle>F g\<rangle>) \<Colon>
+          l \<leftarrow> xs #} \<star>
+        reference_stack F (\<Phi> @ xs)\<close> in aentails_trans)
+     apply (crush_base seplog rule add: pop)
+    apply (crush_base seplog rule add: ih)
+    done
+qed
+
+text \<open>The strong form is suitable for cancellation automation: consuming
+the local cells does not generate a spurious upwards-closure obligation for
+the deliberately non-upwards-closed reference stack.\<close>
+lemma reference_stack_pop_suffix_strong_crule[
+    crush_aentails_cond_crules]:
+  \<open>reference_stack F (\<Phi> @ ls)
+    [\<star>\<star>{# (\<Squnion>g. l \<mapsto>\<langle>\<top>\<rangle> g \<star> \<langle>F g\<rangle>) \<Colon> l \<leftarrow> ls #}]\<longlongrightarrow>\<^sub>s[emp]
+    reference_stack F \<Phi>\<close>
+  using reference_stack_pop_suffix_crule[
+    where F=F and \<Phi>=\<Phi> and ls=ls]
+  by (crush_base
+    simp add: aentails_conditional_crule_def
+      aentails_conditional_crule_strong_def
+      asepconj_comm asepconj_simp)
+
+lemma reference_stack_pop_suffix_crush_test:
+  \<open>reference_stack F (\<Phi> @ [l0, l1]) \<star>
+      (\<Squnion>g. l0 \<mapsto>\<langle>\<top>\<rangle> g \<star> \<langle>F g\<rangle>) \<star>
+      (\<Squnion>g. l1 \<mapsto>\<langle>\<top>\<rangle> g \<star> \<langle>F g\<rangle>)
+    \<longlongrightarrow> reference_stack F \<Phi>\<close>
+  by crush_base
+
 declare points_to_aentails [crush_points_to_crules]
 
 (* Optional points-to conversions are kept in dedicated collections.
@@ -201,7 +299,7 @@ definition can_create_gref_for_prism :: \<open>('b, 'v) prism \<Rightarrow> bool
 lemma ref_spec:
   assumes \<open>is_valid_prism p\<close>
       and \<open>can_create_gref_for_prism p\<close>
-    shows \<open>\<Gamma> ; reference_fun p v \<Turnstile>\<^sub>F reference_contract p v\<close>
+    shows \<open>\<Gamma> ; reference_fun p v \<Turnstile>\<^sub>F reference_contract F \<Phi> p v\<close>
 using assms
   apply (crush_boot f: reference_fun_def contract: reference_contract_def)
   apply (crush_base simp add: points_to_def can_create_gref_for_prism_def
@@ -248,10 +346,10 @@ end
 named_theorems ref_prisms_validity
 
 locale reference_allocatable = reference reference_types update_raw_fun dereference_raw_fun
-    reference_raw_fun points_to_raw' gref_can_store new_gref_can_store can_alloc_reference
+    reference_raw_fun points_to_raw' gref_can_store new_gref_can_store reference_stack
   for reference_types :: \<open>'s::{sepalg} \<Rightarrow> 'a \<Rightarrow> 'b \<Rightarrow> 'abort \<Rightarrow> 'i prompt \<Rightarrow> 'o prompt_output \<Rightarrow> unit\<close> and update_raw_fun and
     dereference_raw_fun and reference_raw_fun and points_to_raw' and
-    gref_can_store new_gref_can_store can_alloc_reference +
+    gref_can_store new_gref_can_store reference_stack +
     fixes prism :: \<open>('b, 'v) prism\<close>
     assumes prism_valid [ref_prisms_validity, focus_intros]: \<open>is_valid_prism prism\<close>
         and prism_allocatable: \<open>can_create_gref_for_prism prism\<close>
@@ -323,13 +421,13 @@ urust_fn ref_test
   \<close>
 
 definition ref_test_contract where
-  \<open>ref_test_contract \<equiv>
-     let pre = can_alloc_reference in
-     let post = \<lambda>r. can_alloc_reference \<star> \<langle>r = 12\<rangle> in
+  \<open>ref_test_contract \<Phi> \<equiv>
+     let pre = reference_stack\<^sub>\<top> \<Phi> in
+     let post = \<lambda>r. reference_stack\<^sub>\<top> \<Phi> \<star> \<langle>r = 12\<rangle> in
      make_function_contract pre post\<close>
 
 lemma ref_test_spec:
-  shows \<open>\<Gamma>; ref_test \<Turnstile>\<^sub>F ref_test_contract\<close>
+  shows \<open>\<Gamma>; ref_test \<Turnstile>\<^sub>F ref_test_contract \<Phi>\<close>
   apply (crush_boot f: ref_test_def contract: ref_test_contract_def)
   apply (crush_base simp add: is_valid_ref_for_def)
   done

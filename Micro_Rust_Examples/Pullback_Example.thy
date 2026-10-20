@@ -37,7 +37,7 @@ global_interpretation Heap_Example_Transfer: reference_transfer test_lens
   urust_heap_reference_raw_fun
   urust_heap_points_to_raw'
   \<open>\<lambda>_. UNIV\<close> UNIV
-  urust_heap_can_alloc_reference
+  urust_heap_reference_stack
    defines update_raw_fun = \<open>Heap_Example_Transfer.update_raw_fun\<close>
        and dereference_raw_fun = \<open>Heap_Example_Transfer.dereference_raw_fun\<close>
        and reference_raw_fun = \<open>Heap_Example_Transfer.reference_raw_fun\<close>
@@ -55,7 +55,7 @@ global_interpretation Heap_Example: reference \<open>\<lambda> _ _ _ _ _ _. ()\<
   reference_raw_fun
   Heap_Example_Transfer.points_to_raw'
   \<open>\<lambda>_. UNIV\<close> UNIV
-  Heap_Example_Transfer.can_alloc_reference
+  Heap_Example_Transfer.reference_stack
   defines
            reference_fun = \<open>Heap_Example.reference_fun\<close>
        and dereference_fun = \<open>Heap_Example.dereference_fun\<close>
@@ -96,5 +96,30 @@ export_code (* Transferred core reference data *)
 
 adhoc_overloading store_update_const \<rightleftharpoons> update_fun
 adhoc_overloading store_dereference_const \<rightleftharpoons> dereference_fun ro_dereference_fun
+
+section\<open>Precise reference stack transfer\<close>
+
+text\<open>
+Reference ownership transfers through the separation lens. Membership supplied by the concrete
+heap backend survives transfer, and pulling back a precise-pure factor preserves exact stack
+ownership.
+\<close>
+
+lemma transferred_stack_membership:
+  \<open>Heap_Example.points_to_raw r \<top> stored \<star>
+      Heap_Example_Transfer.reference_stack F [left, right]
+    \<longlongrightarrow> \<langle>r = left \<or> r = right\<rangle> \<star> UNIV\<close>
+  using Heap_Example_Transfer.reference_stack_member_transfer[
+    unfolded reference_defs.points_to_raw_def, OF urust_heap_reference_stack_member,
+    where r=r and g=stored and F=F and \<Phi>=\<open>[left, right]\<close>]
+  by (simp add: reference_defs.points_to_raw_def)
+
+lemma stack_precise_pullback:
+  \<open>test_lens\<inverse>
+      (\<langle>distinct \<Phi>\<rangle> \<star> urust_heap_reference_stack F \<Phi>) =
+    \<langle>distinct \<Phi>\<rangle> \<star> Heap_Example_Transfer.reference_stack F \<Phi>\<close>
+  by (simp add: Heap_Example_Transfer.reference_stack_def
+      Heap_Example_Transfer.pull_back_asepconj
+      Heap_Example_Transfer.pull_back_assertion_apure_precise)
 
 end

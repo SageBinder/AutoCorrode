@@ -1401,22 +1401,22 @@ locale "examples_experiment0" =
   (* Two named reference interpretations, one unnamed one *)
   refA: reference reference_typesA update_raw_funA dereference_raw_funA
      reference_raw_funA points_to_raw'A gref_can_storeA new_gref_can_storeA 
-     can_alloc_referenceA +
+     reference_stackA +
   refB: reference reference_typesB update_raw_funB dereference_raw_funB
      reference_raw_funB points_to_raw'B gref_can_storeB new_gref_can_storeB 
-     can_alloc_referenceB +
+     reference_stackB +
   reference reference_typesC update_raw_funC dereference_raw_funC
      reference_raw_funC points_to_raw'C gref_can_storeC new_gref_can_storeC
-     can_alloc_referenceC for
+     reference_stackC for
    reference_typesA :: \<open>'s0::sepalg \<Rightarrow> 'a0 \<Rightarrow> 'b0 \<Rightarrow> 'abort \<Rightarrow> 'i0 prompt \<Rightarrow> 'o0 prompt_output \<Rightarrow> unit\<close> and
    reference_typesB :: \<open>'s1::sepalg \<Rightarrow> 'a1 \<Rightarrow> 'b1 \<Rightarrow> 'abort \<Rightarrow> 'i1 prompt \<Rightarrow> 'o1 prompt_output \<Rightarrow> unit\<close> and
    reference_typesC :: \<open>'s2::sepalg \<Rightarrow> 'a2 \<Rightarrow> 'b2 \<Rightarrow> 'abort \<Rightarrow> 'i2 prompt \<Rightarrow> 'o2 prompt_output \<Rightarrow> unit\<close> and
     update_raw_funA dereference_raw_funA reference_raw_funA 
-    points_to_raw'A gref_can_storeA new_gref_can_storeA can_alloc_referenceA and
+    points_to_raw'A gref_can_storeA new_gref_can_storeA reference_stackA and
     update_raw_funB dereference_raw_funB reference_raw_funB 
-    points_to_raw'B gref_can_storeB new_gref_can_storeB can_alloc_referenceB and
+    points_to_raw'B gref_can_storeB new_gref_can_storeB reference_stackB and
     update_raw_funC dereference_raw_funC reference_raw_funC 
-    points_to_raw'C gref_can_storeC new_gref_can_storeC can_alloc_referenceC
+    points_to_raw'C gref_can_storeC new_gref_can_storeC reference_stackC
 begin
 ML\<open>local
   open Separation_Logic_Tactics

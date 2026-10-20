@@ -154,10 +154,10 @@ definition gref_can_store :: \<open>(raw_pref, 8 word list) gref \<Rightarrow> 8
 
 definition new_gref_can_store :: \<open>8 word list set\<close> where \<open>new_gref_can_store \<equiv> {}\<close>
 
-definition can_alloc_reference :: \<open>'s assert\<close> where \<open>can_alloc_reference \<equiv> {}\<close>
-\<comment>\<open>The \<^verbatim>\<open>reference\<close> locale requires allocator availability to be upwards
-closed; the registered fact discharges that interpretation obligation below.\<close>
-ucincl_auto can_alloc_reference
+definition reference_stack ::
+    \<open>(8 word list \<Rightarrow> bool) \<Rightarrow>
+      (raw_pref, 8 word list) gref list \<Rightarrow> 's assert\<close>
+  where \<open>reference_stack F \<Phi> \<equiv> {}\<close>
 
 lemma update_raw_fun_spec:
   notes mset_upt [simp del]
@@ -214,12 +214,13 @@ proof -
 qed
 
 lemma reference_raw_fun_spec:
-  shows \<open>\<And>\<Gamma> g. \<Gamma> ; reference_raw_fun
+  shows \<open>\<And>\<Gamma> F \<Phi> g. \<Gamma> ; reference_raw_fun
                 g \<Turnstile>\<^sub>F reference_defs.reference_raw_contract points_to_raw' gref_can_store new_gref_can_store
-                        can_alloc_reference g\<close>
-  \<comment>\<open>Trivial, since \<^verbatim>\<open>can_alloc_reference = {}\<close>.\<close>
+                        reference_stack F \<Phi> g\<close>
+  \<comment>\<open>Trivial, since physical-memory allocation is unsupported and
+  \<^verbatim>\<open>reference_stack F \<Phi> = {}\<close>.\<close>
   apply (crush_boot f: reference_raw_fun_def contract: reference_defs.reference_raw_contract_def)
-  apply (fastcrush_base simp add: can_alloc_reference_def)
+  apply (fastcrush_base simp add: reference_stack_def)
   done
 
 lemma points_to_tagged_bytes_join:
@@ -257,7 +258,7 @@ lemma points_to_tagged_bytes_split:
 
 lemma reference_sublocale:
   shows \<open>reference update_raw_fun dereference_raw_fun
-            reference_raw_fun points_to_raw' gref_can_store new_gref_can_store can_alloc_reference\<close>
+            reference_raw_fun points_to_raw' gref_can_store new_gref_can_store reference_stack\<close>
 proof standard
   show \<open>\<And>\<Gamma> r g g0.
        \<Gamma> ; update_raw_fun r g \<Turnstile>\<^sub>F reference_defs.update_raw_contract points_to_raw' gref_can_store r g0 g\<close>
@@ -266,13 +267,25 @@ next
   show \<open>\<And>\<Gamma> r sh g. \<Gamma> ; dereference_raw_fun r \<Turnstile>\<^sub>F reference_defs.dereference_raw_contract points_to_raw' r sh g\<close>
     by (rule dereference_raw_fun_spec)
 next
-  show \<open>\<And>\<Gamma> g. \<Gamma> ; reference_raw_fun
+  show \<open>\<And>\<Gamma> F \<Phi> g. \<Gamma> ; reference_raw_fun
                 g \<Turnstile>\<^sub>F reference_defs.reference_raw_contract points_to_raw' gref_can_store new_gref_can_store
-                        can_alloc_reference g\<close>
+                        reference_stack F \<Phi> g\<close>
     by (rule reference_raw_fun_spec)
 next
-  show \<open>ucincl can_alloc_reference\<close>
-    unfolding can_alloc_reference_def by ucincl_solve
+  show \<open>\<And>F \<Phi> r g. r \<in> set \<Phi> \<Longrightarrow>
+       (reference_defs.points_to_raw points_to_raw' r \<top> g \<star>
+         reference_stack F \<Phi>) \<star> \<langle>F g\<rangle>
+       \<longlongrightarrow>
+       (\<Squnion>\<Phi>\<^sub>1 \<Phi>\<^sub>2.
+         reference_stack F (\<Phi>\<^sub>1 @ \<Phi>\<^sub>2) \<star>
+         \<langle>\<Phi> = \<Phi>\<^sub>1 @ [r] @ \<Phi>\<^sub>2\<rangle>)\<close>
+    by (simp add: reference_stack_def asepconj_simp
+        bot_aentails_all)
+next
+  show \<open>\<And>F \<Phi>. reference_stack F \<Phi>
+      \<longlongrightarrow> \<langle>distinct \<Phi>\<rangle> \<star> reference_stack F \<Phi>\<close>
+    by (simp add: reference_stack_def asepconj_simp
+        bot_aentails_all)
 next
   show \<open>\<And>r sh1 sh2 v1 v2.
        reference_defs.points_to_raw points_to_raw' r sh1 v1 \<star> reference_defs.points_to_raw points_to_raw' r sh2 v2 \<longlongrightarrow>
