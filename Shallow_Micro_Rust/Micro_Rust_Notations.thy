@@ -463,50 +463,12 @@ type marker_positions =
    qualifier_positions: Position.T list,
    backend_only_positions: Position.T list};
 
-\<comment>\<open>Payload positions keep every property. PIDE assigns a report to the chunk
-  named by its \<^verbatim>\<open>file\<close> property (\<^verbatim>\<open>Command.reported_position\<close>), so a
-  use-site report of a source other than the command's node must keep that
-  source's file: without it, the report lands in the node at the source's
-  offsets. Encoded positions, reported or not, decode to exactly themselves; an
-  unrestricted payload without any reported position carries only its tag.\<close>
-fun encode_positions positions =
-  YXML.string_of_body
-    (XML.Encode.list XML.Encode.properties
-      (map Position.properties_of positions));
-
-fun decode_positions encoded =
-  map Position.of_properties
-    (XML.Decode.list XML.Decode.properties (YXML.parse_body encoded));
-
-\<comment>\<open>File paths and labels contain \<open>.\<close> characters. A \<open>.\<close> in a name makes
-  \<^ML>\<open>Long_Name.is_qualified\<close> true, which makes
-  \<^ML>\<open>Proof_Context.lookup_free\<close> return \<^verbatim>\<open>NONE\<close>, which makes
-  \<^ML>\<open>Syntax_Phases.decode_term\<close> read the payload \<^verbatim>\<open>Free\<close> as a constant
-  and raise "Undefined constant". The payload name therefore escapes the
-  separator, and the escape character itself, bijectively.\<close>
-val name_escape = Char.chr 1;
-val name_separator = String.sub (Long_Name.separator, 0);
-
-fun escape_name name =
-  String.translate
-    (fn c =>
-      if c = name_separator then String.implode [name_escape, #"s"]
-      else if c = name_escape then String.implode [name_escape, #"e"]
-      else String.str c)
-    name;
-
-fun unescape_name name =
-  let
-    fun unescape (c :: rest) =
-          if c <> name_escape then c :: unescape rest
-          else
-            (case rest of
-               #"s" :: rest' => name_separator :: unescape rest'
-             | #"e" :: rest' => name_escape :: unescape rest'
-             | _ => error "malformed urust_dispatch payload")
-      | unescape [] = []
-  in String.implode (unescape (String.explode name)) end;
-
+\<comment>\<open>Payload positions use the shared codec of
+  \<^ML_structure>\<open>Micro_Rust_Semantic_Navigation\<close>: encoded positions keep every
+  property, including the source file that PIDE needs to place a use-site report,
+  and decode to exactly themselves, while the escaped payload name stays
+  unqualified for \<^ML>\<open>Syntax_Phases.decode_term\<close>. An unrestricted payload
+  without any reported position carries only its tag.\<close>
 fun encode_payload_positions scope kind name
     ({terminal_pos, qualifier_positions,
       backend_only_positions} : marker_positions) =
@@ -517,9 +479,9 @@ fun encode_payload_positions scope kind name
     val with_positions =
       tag ^ payload_sep ^
         string_of_int (length qualifier_positions) ^ payload_sep ^
-        encode_positions positions
+        Micro_Rust_Semantic_Navigation.encode_positions positions
   in
-    escape_name
+    Micro_Rust_Semantic_Navigation.escape_payload_name
       (case scope of
          Explicit_Backends => with_positions ^ payload_sep ^ explicit_scope_field
        | All_Backends =>
@@ -528,10 +490,13 @@ fun encode_payload_positions scope kind name
 
 fun decode_payload s =
   let
-    val parts = String.fields (fn ch => ch = Char.chr 0) (unescape_name s)
+    val parts =
+      (case Micro_Rust_Semantic_Navigation.unescape_payload_name s of
+         SOME body => String.fields (fn ch => ch = Char.chr 0) body
+       | NONE => error "malformed urust_dispatch payload")
     fun decoded_positions qualifier_count enc =
       let
-        val decoded = decode_positions enc
+        val decoded = Micro_Rust_Semantic_Navigation.decode_positions enc
       in
         (case decoded of
            terminal_pos :: rest =>
@@ -559,7 +524,7 @@ fun decode_payload s =
              backend_only_positions = []})
        | [k, n, enc] =>
            let
-             val decoded = decode_positions enc
+             val decoded = Micro_Rust_Semantic_Navigation.decode_positions enc
            in
              (case decoded of
                 terminal_pos :: qualifier_positions =>
