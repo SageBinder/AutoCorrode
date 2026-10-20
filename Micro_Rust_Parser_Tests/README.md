@@ -402,8 +402,8 @@ Its native parameter parity section declares each `hol` struct or enum shape, an
 add identical constants with types, type constructors and theorem names, with the same live
 parameters: records, payload enums, all-dead fixed arrays, unused (phantom) parameters, function
 domains and implicit pointer parameters. The custom and word enum backends keep fixed artifact
-inventories without BNF structure, and a persistent generic struct and enum exercise their map,
-set, relator and predicator facts.
+inventories without BNF structure. A persistent generic struct exercises its map, set, relator
+and predicator facts, and a persistent generic `hol` enum its map and set facts.
 Identifier-headed paths retain their previous behavior, including unsupported widths such as
 `u128`.
 
