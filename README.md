@@ -501,9 +501,12 @@ guard bodies and statement bodies in groups, macros, and struct fields. During p
 it also accepts apostrophised identifiers.
 Dereference follows Rust's uniform postfix-before-prefix precedence: `*base[index]` means
 `*(base[index])`, while dereference-before-index requires `(*base)[index]`.
-Direct return match arms use commas between arms and an optional final comma. Direct
-`return value;,` and `return;` arms are rejected; braced arm bodies such as `{ return value; }`
-retain ordinary statement semicolons. Complete guard bodies also retain return statements.
+Direct return match arms use commas between arms and an optional final comma. A `;` directly
+after a match-arm body, as in `return value;,` or `return;`, is rejected at that `;` with the hint
+that non-block match arms are separated by `,`, whatever follows it inside the match braces.
+Unbalanced delimiters, malformed input after the match, a missing closing brace and lexical errors
+are still reported as ordinary errors. Braced arm bodies such as `{ return value; }` retain
+ordinary statement semicolons. Complete guard bodies also retain return statements.
 Deliberately deferred Rust surface includes general
 postfix calls, one-element tuples, open ranges, unary numeric negation, `/=`, leading
 `::`, full Rust generics, universal macro trailing commas, and additional numeric families.

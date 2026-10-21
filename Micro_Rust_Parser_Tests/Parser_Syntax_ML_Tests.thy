@@ -2312,52 +2312,77 @@ ML_val\<open>
       | collect_positions (XML.Elem ((name, properties), body)) result =
           fold collect_positions body
             (if name = Markup.positionN then properties :: result else result)
+    val rejection_start = Position.make0 19 300 0 "" "" "return-arm-rejection-audit"
+    fun offset_after prefix =
+      Option.map Value.print_int
+        (Position.offset_of (Position.symbol_explode prefix rejection_start))
+    fun rejection text =
+      let
+        val source = Parser_Lex_Util.positioned_content_source text rejection_start
+        val result =
+          (case Exn.result parse source of
+             Exn.Res _ => error ("return-arm audit: accepted " ^ quote text)
+           | Exn.Exn exn =>
+               if Exn.is_interrupt exn then Exn.reraise exn
+               else
+                 let val body = YXML.parse_body (Runtime.exn_message exn)
+                 in (XML.content_of body, fold collect_positions body []) end)
+        val _ =
+          audit_assert "parser did not recover"
+            (case parse_text "match true { true => return (), false => { return; } }" of
+               UE_Match (_, _, [UR_Arm (_, _, UE_Return _, _),
+                 UR_Arm (_, _, UE_Block (UE_Return _, _), _)], _) => true
+             | _ => false)
+      in result end
     fun expect_rejection text position_prefix =
       let
-        val start = Position.make0 19 300 0 "" "" "return-arm-rejection-audit"
-        val stop = Position.symbol_explode text start
-        val source = Parser_Lex_Util.positioned_content_source text start
+        val stop = Position.symbol_explode text rejection_start
+        val (message, positions) = rejection text
       in
-        (case Exn.result parse source of
-           Exn.Res _ => error ("return-arm audit: accepted " ^ quote text)
-         | Exn.Exn exn =>
-             if Exn.is_interrupt exn then Exn.reraise exn
-             else
-               let
-                 val body = YXML.parse_body (Runtime.exn_message exn)
-                 val positions = fold collect_positions body []
-               in
-                 audit_assert "syntax diagnostic changed"
-                   (String.isSubstring "syntax error" (XML.content_of body));
-                 audit_assert "syntax diagnostic lost its source position"
-                   (exists
-                     (fn properties =>
-                       (case Properties.get properties Markup.offsetN of
-                          SOME offset =>
-                            let val n = Value.parse_int offset
-                            in the (Position.offset_of start) <= n andalso
-                               n < the (Position.offset_of stop)
-                            end
-                        | NONE => false))
-                     positions);
-                 (case position_prefix of
-                    NONE => ()
-                  | SOME prefix =>
-                      let val offending = Position.symbol_explode prefix start
-                      in
-                        audit_assert ("diagnostic offset changed in " ^ quote text)
-                          (exists
-                            (fn properties =>
-                              Properties.get properties Markup.offsetN =
-                                Option.map Value.print_int (Position.offset_of offending))
-                            positions)
-                      end)
-               end);
-        audit_assert "parser did not recover"
-          (case parse_text "match true { true => return (), false => { return; } }" of
-             UE_Match (_, _, [UR_Arm (_, _, UE_Return _, _),
-               UR_Arm (_, _, UE_Block (UE_Return _, _), _)], _) => true
-           | _ => false)
+        audit_assert "syntax diagnostic changed"
+          (String.isSubstring "syntax error" message);
+        audit_assert "syntax diagnostic lost its source position"
+          (exists
+            (fn properties =>
+              (case Properties.get properties Markup.offsetN of
+                 SOME offset =>
+                   let val n = Value.parse_int offset
+                   in the (Position.offset_of rejection_start) <= n andalso
+                      n < the (Position.offset_of stop)
+                   end
+               | NONE => false))
+            positions);
+        (case position_prefix of
+           NONE => ()
+         | SOME prefix =>
+             audit_assert ("diagnostic offset changed in " ^ quote text)
+               (exists
+                 (fn properties =>
+                   Properties.get properties Markup.offsetN = offset_after prefix)
+                 positions))
+      end
+    (* The separator hint replaces the recovery-dependent parser diagnostic and spans exactly the
+       `;` that directly follows the arm body. *)
+    val separator_hint =
+      "uRust match: syntax error: \";\" cannot follow a match arm; " ^
+      "non-block match arms are separated by \",\""
+    fun expect_separator_hint text semicolon_prefix =
+      let
+        val _ =
+          audit_assert ("separator-hint row is malformed: " ^ quote text)
+            (String.isPrefix (semicolon_prefix ^ ";") text)
+        val (message, positions) = rejection text
+      in
+        audit_assert ("separator hint changed in " ^ quote text)
+          (String.isSubstring separator_hint message andalso
+           not (String.isSubstring "Parse Error" message));
+        audit_assert ("separator hint is not exactly at the semicolon in " ^ quote text)
+          (exists
+            (fn properties =>
+              Properties.get properties Markup.offsetN = offset_after semicolon_prefix andalso
+              Properties.get properties Markup.end_offsetN =
+                offset_after (semicolon_prefix ^ ";"))
+            positions)
       end
     fun check_variant (keyword, kind) valued after_block guarded =
       let
@@ -2376,13 +2401,16 @@ ML_val\<open>
           [(false, ""), (false, ","), (true, ""), (true, ",")]
         val _ = List.app
           (fn comma =>
-            expect_rejection
+            expect_separator_hint
               (first ^ returned ^ ";" ^ comma ^ " " ^ second ^ returned ^ " }")
-              NONE)
+              (first ^ returned))
           ["", ","]
-        val _ = expect_rejection
+        val _ = expect_separator_hint
           (first ^ returned ^ ", " ^ second ^ returned ^ "; }")
-          NONE
+          (first ^ returned ^ ", " ^ second ^ returned)
+        val _ = expect_separator_hint
+          (first ^ returned ^ "; " ^ second ^ returned ^ "; }")
+          (first ^ returned)
         val _ = expect_rejection
           (first ^ returned ^ " " ^ second ^ returned ^ " }")
           NONE
@@ -2407,28 +2435,170 @@ ML_val\<open>
       (case parse_text "return value; ()" of
          UE_Seq (UE_Return _, UE_Unit _, _) => ()
        | _ => error "return-arm audit: return statement sequencing changed")
+    (* ML-Yacc recovery used to report the start of a deleted operand for the first row. The hint
+       is positioned at the semicolon itself in every row, independently of recovery. *)
     val _ =
-      expect_rejection
+      expect_separator_hint
         "match true { true => return \<llangle>1 :: nat\<rrangle>;, false => return 2 }"
-        (SOME "match true { true => return ")
-    (* ML-Yacc recovery can report the start of a deleted operand, rather than the semicolon.
-       Pin representative recovery positions independently of the separator matrix. *)
+        "match true { true => return \<llangle>1 :: nat\<rrangle>"
     val _ =
-      expect_rejection
+      expect_separator_hint
         "match subject { Second => return;, Third => return }"
-        (SOME "match subject { Second => return")
+        "match subject { Second => return"
     val _ =
-      expect_rejection
+      expect_separator_hint
         "match subject { Second => return, Third => return value; }"
-        (SOME "match subject { Second => return, Third => return value")
+        "match subject { Second => return, Third => return value"
     val _ =
-      expect_rejection
+      expect_separator_hint
         "match subject { First => { () } Second => return; }"
-        (SOME "match subject { First => { () } Second => return")
+        "match subject { First => { () } Second => return"
+    (* A missing separator is not a semicolon and keeps its recovery diagnostic. *)
     val _ =
       expect_rejection
         "match subject { Second => return Third => return }"
         (SOME "match subject { Second => return Third ")
+    (* Every other non-block body receives the same hint, in ordinary and post-block arm lists.
+       The parser has no break or continue expressions. Semicolons nested inside the body's own
+       delimiters, as in array repeats and grouped bodies, are not separators. *)
+    val _ = List.app
+      (fn body =>
+        (expect_separator_hint
+          ("match subject { First => " ^ body ^ "; Second => () }")
+          ("match subject { First => " ^ body);
+         expect_separator_hint
+          ("match subject { Zero => { () } First => " ^ body ^ ";, Second => () }")
+          ("match subject { Zero => { () } First => " ^ body)))
+      ["call(value)", "1", "true", "\<llangle>1 :: nat\<rrangle>", "value", "value + 1",
+       "value = 1", "value?", "value.field", "value.method(1)", "!value", "&value", "*value",
+       "value as u8", "|| value", "()", "(value, 1)", "[value; 2]", "(value; ())",
+       "{ () } + 1"]
+    (* A with-block body directly followed by `;` is an ordinary arm here, so it receives the same
+       hint rather than the generic error. Rust rejects these too. *)
+    val _ = List.app
+      (fn body =>
+        expect_separator_hint
+          ("match subject { First => " ^ body ^ "; Second => () }")
+          ("match subject { First => " ^ body))
+      ["{ () }", "unsafe { () }", "if value { 1 } else { 2 }", "match value { A => 1 }",
+       "for item in items { () }"]
+    (* A semicolon followed by a terminal comma and the closing brace receives the same hint. *)
+    val _ =
+      expect_separator_hint "match subject { First => 1;, }" "match subject { First => 1"
+    val _ =
+      expect_separator_hint
+        "match subject { Zero => { () } First => 1;, }"
+        "match subject { Zero => { () } First => 1"
+    (* The hint names the first offending semicolon, including inside nested matches and after a
+       guard whose complete body contains statements. *)
+    val _ =
+      expect_separator_hint
+        "match subject { First => 1; Second => 2; Third => 3; }"
+        "match subject { First => 1"
+    val _ =
+      expect_separator_hint
+        "{ match subject { First => match value { A => 1; B => 2 }, Second => 3; } }"
+        "{ match subject { First => match value { A => 1"
+    val _ =
+      expect_separator_hint
+        "match subject { First if call(value); true => 1; Second => 2 }"
+        "match subject { First if call(value); true => 1"
+    (* The input after the semicolon need not be a well-formed arm list: statements, malformed or
+       unseparated arms, further semicolons, nested items and arbitrary balanced tokens keep the
+       hint at the first semicolon. *)
+    val _ = List.app
+      (fn (text, prefix) => expect_separator_hint text prefix)
+      [("match subject { First => call(value); other(value) }",
+        "match subject { First => call(value)"),
+       ("match subject { First => call(); other(); }", "match subject { First => call()"),
+       ("match subject { First => call(); other(); third(); }",
+        "match subject { First => call()"),
+       ("match subject { First => value = 1; other = 2, Second => 3 }",
+        "match subject { First => value = 1"),
+       ("match subject { First => 1;; }", "match subject { First => 1"),
+       ("match subject { First => 1;; Second => 2 }", "match subject { First => 1"),
+       ("match subject { First => 1; value + 1 }", "match subject { First => 1"),
+       ("match subject { First => 1; Second => }", "match subject { First => 1"),
+       ("match subject { First => 1; Second => 2 Third => 3 }", "match subject { First => 1"),
+       ("match subject { First => 1; Second => { fn inner() {} 1 } }",
+        "match subject { First => 1"),
+       ("match subject { First => return Err(error); _ => { report(error); return Ok(()) } }",
+        "match subject { First => return Err(error)"),
+       ("match subject { Zero => { () } First => call(); other(); }",
+        "match subject { Zero => { () } First => call()"),
+       ("{ match subject { First => call(); other() }; () }",
+        "{ match subject { First => call()"),
+       ("match subject { First => 1; fn inner() {} struct Inner; enum Kind { A } type Alias = u8; }",
+        "match subject { First => 1"),
+       ("match subject { First => 1; let const return = ; if else , . : :: @ + - * / % << >> & | " ^
+          "^ += -= *= %= &= |= ^= <<= >>= == != < <= > >= && || ! ? unsafe fuel while loop for in " ^
+          "# match match_switch match_case => .. ..= mut yield true false 1u8 \"text\" name " ^
+          "\<llangle>1 :: nat\<rrangle> call::<u8, 1>(x) matches!(x, y) value as u8, ( [ { } ] ) }",
+        "match subject { First => 1")]
+    (* Only failures independent of the arm list remain ordinary syntax errors after the semicolon:
+       an unbalanced delimiter, malformed input after the match, and a missing closing brace. *)
+    val _ =
+      expect_rejection "match subject { First => 1; ) }" (SOME "match subject { First => 1; ")
+    val _ =
+      expect_rejection
+        "{ match subject { First => 1; Second => 2 }; call( }"
+        (SOME "{ match subject { First => 1; Second => 2 }; call( ")
+    val _ =
+      audit_assert "missing closing brace diagnostic changed"
+        (String.isSubstring "syntax error found at end of input"
+          (#1 (rejection "match subject { First => 1; Second => 2")))
+    (* A semicolon that ends a non-expression `let` inside an arm is not an arm separator. Its
+       recovery diagnostic stays at the `let`. *)
+    val _ =
+      expect_rejection
+        "match subject { First => let x = 1; x, Second => 2 }"
+        (SOME "match subject { First => ")
+    (* Statement semicolons inside block arms, nested delimiters, guards, macros, closures, struct
+       fields and scrutinees, a final arm without a comma, and a semicolon after the whole match
+       remain accepted. *)
+    val _ = List.app
+      (fn text =>
+        (case Exn.result parse_text text of
+           Exn.Res _ => ()
+         | Exn.Exn exn =>
+             if Exn.is_interrupt exn then Exn.reraise exn
+             else error ("return-arm audit: rejected accepted neighbour " ^ quote text)))
+      ["match subject { First => { call(value); } Second => { other(); } }",
+       "match subject { First if call(); other() => { third(); } Second => 1 }",
+       "match subject { First => call!(other(); 1), Second => 2 }",
+       "match subject { First => call![other(); 1], Second => 2 }",
+       "match subject { First => |x| { x; 1 }, Second => 2 }",
+       "match subject { First => Record { field: call(); 1 }, Second => 2 }",
+       "match subject { First => { match value { A => 1 }; 2 } Second => 3 }",
+       "match (value; subject) { First => 1 }",
+       "{ let x = match subject { First => 1, Second => 2 }; x }"]
+    fun arm_bodies text =
+      (case parse_text text of
+         UE_Match (_, _, arms, _) => map (fn UR_Arm (_, _, body, _) => body) arms
+       | UE_Block (UE_Seq (UE_Match (_, _, arms, _), UE_Unit _, _), _) =>
+           map (fn UR_Arm (_, _, body, _) => body) arms
+       | _ => error ("return-arm audit: expected match AST for " ^ quote text))
+    val _ =
+      audit_assert "statement semicolons inside block arms changed"
+        (case arm_bodies
+            "match subject { First => { call(value); }, Second => { let x = value; x } Third => 1 }" of
+           [UE_Block (UE_Seq (UE_Call _, UE_Unit _, _), _), UE_Block (UE_Let _, _),
+            UE_Literal _] => true
+         | _ => false)
+    val _ =
+      audit_assert "nested body semicolons changed"
+        (case arm_bodies "match subject { First => [value; 2], Second => (value; ()) }" of
+           [UE_ArrayRepeat _, UE_Group (UE_Seq _, _)] => true
+         | _ => false)
+    val _ =
+      audit_assert "guard body semicolons changed"
+        (case parse_text "match subject { First if call(value); true => 1, Second => 2 }" of
+           UE_Match (_, _, [UR_Arm (_, SOME (UE_Seq _, _), _, _), UR_Arm (_, NONE, _, _)], _) =>
+             true
+         | _ => false)
+    val _ =
+      audit_assert "semicolon after a complete match changed"
+        (length (arm_bodies "{ match subject { First => 1, Second => 2 }; () }") = 2)
   in
     val _ = writeln "Return-arm separator, AST, position, statement, and recovery audits passed"
   end

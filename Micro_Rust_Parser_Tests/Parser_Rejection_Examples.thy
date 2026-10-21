@@ -39,6 +39,12 @@ Mixed prefixes and direct with-block operands are now positive Rust-aligned cove
 retain only separator and deferred-feature boundaries.
 \<close>
 
+urust_expr_rejects
+  \<open> match \<llangle>Some (1 :: nat)\<rrangle> { Some(x) \<Rightarrow> return x; None \<Rightarrow> 0 } \<close>
+  \<open> uRust match: syntax error: ";" cannot follow a match arm; non-block match arms are separated by "," \<close>
+  \<comment> \<open> [FIDELITY] Rust requires \<open>,\<close> after a non-block arm body; the hint is reported at
+       the \<open>;\<close>. \<close>
+
 section\<open> Integer literals \<close>
 
 urust_expr_rejects \<open> 1_u7 \<close> \<open> unsupported integer-literal suffix "_u7" \<close>
