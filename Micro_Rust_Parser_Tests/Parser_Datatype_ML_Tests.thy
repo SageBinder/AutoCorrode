@@ -6566,10 +6566,13 @@ ML_val\<open>
 section\<open> Generated name conflicts \<close>
 
 text\<open>
-Rename targets and unprefixed names are checked against every name the backend binds for the
-declaration: constructors, Ctr_Sugar's automatic \<open>un_\<close> selectors and \<open>is_\<close>
-discriminators exactly where it generates them, other selectors, and record constructors and
-updates. Conflicts are positioned at the explicit or unprefixed name.
+Every name uRust chooses for a declaration (a target, an unprefixed name, an untouched constructor
+or an untouched default selector) is checked against the other per-constructor and per-field
+names the backend binds: constructors, Ctr_Sugar's automatic \<open>un_\<close> selectors and
+\<open>is_\<close> discriminators exactly where it generates them, other selectors, and record
+constructors and updates. A conflict is positioned at the chosen name, or at the later of two
+chosen names. Coinciding automatic Ctr_Sugar names keep their native behaviour, and per-type
+names are outside the check.
 \<close>
 
 ML_val\<open>
