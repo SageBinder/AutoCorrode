@@ -1959,7 +1959,8 @@ urust_expr_rejects
   \<open> unsupported or refutable pattern in a `for` binder position \<close>
 
 urust_expr_rejects
-  \<open> |u64::MAX| () \<close> \<open> syntax error \<close>
+  \<open> |u64::MAX| () \<close>
+  \<open> unsupported or refutable pattern in a closure formal position \<close>
 
 urust_expr_rejects
   \<open> u64::MAX = u64::MIN \<close>
@@ -2730,6 +2731,20 @@ urust_expr  grammar_closure_return_body
 
 urust_expr  grammar_nested_closure_body
   \<open> || || \<llangle>1 :: nat\<rrangle> \<close>
+
+text\<open>
+A closure formal excludes a top-level or-pattern, so the next bar always closes the formal list, as
+in Rust: \<open>|a | b| c\<close> is \<open>|a| (b | c)\<close>.
+\<close>
+
+urust_expr grammar_closure_or_body
+  \<open> |a | \<llangle>1 :: 32 word\<rrangle>| a \<close>
+
+urust_expr grammar_closure_or_body_grouped
+  \<open> |a| (\<llangle>1 :: 32 word\<rrangle> | a) \<close>
+
+lemma \<open> grammar_closure_or_body = grammar_closure_or_body_grouped \<close>
+  unfolding grammar_closure_or_body_def grammar_closure_or_body_grouped_def by (rule refl)
 
 urust_expr  grammar_if_let_operand
   \<open>

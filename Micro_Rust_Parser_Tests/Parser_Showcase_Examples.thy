@@ -1184,6 +1184,29 @@ urust_expr showoff_closure_pipeline
     )
   \<close>
 
+definition showoff_invoke_pair_closure ::
+    \<open>64 word \<times> 64 word \<times> tnil \<Rightarrow>
+      (64 word \<times> 64 word \<times> tnil \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body) \<Rightarrow>
+      (unit, 64 word, unit, unit, unit) function_body\<close>
+  where \<open> showoff_invoke_pair_closure value closure \<equiv> closure value \<close>
+
+text\<open>
+Features: a tuple-pattern closure formal, destructured inside the closure body exactly as a
+\<open>let\<close> binding would, with capture of an outer local.
+\<close>
+
+urust_expr showoff_closure_tuple_formal
+  \<open>
+    let scale = 2_u64;
+    showoff_invoke_pair_closure(
+      (3_u64, 4_u64),
+      |(width, height)| {
+        let area = width * height;
+        area * scale
+      }
+    )
+  \<close>
+
 subsection\<open> Accepted-surface improvements \<close>
 
 text\<open>

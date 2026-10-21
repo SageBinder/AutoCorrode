@@ -3433,6 +3433,97 @@ lemma parser_slice_for_binding_results:
       iterator_ethunks_def list_into_iter_def make_iterator_from_list_def
       two_armed_conditional_def micro_rust_simps evaluate_def sequence_def put_def literal_def Core_Expression.bind.simps)
 
+text\<open>
+Closure formals use the same contract: each non-binder formal destructures one value slot as
+\<open>let PATTERN = slot;\<close> would.
+\<close>
+
+definition parser_slice_closure_apply ::
+  \<open>'a \<Rightarrow> ('a \<Rightarrow> (unit, 'b, unit, unit, unit) function_body) \<Rightarrow>
+    (unit, 'b, unit, unit, unit) function_body\<close>
+  where \<open> parser_slice_closure_apply value closure \<equiv> closure value \<close>
+
+urust_expr parser_slice_closure_rest ::
+  \<open>nat list \<Rightarrow> (unit, nat list, unit, unit, unit, unit) expression\<close>
+  (subject)
+  \<open> parser_slice_closure_apply(subject, |[rest @ ..]| rest) \<close>
+
+urust_expr parser_slice_closure_bare_rest ::
+  \<open>nat list \<Rightarrow> (unit, nat, unit, unit, unit, unit) expression\<close>
+  (subject)
+  \<open> parser_slice_closure_apply(subject, |[..]| 7) \<close>
+
+urust_expr parser_slice_closure_chain ::
+  \<open>
+    nat list \<Rightarrow>
+      (unit, nat list \<times> nat list \<times> nat list, unit, unit, unit, unit) expression
+  \<close>
+  (subject)
+  \<open>
+    parser_slice_closure_apply(
+      subject,
+      |whole @ again @ [rest @ ..]| \<llangle>(whole, again, rest)\<rrangle>
+    )
+  \<close>
+
+urust_expr parser_slice_closure_scalar_chain ::
+  \<open>nat \<Rightarrow> (unit, nat \<times> nat \<times> nat, unit, unit, unit, unit) expression\<close>
+  (subject)
+  \<open>
+    parser_slice_closure_apply(
+      subject,
+      |whole @ again @ number| \<llangle>(whole, again, number)\<rrangle>
+    )
+  \<close>
+
+urust_expr parser_slice_closure_tuple ::
+  \<open>
+    parser_slice_tuple_input \<Rightarrow>
+      (unit, parser_slice_tuple_observation, unit, unit, unit, unit) expression
+  \<close>
+  (subject)
+  \<open>
+    parser_slice_closure_apply(
+      subject,
+      |whole @ ([left @ ..], inside @ ([right @ ..], flag))|
+        \<llangle>(whole, inside, left, right, flag)\<rrangle>
+    )
+  \<close>
+
+lemma parser_slice_closure_binding_results:
+  \<open>parser_slice_closure_rest [] = literal []\<close>
+  \<open>parser_slice_closure_rest [11, 23, 37] = literal [11, 23, 37]\<close>
+  \<open>parser_slice_closure_bare_rest [] = literal 7\<close>
+  \<open>parser_slice_closure_bare_rest [11, 23, 37] = literal 7\<close>
+  \<open>parser_slice_closure_chain [] = literal ([], [], [])\<close>
+  \<open>parser_slice_closure_chain [11, 23, 37] =
+    literal ([11, 23, 37], [11, 23, 37], [11, 23, 37])\<close>
+  \<open>parser_slice_closure_scalar_chain 11 = literal (11, 11, 11)\<close>
+  \<open>parser_slice_closure_tuple ([], (([], (False, TNil)), TNil)) =
+    literal (([], (([], (False, TNil)), TNil)), ([], (False, TNil)), [], [], False)\<close>
+  \<open>parser_slice_closure_tuple ([11, 23], (([37, 41, 53], (True, TNil)), TNil)) =
+    literal (([11, 23], (([37, 41, 53], (True, TNil)), TNil)),
+      ([37, 41, 53], (True, TNil)), [11, 23], [37, 41, 53], True)\<close>
+  by (simp_all add: parser_slice_closure_rest_def parser_slice_closure_bare_rest_def
+      parser_slice_closure_chain_def parser_slice_closure_scalar_chain_def
+      parser_slice_closure_tuple_def parser_slice_closure_apply_def two_armed_conditional_def
+      micro_rust_simps)
+
+urust_expr parser_slice_closure_alias_formal
+  \<open> |whole @ again @ [rest @ ..]| \<llangle>(whole, again, rest :: nat list)\<rrangle> \<close>
+
+urust_expr parser_slice_closure_alias_desugared
+  \<open>
+    |slot| {
+      let whole @ again @ [rest @ ..] = slot;
+      \<llangle>(whole, again, rest :: nat list)\<rrangle>
+    }
+  \<close>
+
+lemma \<open> parser_slice_closure_alias_formal = parser_slice_closure_alias_desugared \<close>
+  unfolding parser_slice_closure_alias_formal_def parser_slice_closure_alias_desugared_def
+  by (rule refl)
+
 section\<open>Scope, aliases, and alternative bindings\<close>
 
 urust_expr parser_slice_scope ::
@@ -3933,18 +4024,14 @@ chapter\<open> Slice pattern syntax \<close>
 section\<open> Retained binding-site restrictions \<close>
 
 text\<open>
-Rest-only slices and recursive aliases are ordinary let/for features. Closure formals, local const,
+Rest-only slices and recursive aliases are ordinary let, for and closure-formal features. Local const,
 mutable bindings, and reference binding modes retain their separate policies. A supplied list value
 cannot make a pattern requiring an element irrefutable.
 \<close>
 
 urust_expr_rejects
-  \<open> |[tail @ ..]| () \<close>
-  \<open> syntax error \<close>
-
-urust_expr_rejects
-  \<open> |whole @ value| () \<close>
-  \<open> syntax error \<close>
+  \<open> |[tail, ..]| () \<close>
+  \<open> unsupported or refutable pattern in a closure formal position \<close>
 
 urust_expr_rejects
   \<open> let mut [tail @ ..] = \<llangle>[] :: nat list\<rrangle>; () \<close>

@@ -4546,10 +4546,12 @@ consts
 
 text\<open>
 These checks pin the second-class closure boundary below the source-level examples. They retain
-ordered pattern-shaped formals and the complete closure span, prove that grouping alone re-enters
-ordinary expression positions, and inspect the checked shallow term for the exact frontend shape.
-The markup checks lock definition/reference navigation across ordinary, duplicate, nested, and
-shadowed formals.
+ordered formal patterns and the complete closure span, prove that grouping alone re-enters
+ordinary expression positions, and inspect the checked shallow term for the exact frontend shape
+and the let-style destructuring of pattern formals. Repeated binders and constructor-spelled
+formals are rejected before any binder is reported, with diagnostics at the offending formal or
+binders. The markup checks lock definition/reference navigation across ordinary, pattern, nested,
+and shadowed formals, and pin the closure bars to their single \<open>FunctionBody\<close> target.
 \<close>
 
 ML_val\<open>
@@ -4622,6 +4624,30 @@ ML_val\<open>
                    (source_span closure_layout)))
        | _ =>
            error "closure regression audit: closure AST changed")
+
+    val _ =
+      (case parse_text "|(first, second), whole @ [rest @ ..], _, (grouped)| first" of
+         UE_Closure
+           ([P_Tuple ([P_Ident ("first", _), P_Ident ("second", _)], _),
+             P_Alias
+               ("whole", _, P_Slice ([SI_BoundRest ("rest", _, _, _)], _), _),
+             P_Wild _,
+             P_Group (P_Ident ("grouped", _), _)],
+            UE_Path _, _) => ()
+       | _ =>
+           error "closure regression audit: pattern formal AST changed")
+    val _ =
+      (case parse_text "|first | second| first" of
+         UE_Closure
+           ([P_Ident ("first", _)],
+            UE_Bin (BOr, UE_Path _, UE_Path _, _), _) => ()
+       | _ =>
+           error "closure regression audit: the second bar no longer closes the formals")
+    val _ =
+      (case parse_text "|(first | second)| first" of
+         UE_Closure ([P_Group (P_Or ([_, _], _), _)], UE_Path _, _) => ()
+       | _ =>
+           error "closure regression audit: grouped or-pattern formal AST changed")
 
     val _ =
       (case parse_text "let f = (|| 1); ()" of
@@ -4750,55 +4776,134 @@ ML_val\<open>
       audit_assert "closure abstractions lost their source spellings"
         (map #1 ordered_formals = ["first", "second"])
 
-    val duplicate =
-      checked "|same, same, same| same"
-    val (duplicate_formals, duplicate_body) =
-      Term.strip_abs (closure_payload duplicate)
+    fun rejection_message text =
+      (ignore (checked text); NONE)
+      handle ERROR message => SOME message
+    fun audit_rejects text fragment =
+      (case rejection_message text of
+         SOME message =>
+           audit_assert
+             ("closure " ^ quote text ^ " was rejected for the wrong reason:\n" ^ message)
+             (String.isSubstring fragment message)
+       | NONE =>
+           error ("closure regression audit: " ^ quote text ^ " was accepted"))
     val _ =
-      audit_assert "duplicate closure formals stopped producing abstractions"
-        (map #1 duplicate_formals = ["same", "same", "same"])
-    val _ =
-      (case duplicate_body of
-         Const (function_body_name, _) $
-           (Const (literal_name, _) $ Bound 0) =>
-           (audit_assert "duplicate closure body lost FunctionBody"
-              (function_body_name =
-                \<^const_name>\<open>FunctionBody\<close>);
-            audit_assert "duplicate closure body lost literal lowering"
-              (literal_name = \<^const_name>\<open>literal\<close>))
-       | _ =>
-           error
-             "closure regression audit: innermost duplicate no longer shadows earlier formals")
+      List.app
+        (fn (text, name) =>
+          audit_rejects text ("duplicate pattern binder " ^ quote name))
+        [("|same, same, same| same", "same"),
+         ("|first, (second, first)| first", "first"),
+         ("|(first, second), second| first", "second"),
+         ("|(first, first)| first", "first")]
 
-    val allocator_start =
-      Position.make0 9 30 300 "" "" "closure-allocator-audit"
-    val allocator_positions =
-      [allocator_start,
-       Position.symbol_explode "first " allocator_start,
-       Position.symbol_explode "first second " allocator_start]
-    val (allocated, allocated_environment) =
-      URust_Resolution.allocate_closure_formals ctxt
-        URust_Resolution.empty_environment
-        (map2 pair ["first", "second", "first"] allocator_positions)
-    val allocated_names =
-      map
-        (fn (_, Free (name, _)) => name
-          | _ =>
-              error
-                "closure regression audit: allocator returned a non-Free formal")
-        allocated
+    fun is_constant name (Const (candidate, _)) = candidate = name
+      | is_constant _ _ = false
+    fun slot_bind (Const (bind_name, _) $ (Const (literal_name, _) $ slot) $ continuation) =
+          if bind_name = \<^const_name>\<open>Core_Expression.bind\<close> andalso
+             literal_name = \<^const_name>\<open>literal\<close>
+          then SOME (slot, continuation)
+          else NONE
+      | slot_bind _ = NONE
+    fun strip_tuple_abstraction (Const (name, _) $ Abs (_, _, body)) =
+          if name = \<^const_name>\<open>case_prod\<close>
+          then strip_tuple_abstraction body
+          else error "closure regression audit: tuple destructuring shape changed"
+      | strip_tuple_abstraction (Abs (_, _, body)) = body
+      | strip_tuple_abstraction term = term
+
+    val patterned =
+      checked
+        "|first, (second, third), whole @ fourth| \<epsilon>\<open>closure_audit_marker\<close>"
+    val (patterned_formals, patterned_body) =
+      Term.strip_abs (closure_payload patterned)
     val _ =
-      audit_assert "closure allocator reused a formal identity"
-        (length (distinct (op =) allocated_names) = 3)
+      audit_assert "pattern formals did not produce one abstraction per formal"
+        (map #1 patterned_formals = ["first", "formal", "formal"])
     val _ =
-      audit_assert "closure allocator did not preserve source order and spelling"
-        (map #1 allocated = ["first", "second", "first"])
+      audit_assert "pattern formals did not lower to exactly one FunctionBody"
+        (count_constant \<^const_name>\<open>FunctionBody\<close> patterned = 1)
     val _ =
-      audit_assert "later duplicate did not win in the final environment"
-        (case URust_Resolution.lookup_local
-            allocated_environment "first" of
-           SOME selected => Term.aconv (selected, #2 (List.last allocated))
-         | NONE => false)
+      audit_assert "pattern-formal closure body was lowered more than once"
+        (count_constant \<^const_name>\<open>closure_audit_marker\<close> patterned = 1)
+    val _ =
+      (case patterned_body of
+         function_body $ destructured =>
+           (audit_assert "pattern formals were destructured outside FunctionBody"
+              (is_constant \<^const_name>\<open>FunctionBody\<close> function_body);
+            case slot_bind destructured of
+              SOME (Bound 1, tuple_continuation) =>
+                (audit_assert "tuple formal did not destructure through case_prod"
+                   (is_constant \<^const_name>\<open>case_prod\<close>
+                     (Term.head_of tuple_continuation));
+                 (* Below the tuple's second, third and TNil binders, the alias slot is Bound 3. *)
+                 case slot_bind (strip_tuple_abstraction tuple_continuation) of
+                   SOME (Bound 3, _) => ()
+                 | _ =>
+                     error
+                       "closure regression audit: the alias formal is not destructured inside the tuple formal")
+            | _ =>
+                error
+                  "closure regression audit: the first pattern formal is not destructured outermost")
+       | _ =>
+           error "closure regression audit: pattern-formal closure lost its FunctionBody")
+
+    val formal_list =
+      (case parse_text "|first, (second, _), _| first" of
+         UE_Closure (formals, _, _) => formals
+       | _ => error "closure regression audit: formal-list AST changed")
+    val prepared =
+      URust_Patterns.prepare_closure_formals ctxt
+        URust_Resolution.empty_environment formal_list
+    val prepared_environment =
+      URust_Patterns.closure_formals_environment prepared
+    val _ =
+      audit_assert "closure formal environment lost a binder"
+        (is_some (URust_Resolution.lookup_local prepared_environment "first") andalso
+         is_some (URust_Resolution.lookup_local prepared_environment "second"))
+    val _ =
+      audit_assert "a wildcard formal entered the closure environment"
+        (is_none (URust_Resolution.lookup_local prepared_environment "_"))
+    val prepared_marker = Free ("closure_prepared_marker", dummyT)
+    val prepared_abstractions =
+      URust_Patterns.closure_formal_abstractions prepared
+    val _ =
+      audit_assert "prepared formals did not yield one abstraction per formal"
+        (length prepared_abstractions = 3)
+    val prepared_destructured =
+      URust_Patterns.destructure_closure_formals prepared prepared_marker
+    val _ =
+      (case slot_bind prepared_destructured of
+         SOME (slot as Free _, _) =>
+           (audit_assert "the tuple slot entered the closure environment"
+              (not (exists
+                (fn name =>
+                  (case URust_Resolution.lookup_local prepared_environment name of
+                     SOME local_term => local_term aconv slot
+                   | NONE => false))
+                ["first", "second"]));
+            audit_assert "the tuple slot is not abstracted by its formal"
+              (not (Term.exists_subterm (fn term => term aconv slot)
+                (fold_rev (fn abstraction => abstraction) prepared_abstractions
+                  prepared_destructured))))
+       | _ =>
+           error "closure regression audit: a tuple formal did not destructure its own slot")
+    val duplicate_formal_list =
+      (case parse_text "|first, (second, first)| first" of
+         UE_Closure (formals, _, _) => formals
+       | _ => error "closure regression audit: duplicate formal-list AST changed")
+    val duplicate_preparation =
+      (ignore
+        (URust_Patterns.prepare_closure_formals ctxt
+          URust_Resolution.empty_environment duplicate_formal_list);
+       NONE)
+      handle ERROR message => SOME message
+    val _ =
+      (case duplicate_preparation of
+         SOME message =>
+           audit_assert "joint formal validation reported the wrong error"
+             (String.isSubstring "duplicate pattern binder \"first\"" message)
+       | NONE =>
+           error "closure regression audit: a binder repeated across formals was allocated")
 
     val resolved_dispatch =
       checked "|closureRole| closureRole(\<llangle>1 :: nat\<rrangle>)"
@@ -4835,9 +4940,13 @@ ML_val\<open>
     val ordinary_text = "|alpha| alpha"
     val ordinary_start =
       Position.make0 11 40 400 "" "" "closure-markup-ordinary"
-    val duplicate_text = "|dup, dup| dup"
+    val pattern_text =
+      "|(left, _), whole @ [rest @ ..]| (left, whole, rest)"
+    val pattern_start =
+      Position.make0 13 50 500 "" "" "closure-markup-pattern"
+    val duplicate_text = "|dup, (other, dup)| dup"
     val duplicate_start =
-      Position.make0 13 50 500 "" "" "closure-markup-duplicate"
+      Position.make0 15 55 550 "" "" "closure-markup-duplicate"
     val nested_text =
       "|outer| (|inner| if true { outer } else { inner })"
     val nested_start =
@@ -4861,7 +4970,28 @@ ML_val\<open>
                     text start)) ())
           ())
     val _ = capture_elaboration ordinary_text ordinary_start
-    val _ = capture_elaboration duplicate_text duplicate_start
+    val _ = capture_elaboration pattern_text pattern_start
+    val _ =
+      (ignore (capture_elaboration duplicate_text duplicate_start);
+       error "closure regression audit: a repeated formal binder was accepted")
+      handle ERROR message =>
+        if String.isSubstring "duplicate pattern binder" message then ()
+        else error ("closure regression audit: wrong duplicate diagnostic: " ^ message)
+    val navigation_text = "|whole @ (left, right), [rest @ ..]| left"
+    val navigation_start =
+      Position.make0 21 80 800 "" "" "closure-markup-navigation"
+    val constructor_text = "|first, None| first"
+    val constructor_start =
+      Position.make0 23 90 900 "" "" "closure-markup-constructor"
+    val _ = capture_elaboration navigation_text navigation_start
+    val _ =
+      (ignore (capture_elaboration constructor_text constructor_start);
+       error "closure regression audit: a constructor-spelled formal was accepted")
+      handle ERROR message =>
+        if String.isSubstring
+            "unsupported or refutable pattern in a closure formal position" message
+        then ()
+        else error ("closure regression audit: wrong constructor diagnostic: " ^ message)
     val _ = capture_elaboration nested_text nested_start
     val _ = capture_elaboration shadow_text shadow_start
 
@@ -4921,29 +5051,120 @@ ML_val\<open>
         "ordinary closure formal"
         ordinary_definition ordinary_reference
 
-    val (duplicate_first_offset, duplicate_first_definition) =
-      token_position duplicate_text duplicate_start "dup" 0
-    val (duplicate_second_offset, duplicate_second_definition) =
-      token_position duplicate_text duplicate_start "dup"
-        (duplicate_first_offset + size "dup")
-    val (_, duplicate_reference) =
-      token_position duplicate_text duplicate_start "dup"
-        (duplicate_second_offset + size "dup")
-    val duplicate_first_id =
-      entity_id Markup.defN duplicate_first_definition
-    val duplicate_second_id =
-      entity_id Markup.defN duplicate_second_definition
+    fun audit_pattern_binder name =
+      let
+        val (definition_offset, definition) =
+          token_position pattern_text pattern_start name 0
+        val body_offset = find_from pattern_text "| (" 0
+        val (_, reference) =
+          token_position pattern_text pattern_start name
+            (Int.max (body_offset, definition_offset + size name))
+      in
+        audit_navigation ("pattern closure formal " ^ quote name) definition reference
+      end
+    val _ = List.app audit_pattern_binder ["left", "whole", "rest"]
+    val (_, pattern_wildcard) =
+      token_position pattern_text pattern_start "_" 0
     val _ =
-      audit_assert "duplicate formal definitions reused an entity ID"
-        (duplicate_first_id <> duplicate_second_id)
+      audit_assert "tuple-formal wildcard lost its typing report"
+        (exists
+          (fn (name, properties) =>
+            name = Markup.typingN andalso has_position properties pattern_wildcard)
+          markup)
+    (* Capture is process-wide, so absence is checked only for reports from this source. *)
     val _ =
-      audit_navigation
-        "duplicate closure formal"
-        duplicate_second_definition duplicate_reference
+      audit_assert "a rejected formal list reported a binder"
+        (not (exists
+          (fn (name, properties) =>
+            name = Markup.boundN andalso
+            Properties.get properties Markup.idN = Position.id_of duplicate_start)
+          markup))
     val _ =
-      audit_assert "duplicate body reference targeted the first formal"
-        (entity_id Markup.refN duplicate_reference <>
-          duplicate_first_id)
+      audit_assert "a rejected constructor-spelled formal list reported a binder or entity"
+        (not (exists
+          (fn (name, properties) =>
+            (name = Markup.boundN orelse name = Markup.entityN) andalso
+            Properties.get properties Markup.idN = Position.id_of constructor_start)
+          markup))
+
+    (* The bars target only FunctionBody; the generated slot destructuring has no source token,
+       while aliases and slice punctuation keep their shared bind targets. *)
+    fun constant_targets start position =
+      markup
+      |> map_filter
+          (fn (name, properties) =>
+            if name = Markup.entityN andalso
+               Properties.get properties Markup.kindN = SOME "constant" andalso
+               Properties.get properties Markup.idN = Position.id_of start andalso
+               has_position properties position
+            then Properties.get properties Markup.nameN
+            else NONE)
+      |> distinct (op =)
+    val function_body_name = \<^const_name>\<open>FunctionBody\<close>
+    val bind_name = \<^const_name>\<open>Core_Expression.bind\<close>
+    val (_, opening_bar) =
+      token_position navigation_text navigation_start "|" 0
+    val (_, closing_bar) =
+      token_position navigation_text navigation_start "|" 1
+    val (_, alias_operator) =
+      token_position navigation_text navigation_start "@" 0
+    val (_, slice_opening) =
+      token_position navigation_text navigation_start "[" 0
+    val _ =
+      List.app
+        (fn bar =>
+          audit_assert "a closure bar acquired a target other than FunctionBody"
+            (constant_targets navigation_start bar = [function_body_name]))
+        [opening_bar, closing_bar]
+    val _ =
+      audit_assert "an alias inside a closure formal lost its bind target"
+        (member (op =) (constant_targets navigation_start alias_operator) bind_name)
+    val _ =
+      audit_assert "slice punctuation inside a closure formal lost its bind target"
+        (constant_targets navigation_start slice_opening = [bind_name])
+
+    (* Formal diagnostics are positioned at the formal, or at the repeated and original binders. *)
+    fun error_positions text start =
+      let
+        val outcome =
+          Print_Mode.with_modes [Print_Mode.PIDE]
+            (fn () =>
+              (ignore
+                (Parser_Test_Elaboration.expression ctxt
+                  (Parser_Lex_Util.positioned_content_source text start));
+               NONE)
+              handle ERROR message => SOME message) ()
+      in
+        (case outcome of
+           SOME message =>
+             fold collect_markup (YXML.parse_body message) []
+             |> map_filter
+                 (fn (name, properties) =>
+                   if name = Markup.positionN then SOME properties else NONE)
+         | NONE =>
+             error ("closure regression audit: " ^ quote text ^ " was accepted"))
+      end
+    fun audit_error_position (text, needles) =
+      let
+        val start = Position.make0 25 1000 10000 "" "" "closure-error-positions"
+        val positions = error_positions text start
+      in
+        List.app
+          (fn (needle, offset) =>
+            audit_assert
+              ("diagnostic for " ^ quote text ^ " is not positioned at " ^ quote needle)
+              (exists
+                (fn properties =>
+                  has_position properties (#2 (token_position text start needle offset)))
+                positions))
+          needles
+      end
+    val _ =
+      List.app audit_error_position
+        [("|first, None| first", [("None", 0)]),
+         ("|u64::MAX| ()", [("u64::MAX", 0)]),
+         ("|first, Some(second)| first", [("Some", 0)]),
+         ("|dup, (other, dup)| dup", [("dup", 0), ("dup", 2)])]
 
     val (nested_outer_offset, nested_outer_definition) =
       token_position nested_text nested_start "outer" 0
@@ -4994,7 +5215,7 @@ ML_val\<open>
   in
     val _ =
       writeln
-        "Closure AST, lowering, allocator, dispatch, and markup regressions passed"
+        "Closure AST, lowering, formal preparation, dispatch, and markup regressions passed"
 end
 \<close>
 
@@ -7823,8 +8044,8 @@ ML_val\<open>
     val occurrence_start = Position.symbol_explode "lexicalDispatch " start
     val occurrence = Position.range_position
       (occurrence_start, Position.symbol_explode "lexicalDispatch" occurrence_start)
-    val (_, environment) =
-      URust_Resolution.allocate_closure_formals ctxt
+    val environment =
+      URust_Resolution.allocate_locals ctxt
         URust_Resolution.empty_environment [("lexicalDispatch", binder)]
     val selected = the (URust_Resolution.lookup_local environment "lexicalDispatch")
     val _ =

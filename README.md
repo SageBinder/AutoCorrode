@@ -514,8 +514,13 @@ and compose inside lists, constructors, tuples, and struct fields.
 
 Ordinary `let` and `for` bindings support aliases of irrefutable patterns, including chained
 aliases, tuples, and rest-only lists such as `let whole @ [rest @ ..] = values;`.
+Closure formals accept the same patterns, as in `|(width, height)| width * height`: a formal
+other than a name or `_` is destructured inside the closure body exactly as
+`let PATTERN = formal;` would, and one formal list may bind each name only once. As at `for`,
+a formal spelled as a known constructor is a constructor pattern, so `|None| e` is rejected as
+refutable.
 List patterns requiring elements remain refutable and are rejected at these binding sites.
-Mutable bindings, closure formals, local `const`, and reference binding modes retain their existing
+Mutable bindings, local `const`, and reference binding modes retain their existing
 restrictions. Rest binders must be direct names; `_ @ ..`, grouped rest aliases, and chained rest
 aliases are rejected.
 

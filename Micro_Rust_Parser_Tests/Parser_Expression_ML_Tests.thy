@@ -1363,6 +1363,11 @@ ML_val\<open>
         "l\<llangle>\"value \", item\<rrangle>",
         "|| value",
         "|left, right| left + right",
+        "|(left, right)| left + right",
+        "|item, (left, (right, _))| item",
+        "|whole @ (left, right)| left",
+        "|[rest @ ..]| rest",
+        "|_| value",
         "let item = value; item",
         "let mut item = value; item",
         "const item = value; item",
@@ -1489,6 +1494,10 @@ ML_val\<open>
       assert "human mode omitted a precedence-required group"
         (render URust_Printer.human_options "(1 + 2) * 3" =
           "(1 + 2) * 3")
+    val _ =
+      assert "human mode omitted the group around an or-pattern closure formal"
+        (render URust_Printer.human_options "|(left | right)| left" =
+          "|(left | right)| left")
     val _ =
       assert "right-nested subtraction lost grouping"
         (render URust_Printer.human_options "1 - (2 - 3)" =

@@ -1882,6 +1882,7 @@ yacc_definitions\<open>
        | uexpr of URust_AST.ur_expr
        | uclosure of URust_AST.ur_expr
        | uclosure_formals of URust_AST.ur_pat list
+       | uclosure_formal of URust_AST.ur_pat
        | uassign of URust_AST.ur_expr
        | uassignop of URust_AST.assignop * Position.T
        | urange of URust_AST.ur_expr
@@ -2380,16 +2381,15 @@ yacc_rules\<open>
                    syntax_layout TBAR1left uexprright
                      [(Operator_Token, TBAR1left),
                       (Operator_Token, TBAR2left)]))
-  (* Closure formals share the pattern representation, but this grammar accepts identifier spellings
-     only. mk_bare_ident_pat normalizes `_` to P_Wild so the closure-formal elaboration gate can issue
-     the positioned semantic rejection. Repeated identifiers and arbitrarily long lists are retained. *)
-  uclosure_formals : IDENT
-                       ([mk_bare_path_pat
-                           (make_single_path (IDENT, IDENTleft))])
-                   | IDENT COMMA uclosure_formals
-                       (mk_bare_path_pat
-                          (make_single_path (IDENT, IDENTleft)) ::
-                          uclosure_formals)
+  (* Closure formals are Rust's PatternNoTopAlt: the shared pattern grammar below its top-level
+     or-production, so the closing bar never competes with an or-pattern bar. Grouped or-patterns remain
+     grammatical. URust_Patterns validates each formal, rejects repeated binders across the list and
+     rejects refutable shapes with a position. Arbitrarily long lists are retained. *)
+  uclosure_formals : uclosure_formal
+                       ([uclosure_formal])
+                   | uclosure_formal COMMA uclosure_formals
+                       (uclosure_formal :: uclosure_formals)
+  uclosure_formal : upat_alias      (upat_alias)
   (* Assignment is structurally right-associative and ranges are structurally non-associative.
      Binary precedence and associativity come from the declarations above. *)
   uassign : urange (urange)

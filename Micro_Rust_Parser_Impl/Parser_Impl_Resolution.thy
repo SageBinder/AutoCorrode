@@ -20,11 +20,6 @@ sig
       environment ->
       (string * Position.T) list ->
       environment
-  val allocate_closure_formals:
-    Proof.context ->
-      environment ->
-      (string * Position.T) list ->
-      (string * term) list * environment
   val allocate_expression_arguments:
     Proof.context ->
       environment ->
@@ -158,10 +153,8 @@ ML\<open>
   - environment is an abstract, immutable lexical scope. empty_environment has no locals.
     allocate_locals accepts source-name/definition-position pairs, rejects duplicate names within its
     input before allocating any of them, then extends the supplied scope with fresh dummy-typed locals
-    while reporting their definitions. allocate_closure_formals instead permits repeated names,
-    allocates one distinct Free per source formal in source order, and returns each Free paired with
-    its source spelling, for use as the abstraction name, together with the final environment in
-    which each later repeated name shadows its predecessors.
+    while reporting their definitions. Closure formals use it for the binders of their complete
+    formal list.
     allocate_expression_arguments and allocate_function_parameters reject duplicate named
     parameters through the same validation path. Named slots allocate the supplied type, enter the
     lexical environment with direct-call precedence, and return a source-ordered Term.lambda_name
@@ -349,15 +342,6 @@ struct
       fun allocate binding env =
         #2 (bind_ordinary_local ctxt env binding)
     in fold allocate signatures environment end
-
-  fun allocate_closure_formals ctxt environment signatures =
-    let
-      fun allocate [] env formals = (rev formals, env)
-        | allocate ((formal as (name, _)) :: rest) env formals =
-            let
-              val (free, env') = bind_ordinary_local ctxt env formal
-            in allocate rest env' ((name, free) :: formals) end
-    in allocate signatures environment [] end
 
   fun allocate_parameters command role ctxt environment parameters =
     let

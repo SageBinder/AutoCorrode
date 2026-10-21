@@ -477,9 +477,9 @@ end
       complete primitive-log span.
       UE_LogData retains a nonempty source-ordered entry list and its complete opener-through-closer
       span.
-      UE_Closure retains ordered pattern-shaped formals and the full closure span; its grammar admits
-      only identifier spellings, while the closure-formal lowering gate rejects the normalized
-      wildcard.
+      UE_Closure retains ordered formal patterns and the full closure span; its grammar admits any
+      pattern without a top-level or-alternative, and closure-formal preparation rejects the
+      unsupported, refutable and repeated-binder cases.
       UE_IfLet retains an optional source else branch; UE_LetElse retains its fallback and required
       continuation separately. A UE_Return never stores a semicolon; a method invocation is
       represented as UC_Method and prepended during lowering; UC_Antiq retains the exact positioned
@@ -530,7 +530,7 @@ end
   "invalid assignment target" error. mk_tuple_projection accepts only canonical unsuffixed decimal
   indices 0 through 15 and reports every other numeric token at that token's position.
   finish_statement leaves a terminal UE_Return unchanged and otherwise sequences the expression with
-  UE_Unit at the semicolon. mk_bare_ident_pat normalises "_"
+  UE_Unit at the semicolon. mk_bare_path_pat normalises "_"
   to P_Wild; the other pattern smart constructors consume ordinary (name, position) pairs without a
   parser-only wrapper datatype. Grammar actions construct every layout from the symbol-counted token
   ranges supplied by Parser_Lex_Util; smart constructors preserve those layouts while checking AST

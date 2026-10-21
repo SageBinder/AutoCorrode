@@ -536,6 +536,15 @@ urust_expr_rejects \<open> use UseChoice::{self as Selection, Empty, Value as Pr
 
 urust_expr_rejects \<open> use demo::{Width as Word32, Short, Cell, Pointer}; 1u8 as Word32 \<close> \<open> no supported cast operation \<close>
 
+text\<open>
+Closure formals resolve generated constructors as \<open>for\<close> binders do: an imported unit variant is a
+refutable formal, and an unimported generated variant basename requires its exact item path.
+\<close>
+
+urust_expr_rejects \<open> use UseChoice::Empty; |Empty| () \<close> \<open> unsupported or refutable pattern in a closure formal position \<close>
+
+urust_expr_rejects \<open> |Empty| () \<close> \<open> generated Rust constructor pattern "Empty" requires an exact item path \<close>
+
 subsection\<open> Locales, experiments and interpretation \<close>
 
 locale use_command_locale =

@@ -1852,22 +1852,6 @@ urust_expr_rejects
   \<comment> \<open> [FIDELITY] a second reserved-word boundary exercises a control keyword. \<close>
 
 urust_expr_rejects
-  \<open> |_| true \<close>
-  \<open> closure formal must be an identifier \<close>
-  \<comment> \<open> [FIDELITY] `_` is normalized to the shared wildcard node and rejected by the
-       closure-formal gate. \<close>
-
-urust_expr_rejects
-  \<open> |(x)| x \<close>
-  \<open> syntax error \<close>
-  \<comment> \<open> [FIDELITY] grouped patterns are not closure formals. \<close>
-
-urust_expr_rejects
-  \<open> |Some(x)| x \<close>
-  \<open> syntax error \<close>
-  \<comment> \<open> [FIDELITY] constructor patterns are not closure formals. \<close>
-
-urust_expr_rejects
   \<open> |mut x| x \<close>
   \<open> syntax error \<close>
   \<comment> \<open> [FIDELITY] Rust mutable-formal syntax is outside the closure subset. \<close>
@@ -1899,6 +1883,118 @@ Semicolon-free return expressions and nested closures are valid complete closure
 positive coverage lives in \<open>Parser_Syntax_Examples.thy\<close> and
 \<open>Parser_Syntax_ML_Tests.thy\<close>.
 \<close>
+
+subsection\<open> Pattern formals \<close>
+
+text\<open>
+Closure formals are irrefutable patterns without a top-level or-alternative. As in Rust, one formal
+list binds each name at most once, across formals as well as within one pattern; the binders of
+the complete list are validated before any is allocated.
+\<close>
+
+urust_expr_rejects
+  \<open> |x, x| x \<close>
+  \<open> duplicate pattern binder "x" \<close>
+  \<comment> \<open> [DIVERGENT] the legacy frontend let the later formal shadow; Rust rejects the
+       repeat (E0415). \<close>
+
+urust_expr_rejects
+  \<open> |x, x, x| x \<close>
+  \<open> duplicate pattern binder "x" \<close>
+  \<comment> \<open> [DIVERGENT] the first repeat is reported; no formal is allocated. \<close>
+
+urust_expr_rejects
+  \<open> |x, (x, y)| x \<close>
+  \<open> duplicate pattern binder "x" \<close>
+  \<comment> \<open> [AUDIT] a repeat inside a later pattern formal is a cross-formal repeat. \<close>
+
+urust_expr_rejects
+  \<open> |(a, b), b| a \<close>
+  \<open> duplicate pattern binder "b" \<close>
+  \<comment> \<open> [AUDIT] an identifier formal cannot repeat a binder of an earlier pattern formal. \<close>
+
+urust_expr_rejects
+  \<open> |(x, x)| x \<close>
+  \<open> duplicate pattern binder "x" \<close>
+  \<comment> \<open> [AUDIT] one tuple formal shares ordinary pattern validation. \<close>
+
+urust_expr_rejects
+  \<open> |x @ (x, y)| x \<close>
+  \<open> duplicate pattern binder "x" \<close>
+  \<comment> \<open> [AUDIT] an alias binder counts as a binder of its formal. \<close>
+
+urust_expr_rejects
+  \<open> |x, x, Some(y)| x \<close>
+  \<open> duplicate pattern binder "x" \<close>
+  \<comment> \<open> [AUDIT] as in Rust, a repeated binder is reported before a refutable formal. \<close>
+
+urust_expr_rejects
+  \<open> |Some(x)| x \<close>
+  \<open> unsupported or refutable pattern in a closure formal position \<close>
+  \<comment> \<open> [FIDELITY] constructor patterns are refutable closure formals. \<close>
+
+urust_expr_rejects
+  \<open> |None| () \<close>
+  \<open> unsupported or refutable pattern in a closure formal position \<close>
+  \<comment> \<open> [DIVERGENT] as at \<open>for\<close>, a known nullary constructor is resolved before binder
+       classification; the legacy frontend bound a variable, while Rust rejects it (E0005). \<close>
+
+urust_expr_rejects
+  \<open> |(None, x)| x \<close>
+  \<open> unsupported or refutable pattern in a closure formal position \<close>
+  \<comment> \<open> [AUDIT] nested constructor spellings resolve the same way (Rust E0005). \<close>
+
+urust_expr_rejects
+  \<open> |whole @ None| whole \<close>
+  \<open> unsupported or refutable pattern in a closure formal position \<close>
+  \<comment> \<open> [AUDIT] an alias does not make a refutable constructor irrefutable (Rust E0005). \<close>
+
+urust_expr_rejects
+  \<open> |Some| () \<close>
+  \<open> constructor "Some" expects 1 pattern argument(s) \<close>
+  \<comment> \<open> [AUDIT] an n-ary constructor spelling is not a binder (Rust E0530). \<close>
+
+urust_expr_rejects
+  \<open> |TNil| () \<close>
+  \<open> unsupported or refutable pattern in a closure formal position \<close>
+  \<comment> \<open> [DIVERGENT] binding sites do not yet treat the constructor of a single-constructor
+       type as irrefutable, so this matches \<open>for\<close>; Rust accepts unit-struct formals. \<close>
+
+urust_expr_rejects
+  \<open> |1| () \<close>
+  \<open> unsupported or refutable pattern in a closure formal position \<close>
+  \<comment> \<open> [FIDELITY] a literal formal is refutable. \<close>
+
+urust_expr_rejects
+  \<open> |(x | x)| x \<close>
+  \<open> unsupported or refutable pattern in a closure formal position \<close>
+  \<comment> \<open> [FIDELITY] a grouped or-pattern parses, but binding sites do not lower
+       or-patterns. \<close>
+
+urust_expr_rejects
+  \<open> |[a, b]| () \<close>
+  \<open> unsupported or refutable pattern in a closure formal position \<close>
+  \<comment> \<open> [FIDELITY] a fixed-length slice formal is refutable. \<close>
+
+urust_expr_rejects
+  \<open> |[first, rest @ ..]| () \<close>
+  \<open> unsupported or refutable pattern in a closure formal position \<close>
+  \<comment> \<open> [FIDELITY] only a rest-only slice is irrefutable. \<close>
+
+urust_expr_rejects
+  \<open> |x, Some(y)| x \<close>
+  \<open> unsupported or refutable pattern in a closure formal position \<close>
+  \<comment> \<open> [AUDIT] a later refutable formal rejects the complete list. \<close>
+
+urust_expr_rejects
+  \<open> |&x| x \<close>
+  \<open> reference patterns are not implemented \<close>
+  \<comment> \<open> [FIDELITY] closure formals share the binding-site reference restriction. \<close>
+
+urust_expr_rejects
+  \<open> |_ @ x| x \<close>
+  \<open> alias pattern binder cannot be `_` \<close>
+  \<comment> \<open> [FIDELITY] alias validation is shared with every pattern site. \<close>
 
 subsection\<open> Bare placement and invocation \<close>
 

@@ -1287,10 +1287,10 @@ section\<open>Second-class closures\<close>
 text\<open>
 Closures retain the frontend's priority-20 body boundary and lower to one literal-wrapped
 HOL abstraction around one \<open>FunctionBody\<close>. Formal allocation is independent of call
-arity: repeated names are legal, and each later occurrence shadows its predecessors.
+arity. As in Rust, a binder may occur only once in one formal list; formals shadow outer locals.
 \<close>
 
-subsection\<open>Formal lists, body forms, and shadowing\<close>
+subsection\<open>Formal lists and body forms\<close>
 
 urust_expr closure_zero_formals
   \<open> || \<llangle>1 :: nat\<rrangle> \<close>
@@ -1300,12 +1300,6 @@ urust_expr closure_one_formal
 
 urust_expr closure_two_formals
   \<open> |x, y| \<llangle>(x :: nat) + y\<rrangle> \<close>
-
-urust_expr closure_duplicate_formals
-  \<open> |x, x| \<llangle>x :: bool\<rrangle> \<close>
-
-urust_expr closure_triplicate_formals
-  \<open> |x, x, x| \<llangle>x :: 32 word\<rrangle> \<close>
 
 urust_expr closure_heterogeneous_formals
   \<open> |number, flag, word| \<llangle>(number :: nat, flag :: bool, word :: 32 word)\<rrangle> \<close>
@@ -1359,7 +1353,7 @@ urust_expr  closure_returning_closure
 urust_expr closure_outer_capture
   \<open>
     let outer = \<llangle>3 :: nat\<rrangle>;
-    |x, x| \<llangle>outer + x\<rrangle>
+    |x| \<llangle>outer + x\<rrangle>
   \<close>
 
 subsection\<open>Antiquotation capture from every binder family\<close>
@@ -1469,6 +1463,160 @@ urust_expr closure_capture_expression_antiquotation
       |formal| \<epsilon>\<open>literal (outer + formal)\<close>
     )
   \<close>
+
+subsection\<open>Pattern formals\<close>
+
+text\<open>
+A formal other than an identifier or \<open>_\<close> abstracts one value slot and destructures it inside
+\<open>FunctionBody\<close> exactly as \<open>let PATTERN = slot;\<close> would, first formal outermost. Identifiers and
+wildcards abstract directly, and a grouped name is an identifier.
+\<close>
+
+definition closure_invoke_triple ::
+    \<open>nat \<times> nat \<times> nat \<times> tnil \<Rightarrow>
+      (nat \<times> nat \<times> nat \<times> tnil \<Rightarrow> (unit, nat, unit, unit, unit) function_body) \<Rightarrow>
+      (unit, nat, unit, unit, unit) function_body\<close>
+  where \<open> closure_invoke_triple value closure \<equiv> closure value \<close>
+
+definition closure_invoke_mixed ::
+    \<open>nat \<Rightarrow> nat \<times> (nat \<times> nat \<times> tnil) \<times> tnil \<Rightarrow>
+      (nat \<Rightarrow> nat \<times> (nat \<times> nat \<times> tnil) \<times> tnil \<Rightarrow>
+        (unit, nat, unit, unit, unit) function_body) \<Rightarrow>
+      (unit, nat, unit, unit, unit) function_body\<close>
+  where \<open> closure_invoke_mixed first second closure \<equiv> closure first second \<close>
+
+urust_expr closure_tuple_formal
+  \<open> |(a, b, c)| \<llangle>(a :: nat) + b + c\<rrangle> \<close>
+
+urust_expr closure_nested_tuple_formal
+  \<open> |(a, (b, c))| \<llangle>(a :: nat) + b + c\<rrangle> \<close>
+
+urust_expr closure_tuple_wildcard_formal
+  \<open> |(_, second)| \<llangle>second :: nat\<rrangle> \<close>
+
+urust_expr closure_wildcard_formal
+  \<open> |_| \<llangle>1 :: nat\<rrangle> \<close>
+
+urust_expr closure_wildcard_formals
+  \<open> |_, x, _| \<llangle>x :: nat\<rrangle> \<close>
+
+urust_expr closure_grouped_formal
+  \<open> |(x)| \<llangle>x :: nat\<rrangle> \<close>
+
+urust_expr closure_mixed_formals
+  \<open> |x, (y, z)| \<llangle>(x :: nat) + y + z\<rrangle> \<close>
+
+urust_expr closure_tuple_formal_list
+  \<open> |(a, b), (c, d)| \<llangle>(a :: nat) + b + c + d\<rrangle> \<close>
+
+urust_expr closure_tuple_formal_block_body
+  \<open> |(a, b)| { let sum = \<llangle>(a :: nat) + b\<rrangle>; sum } \<close>
+
+urust_expr closure_tuple_formal_desugared
+  \<open> |slot| { let (a, b, c) = slot; \<llangle>(a :: nat) + b + c\<rrangle> } \<close>
+
+urust_expr closure_tuple_formal_list_desugared
+  \<open>
+    |first, second| {
+      let (a, b) = first;
+      let (c, d) = second;
+      \<llangle>(a :: nat) + b + c + d\<rrangle>
+    }
+  \<close>
+
+urust_expr closure_grouped_formal_identifier
+  \<open> |x| \<llangle>x :: nat\<rrangle> \<close>
+
+lemma \<open> closure_tuple_formal = closure_tuple_formal_desugared \<close>
+  unfolding closure_tuple_formal_def closure_tuple_formal_desugared_def by (rule refl)
+
+lemma \<open> closure_tuple_formal_list = closure_tuple_formal_list_desugared \<close>
+  unfolding closure_tuple_formal_list_def closure_tuple_formal_list_desugared_def by (rule refl)
+
+lemma \<open> closure_grouped_formal = closure_grouped_formal_identifier \<close>
+  unfolding closure_grouped_formal_def closure_grouped_formal_identifier_def by (rule refl)
+
+urust_expr closure_tuple_formal_capture
+  \<open>
+    let outer = \<llangle>2 :: nat\<rrangle>;
+    closure_invoke_triple((1, 2, 3), |(a, b, c)| \<llangle>outer + a + b + c\<rrangle>)
+  \<close>
+
+urust_expr closure_tuple_formal_shadows_outer
+  \<open>
+    let a = \<llangle>100 :: nat\<rrangle>;
+    closure_invoke_triple((1, 2, 3), |(a, b, c)| \<llangle>a + b + c\<rrangle>)
+  \<close>
+
+urust_expr closure_tuple_formal_inner_shadow
+  \<open>
+    closure_invoke_triple((1, 2, 3), |(a, b, c)| {
+      let a = \<llangle>10 :: nat\<rrangle>;
+      \<llangle>a + b + c\<rrangle>
+    })
+  \<close>
+
+urust_expr closure_nested_closure_reuses_formal
+  \<open>
+    closure_invoke_triple((1, 2, 3), |(a, b, c)|
+      closure_invoke_nat(a, |a| \<llangle>10 * a + b + c\<rrangle>))
+  \<close>
+
+urust_expr closure_mixed_formals_invoked
+  \<open>
+    closure_invoke_mixed(1, (2, (3, 4)), |w, (x, (y, z))| \<llangle>w + 2 * x + 3 * y + 4 * z\<rrangle>)
+  \<close>
+
+urust_expr closure_tuple_wildcard_invoked
+  \<open> closure_invoke_triple((1, 2, 3), |(_, b, _)| \<llangle>b\<rrangle>) \<close>
+
+lemma closure_pattern_formal_results:
+  \<open>closure_tuple_formal_capture = literal 8\<close>
+  \<open>closure_tuple_formal_shadows_outer = literal 6\<close>
+  \<open>closure_tuple_formal_inner_shadow = literal 15\<close>
+  \<open>closure_nested_closure_reuses_formal = literal 15\<close>
+  \<open>closure_mixed_formals_invoked = literal 30\<close>
+  \<open>closure_tuple_wildcard_invoked = literal 2\<close>
+  by (simp_all add: closure_tuple_formal_capture_def closure_tuple_formal_shadows_outer_def
+      closure_tuple_formal_inner_shadow_def closure_nested_closure_reuses_formal_def
+      closure_mixed_formals_invoked_def closure_tuple_wildcard_invoked_def
+      closure_invoke_triple_def closure_invoke_nat_def closure_invoke_mixed_def micro_rust_simps)
+
+text\<open>
+Destructuring happens inside \<open>FunctionBody\<close>, so a \<open>return\<close> in the body leaves the closure
+after its pattern formals are bound.
+\<close>
+
+urust_expr closure_tuple_formal_return
+  \<open>
+    closure_invoke_triple((1, 2, 3), |(a, b, c)| {
+      if a == 1 {
+        return \<llangle>b + c\<rrangle>;
+      }
+      \<llangle>a\<rrangle>
+    })
+  \<close>
+
+lemma closure_tuple_formal_return_result:
+  \<open> evaluate closure_tuple_formal_return () = Success 5 () \<close>
+  by (simp add: closure_tuple_formal_return_def closure_invoke_triple_def micro_rust_simps
+      two_armed_conditional_def evaluate_call_function_body evaluate_def return_func_def
+      return_val_def literal_def sequence_def Core_Expression.bind.simps urust_eq_def call_def
+      Core_Expression.call_function_body.simps)
+
+text\<open>
+Formals resolve known constructors as \<open>for\<close> binders do; any other spelling, including the name of
+a HOL constant, is a fresh binder with the identifier-formal term.
+\<close>
+
+urust_expr closure_hol_constant_formal
+  \<open> |closure_invoke_nat| \<llangle>closure_invoke_nat + 1 :: nat\<rrangle> \<close>
+
+urust_expr closure_hol_constant_formal_control
+  \<open> |x| \<llangle>x + 1 :: nat\<rrangle> \<close>
+
+lemma \<open> closure_hol_constant_formal = closure_hol_constant_formal_control \<close>
+  unfolding closure_hol_constant_formal_def closure_hol_constant_formal_control_def by (rule refl)
 
 subsection\<open>Literal, function, method, and field resolution roles\<close>
 

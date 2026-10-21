@@ -1284,14 +1284,9 @@ fun expression_document options required expression =
            end
        | UE_Closure (formals, body, _) =>
            let
-             fun formal_document (P_Ident (name, _)) =
-                   identifier
-                     (require_identifier "closure formal" name)
-               | formal_document (P_Wild _) =
-                   identifier "_"
-               | formal_document _ =
-                   malformed
-                     "closure formals must be identifiers or wildcards"
+             (* Formals exclude a top-level or-pattern, which would otherwise read as a closing bar. *)
+             val formal_document =
+               pattern_document options pattern_alias_precedence
              val bars =
                if null formals
                then operator "||"

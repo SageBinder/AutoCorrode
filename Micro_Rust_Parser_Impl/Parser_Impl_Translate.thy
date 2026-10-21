@@ -232,20 +232,13 @@ struct
   fun lower_closure lower ctxt environment
       (formals, body, layout) =
     let
-      fun formal_signature (P_Ident formal) = formal
-        | formal_signature (P_Wild pos) =
-            error
-              ("urust_expr: closure formal must be an identifier" ^
-                Position.here pos)
-        | formal_signature _ =
-            error "urust_expr: internal non-identifier closure formal"
-      val signatures = map formal_signature formals
-      val (named_formals, body_environment) =
-        R.allocate_closure_formals ctxt environment signatures
-      val lowered_body = lower body_environment body
+      val prepared = P.prepare_closure_formals ctxt environment formals
+      val lowered_body = lower (P.closure_formals_environment prepared) body
+      (* As for `for`, destructuring stays outside the bars, whose only target is FunctionBody. *)
+      val destructured_body = P.destructure_closure_formals prepared lowered_body
     in
       with_token layout Operator_Token (fn () =>
-        T.closure named_formals lowered_body)
+        T.closure (P.closure_formal_abstractions prepared) destructured_body)
     end
 
   fun lower_repeat_length ctxt environment allow_sized length =
@@ -371,8 +364,8 @@ struct
     else ()
 
   (* Lexical scope is explicit: a let RHS uses the outer environment, while its body uses the exact
-     environment returned by pattern binding. Closure bodies use the final duplicate-permitting formal
-     environment, while every formal still contributes its own ordered abstraction. Case alternatives
+     environment returned by pattern binding. Closure bodies use the environment of their complete
+     formal list, while every formal still contributes its own ordered abstraction. Case alternatives
      follow the same rule independently. *)
   fun lower_expression ctxt environment expression =
     (case expression of

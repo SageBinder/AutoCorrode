@@ -10905,6 +10905,7 @@ ML_val\<open>
        | UE_Const (pattern, _, _, _) => pattern
        | UE_LetMut (pattern, _, _, _) => pattern
        | UE_Macro (_, MP_Matches (_, pattern), _) => pattern
+       | UE_Closure ([pattern], _, _) => pattern
        | _ => error "slice pattern syntax audit: unexpected consumer AST")
     val _ =
       List.app
@@ -10924,7 +10925,9 @@ ML_val\<open>
          "let whole @ outer @ ([tail @ ..], other) = \<llangle>undefined\<rrangle>; ()",
          "const [tail @ ..] = \<llangle>undefined\<rrangle>; ()",
          "let mut [tail @ ..] = \<llangle>undefined\<rrangle>; ()",
-         "matches!(\<llangle>undefined\<rrangle>, [tail @ ..,])"]
+         "matches!(\<llangle>undefined\<rrangle>, [tail @ ..,])",
+         "|[tail @ ..]| ()",
+         "|whole @ ([tail @ ..], other)| ()"]
 
     val _ =
       (case parse "let whole @ outer @ ([tail @ ..], other) = \<llangle>undefined\<rrangle>; ()" of
@@ -11267,6 +11270,9 @@ ML_val\<open>
          "for whole @ (item, _) in \<llangle>[(11 :: nat, (23 :: nat, TNil))]\<rrangle> " ^
            "{ let _ = item; () }",
          "|item| { let _ = item; () }",
+         "|(item, _)| { let _ = item; () }",
+         "|whole @ (item, _)| { let _ = item; () }",
+         "|[item @ ..]| { let _ = item; () }",
          "match Some(11) { Some(item) => { let _ = item; () }, _ => () }",
          "if let Some(item) = Some(11) { let _ = item; () } else { () }",
          "let Some(item) = Some(11) else { return 0; }; let _ = item; ()",
@@ -11441,8 +11447,9 @@ ML_val\<open>
          "match_case Some(11) { Some(item) if item == 0 => (), " ^
            "Some(item) => { let _ = item; () }, _ => () }"]
 
-    val closure_text = "|item, item| { let _ = item; () }"
-    val closure_start = Position.make0 52 1990 0 "" "" "repeated-closure-formals-markup"
+    (* One formal list cannot repeat a binder; a nested closure's list is independent. *)
+    val closure_text = "|item| (|item| { let _ = item; () })"
+    val closure_start = Position.make0 52 1990 0 "" "" "nested-closure-formals-markup"
     val closure_reports = capture closure_text closure_start
     val (closure_first_raw, closure_first) =
       token_position closure_text closure_start "item" 0
@@ -11451,7 +11458,7 @@ ML_val\<open>
     val (_, closure_use) =
       token_position closure_text closure_start "item" (closure_second_raw + size "item")
     val _ = List.app (assert_declaration closure_reports) [closure_first, closure_second]
-    val _ = assert "repeated formals reused their entity"
+    val _ = assert "nested closure formals reused their entity"
       (entity_id closure_reports Markup.defN closure_first <>
         entity_id closure_reports Markup.defN closure_second)
     val _ = assert_reference closure_reports closure_second closure_use

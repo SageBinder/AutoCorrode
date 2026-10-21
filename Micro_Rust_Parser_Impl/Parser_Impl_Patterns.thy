@@ -8,6 +8,7 @@ ML\<open>
 signature URUST_PATTERNS =
 sig
   type prepared_binding
+  type prepared_closure_formals
   type prepared_case_arm
 
   datatype case_compilation_mode =
@@ -29,6 +30,15 @@ sig
   val binding_environment: prepared_binding -> URust_Resolution.environment
   val binding_abstraction: prepared_binding -> term -> term
   val bind_prepared: prepared_binding -> term -> term -> term
+
+  val prepare_closure_formals:
+    Proof.context ->
+      URust_Resolution.environment ->
+      URust_AST.ur_pat list ->
+      prepared_closure_formals
+  val closure_formals_environment: prepared_closure_formals -> URust_Resolution.environment
+  val closure_formal_abstractions: prepared_closure_formals -> (term -> term) list
+  val destructure_closure_formals: prepared_closure_formals -> term -> term
 
   val select_match_flavour:
     Proof.context ->
@@ -121,6 +131,21 @@ ML\<open>
   `for`. bind_prepared takes an already-lowered outer-scope RHS and inner-scope body, performs any
   mutable scalar/wildcard allocation selected during preparation, and constructs the shallow bind.
   The caller lowers both expressions in those environments.
+
+  prepare_closure_formals prepares one closure formal list under the For_Binder contract: known
+  constructors are resolved before binder classification, as Rust resolves every parameter
+  pattern, and the same aliases and rest-only slices as Let_Binder are admitted. Every formal is
+  resolved and its own binders are validated; then a binder repeated anywhere in the list is
+  rejected, as Rust does for one parameter list (E0415); only then must each formal be directly
+  irrefutable. The binders of all formals are allocated together after these checks.
+  closure_formals_environment is the environment in which the caller must lower the closure body.
+  closure_formal_abstractions returns one source-ordered value abstraction per formal. An identifier
+  or `_` formal abstracts its own binder or an anonymous binder, exactly as an identifier-only
+  closure did. Every other formal abstracts a fresh value slot, and destructure_closure_formals binds
+  each such slot inside the closure body exactly as `let PATTERN = slot;` would, first formal
+  outermost. The caller wraps the destructured body in FunctionBody before applying the
+  abstractions. Function parameters still accept only identifiers and `_`; their first pattern form
+  should reuse this entry point.
 
   select_match_flavour keeps an explicit MF_Case or MF_Switch (rejecting switch guards) and
   resolves MF_Auto with classify_match; it never returns MF_Auto. The auto query is contextual only
@@ -838,6 +863,66 @@ struct
   fun binding_abstraction (Prepared_Binding {abstraction, ...}) = abstraction
   fun bind_prepared (Prepared_Binding {abstraction, rhs_wrapper, ...}) rhs body =
     T.bind (rhs_wrapper rhs) (abstraction body)
+
+  datatype prepared_closure_formals =
+    Prepared_Closure_Formals of
+      {environment: R.environment,
+       abstractions: (term -> term) list,
+       destructure: term -> term}
+
+  fun prepare_closure_formals ctxt environment formals =
+    let
+      fun resolve formal =
+        let
+          val resolver = R.make_constructor_resolver ctxt (position formal)
+          val (resolved, reports) =
+            resolve_pattern resolver ctxt Resolve_Constructor_Binding formal
+        in (resolved, reports, collect_bindings resolved) end
+      val resolved_formals = map resolve formals
+      (* Rust reports a repeated parameter binder before a refutable parameter pattern. *)
+      val signatures = validate_unique (maps #3 resolved_formals)
+      (* Reject refutable formals before allocating or reporting any local identity. *)
+      val _ =
+        List.app
+          (fn (resolved, _, _) =>
+            if directly_irrefutable true resolved then ()
+            else
+              error ("urust_expr: unsupported or refutable pattern in a closure formal position" ^
+                Position.here (resolved_position resolved)))
+          resolved_formals
+      val environment' = R.allocate_locals ctxt environment signatures
+      fun prepare (resolved, _, _) =
+        let
+          val abstraction =
+            (case direct_abstraction ctxt true true environment' resolved of
+               SOME abstraction => abstraction
+             | NONE =>
+                 error ("urust_expr: internal irrefutable closure formal without a direct" ^
+                   " abstraction" ^ Position.here (resolved_position resolved)))
+        in
+          (case resolved of
+             Resolved_Bind _ => (abstraction, I)
+           | Resolved_Wild _ => (abstraction, I)
+           | _ =>
+               let
+                 val slot = Free ("_urust_closure_formal_" ^ string_of_int (serial ()), dummyT)
+               in
+                 (Term.lambda_name ("formal", slot),
+                  fn body => T.bind (T.literal slot) (abstraction body))
+               end)
+        end
+      val prepared = map prepare resolved_formals
+      val _ = List.app (emit_semantic_reports o #2) resolved_formals
+    in
+      Prepared_Closure_Formals
+        {environment = environment',
+         abstractions = map #1 prepared,
+         destructure = fn body => fold_rev (fn (_, destructure) => destructure) prepared body}
+    end
+
+  fun closure_formals_environment (Prepared_Closure_Formals {environment, ...}) = environment
+  fun closure_formal_abstractions (Prepared_Closure_Formals {abstractions, ...}) = abstractions
+  fun destructure_closure_formals (Prepared_Closure_Formals {destructure, ...}) = destructure
 
   fun switch_keys resolver ctxt pattern =
     (case strip_groups pattern of
