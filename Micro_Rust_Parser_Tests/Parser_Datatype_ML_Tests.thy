@@ -6698,4 +6698,45 @@ ML_val\<open>
   end
 \<close>
 
+ML_val\<open>
+  local
+    structure T = Selector_Name_Test
+    val thy = \<^theory>
+    fun pair_item second =
+      T.cartouche (" enum SelectorNamePair { A(u32, u32), A1(" ^ second ^ "), N { v: u32 } } ")
+  in
+    (* Ctr_Sugar names A's first field and A1's field both un_A1. Without a key or unprefixed
+       name involved this is the native behaviour: one shared selector for equal types. *)
+    val shared =
+      T.succeeded thy "selector-name-automatic-shared"
+        ("urust_datatype [backend = hol] " ^ pair_item "u32")
+    val sugar =
+      the (Ctr_Sugar.ctr_sugar_of shared
+        (dest_Type_name (body_type (fastype_of (URust_Item_Scope.constructor_scheme
+          (the (URust_Item_Scope.lookup_constructor shared "SelectorNamePair::A1")))))))
+    val _ =
+      if map (map (Long_Name.base_name o dest_Const_name)) (#selss sugar) =
+          [["un_A1", "un_A2"], ["un_A1"], ["selector_name_pair_n_v"]] andalso
+        hd (hd (#selss sugar)) = hd (nth (#selss sugar) 1)
+      then () else error "coinciding automatic selectors were not shared natively"
+
+    (* For different field types the native Ctr_Sugar error stands, at the command. *)
+    val mistyped = "urust_datatype [backend = hol] " ^ pair_item "bool"
+    val _ =
+      T.rejected_at thy "selector-name-automatic-shared-mistyped"
+        "Inconsistent range type for selector \"un_A1\""
+        (T.source_range mistyped 1 ("", "urust_datatype")) mistyped
+
+    (* A key that targets the shared automatic name is still rejected at the key. *)
+    val keyed =
+      "urust_datatype [backend = hol, renames = " ^ T.rename_list [("N.v", "un_A1")] ^ "] " ^
+        pair_item "u32"
+    val _ =
+      T.rejected_at thy "selector-name-automatic-shared-keyed"
+        ("generated HOL selector \"un_A1\" conflicts with the automatic selector of " ^
+          "SelectorNamePair::A.0")
+        (T.key_range keyed 1 "un_A1") keyed
+  end
+\<close>
+
 end

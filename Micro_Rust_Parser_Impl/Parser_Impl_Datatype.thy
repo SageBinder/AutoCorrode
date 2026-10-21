@@ -289,22 +289,26 @@ fun check_effective_names what bindings =
    unqualified custom-enum selectors would shadow the short names of its constructors. Automatic
    names have no source of their own and are checked first, so a conflict is reported at the
    explicit, unprefixed or default name that introduces it, and between two such names at the
-   later one, as in D156. Each kind's own duplicates are reported earlier with its own message. *)
+   later one, as in D156. Two coinciding automatic names are left to the backend: Ctr_Sugar shares
+   them as one selector, as the native command does. Each kind's own duplicates are reported
+   earlier with its own message. *)
 type generated_name =
   {name: string, kind: string, owner: string, pos: Position.T, automatic: bool}
 
 fun check_generated_names (names: generated_name list) =
   let
     fun check _ [] = ()
-      | check seen ((entry as {name, kind, pos, ...}) :: rest) =
+      | check seen ((entry as {name, kind, pos, automatic, ...}) :: rest) =
           (case Symtab.lookup seen name of
              NONE => check (Symtab.update (name, entry) seen) rest
            | SOME (earlier: generated_name) =>
-               positioned_datatype_error
-                 ("generated HOL " ^ kind ^ " " ^ quote name ^ " conflicts with the " ^
-                   (if #automatic earlier then "automatic " else "") ^ #kind earlier ^ " of " ^
-                   #owner earlier)
-                 pos)
+               if #automatic earlier andalso automatic then check seen rest
+               else
+                 positioned_datatype_error
+                   ("generated HOL " ^ kind ^ " " ^ quote name ^ " conflicts with the " ^
+                     (if #automatic earlier then "automatic " else "") ^ #kind earlier ^ " of " ^
+                     #owner earlier)
+                   pos)
   in check Symtab.empty (filter #automatic names @ filter_out #automatic names) end
 
 fun check_constructor_arity name pos arity =

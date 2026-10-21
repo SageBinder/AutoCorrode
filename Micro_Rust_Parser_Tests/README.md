@@ -416,7 +416,8 @@ normalized generated declaration and the named verbosity-2 definitions, and that
 unprefixed selectors have definition entities at their targets or fields. The generated-name
 rows reject targets and unprefixed names equal to a constructor, an automatic Ctr_Sugar `un_`
 selector or `is_` discriminator, or a record constructor or update, at the target or field, and
-accept the names Ctr_Sugar does not generate.
+accept the names Ctr_Sugar does not generate. Automatic names that Ctr_Sugar gives to two fields
+stay natively shared, or Ctr_Sugar's error for different types, unless a key targets them.
 
 ## Rust-fidelity boundaries
 
