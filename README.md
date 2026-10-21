@@ -320,17 +320,23 @@ a `_simps` fact for the custom enum. Unkeyed positional fields keep the backend 
 fields have no keys.
 Missing entries retain automatic names, and `renames = []` preserves all defaults. Unknown variants,
 fields and tuple indices, malformed indices, duplicate keys, and duplicate effective targets,
-including collisions with untouched defaults, are positioned errors. Targets and unprefixed names
-must also differ from every other per-constructor or per-field name the declaration generates:
-constructors (after renames), Ctr_Sugar's automatic `un_C`/`un_Ci` selectors and `is_C`
-discriminators on `backend = hol`, exactly where Ctr_Sugar generates them, other selectors, and
-record constructors `make_…` and updates `update_…`. On the custom enum this also prevents an
-unqualified selector from shadowing a constructor. A conflict with an automatic name is reported
-at the target or unprefixed field; between two names from the source, at the later of the two,
-which can be an untouched default's field, as for D156's duplicate targets. Two automatic names
-that Ctr_Sugar itself gives to fields of different constructors, such as `un_A1` for `A(u32, u32)`
-and `A1(u32)`, keep their native behaviour: one shared selector, or Ctr_Sugar's error for
-different field types. Per-type names such as `case_…` are not part of this check.
+including collisions with untouched defaults, are positioned errors. Every name that uRust
+chooses for the declaration (a target, an unprefixed name, an untouched constructor or an untouched
+default selector) must also differ from every other per-constructor or per-field name the
+declaration generates: constructors (after renames), Ctr_Sugar's automatic `un_C`/`un_Ci`
+selectors and `is_C` discriminators on `backend = hol`, exactly where Ctr_Sugar generates them,
+other selectors, and record constructors `make_…` and updates `update_…`. On the custom enum this
+also prevents an unqualified selector from shadowing a constructor. A conflict with an automatic
+name is reported at the chosen name: the target, the field of an unprefixed or default selector,
+or the variant of a constructor. Between two chosen names it is reported at the later of the two,
+which can be an untouched default's field, as for D156's duplicate targets. Because defaults take
+part, a prefixed default that equals an automatic name is rejected at its field even without keys:
+in a `backend = hol` datatype named `un`, the default `un_a_x` of field `x` of variant `a` meets
+the automatic selector of a variant `a_x`, which the native command would share; a key resolves
+it. Two automatic names that Ctr_Sugar itself gives to fields of different constructors, such as
+`un_A1` for `A(u32, u32)` and `A1(u32)`, keep their native behaviour: one shared selector, or
+Ctr_Sugar's error for different field types. Per-type names such as `case_…` are not part of this
+check.
 An explicit selector override can resolve a snake-case field collision. The outer HOL type binding
 remains independent, and struct constructors retain automatic naming.
 Renames are inline-only and compose with the other datatype options.
