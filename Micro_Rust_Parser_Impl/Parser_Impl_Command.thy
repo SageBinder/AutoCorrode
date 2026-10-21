@@ -156,9 +156,13 @@ index. A positional key adds a selector for that field on the HOL and custom enu
 structs have no keys. Targets are used as written, subject to native binding rules. Missing
 entries and an empty list retain the defaults. Duplicate keys, unknown variants, fields or
 indices, invalid bindings, and duplicate effective names (including untouched defaults) are
-positioned errors, as are targets equal to another generated name of the declaration: a
-constructor, an automatic Ctr_Sugar \<open>un_\<close> selector or \<open>is_\<close> discriminator, or a
-record constructor or update. Field lenses follow the actual selector names; Rust aliases and
+positioned errors. Every name uRust chooses for the declaration (a target, an unprefixed name, an
+untouched constructor or an untouched default selector) must also differ from the other
+per-constructor and per-field names it generates: constructors, automatic Ctr_Sugar
+\<open>un_\<close> selectors and \<open>is_\<close> discriminators, other selectors, and record
+constructors and updates. A conflict is reported at the chosen name, or at the later of two
+chosen names. Coinciding automatic Ctr_Sugar names keep their native behaviour, and per-type
+names are outside the check. Field lenses follow the actual selector names; Rust aliases and
 paths always retain their source spellings. The outer HOL type binding is independent, and struct
 constructors remain automatic. Automatic named-struct selectors are prefixed by the HOL type
 name and automatic named enum payload selectors by the type and snake-case variant names. The
