@@ -494,6 +494,151 @@ urust_expr_rejects \<open>
   }
 \<close> \<open>unknown field "ignored_first"\<close>
 
+section\<open> Datatype selector naming \<close>
+
+text\<open>
+Enum payload rename keys use the source variant name. \<open>"Variant.field"\<close> chooses a named
+payload selector, and \<open>"Variant.N"\<close> adds a selector for the 0-based tuple field \<open>N\<close>. A
+plain variant key still renames only the constructor, so a payload key keeps the source variant
+name after a constructor rename.
+\<close>
+
+urust_datatype [backend = hol, renames = [
+  "Flagged" \<rightarrow> "SelectorNameFlagged",
+  "Flagged.value" \<rightarrow> "selector_name_flag_value",
+  "Paired.1" \<rightarrow> "selector_name_pair_flag"
+]] \<open>
+  enum SelectorNameHolChoice { Vacant, Paired(u32, bool), Flagged { value: u32, active: bool } }
+\<close>
+
+lemma selector_name_hol_payloads:
+  \<open>selector_name_flag_value (SelectorNameFlagged n b) = n\<close>
+  \<open>selector_name_hol_choice_flagged_active (SelectorNameFlagged n b) = b\<close>
+  \<open>selector_name_pair_flag (Paired n b) = b\<close>
+  \<open>un_Paired1 (Paired n b) = n\<close>
+  by simp_all
+
+urust_expr selector_name_hol_pattern \<open>
+  match SelectorNameHolChoice::Paired(7u32, true) {
+    SelectorNameHolChoice::Vacant \<Rightarrow> 0u32,
+    SelectorNameHolChoice::Paired(n, _) \<Rightarrow> n,
+    SelectorNameHolChoice::Flagged { value, active: _ } \<Rightarrow> value,
+  }
+\<close>
+
+urust_datatype [renames = [
+  "Marked.value" \<rightarrow> "selector_name_mark_value",
+  "Packed.1" \<rightarrow> "selector_name_pack_flag"
+]] \<open>
+  enum SelectorNameCustomChoice { Unset, Packed(u32, bool), Marked { value: u32, active: bool } }
+\<close>
+
+lemma selector_name_custom_payloads:
+  \<open>selector_name_mark_value (Marked n b) = n\<close>
+  \<open>selector_name_custom_choice_marked_active (Marked n b) = b\<close>
+  \<open>selector_name_pack_flag (Packed n b) = b\<close>
+  by (simp_all only: selector_name_mark_value_simps selector_name_pack_flag_simps
+    selector_name_custom_choice_marked_active_simps)
+
+lemma selector_name_custom_payload_simp:
+  \<open>selector_name_pack_flag (Packed n b) \<longleftrightarrow> b\<close>
+  by simp
+
+text\<open>
+A positional key on the \<open>hol\<close> backend generates exactly the selector of the native datatype
+declaration that names that field: the same constant type, definition and \<open>sel\<close> facts, which
+are simplification rules. The other positional field keeps Ctr_Sugar's default selector.
+\<close>
+
+datatype selector_name_native_parity =
+  NativeBoxed (selector_name_native_boxed: "32 word") | NativeSpared "64 word"
+
+urust_datatype [backend = hol, renames = ["Boxed.0" \<rightarrow> "selector_name_parity_boxed"]] \<open>
+  enum SelectorNameParity { Boxed(u32), Spared(u64) }
+\<close>
+
+lemma selector_name_positional_parity:
+  \<open>selector_name_parity_boxed (Boxed n) = n\<close>
+  \<open>un_Spared (Spared m) = m\<close>
+  \<open>selector_name_native_boxed (NativeBoxed n) = n\<close>
+  \<open>un_NativeSpared (NativeSpared m) = m\<close>
+  by (simp_all only: selector_name_parity.sel selector_name_native_parity.sel)
+
+lemma selector_name_positional_parity_simp:
+  \<open>selector_name_parity_boxed (Boxed n) = n\<close>
+  \<open>selector_name_native_boxed (NativeBoxed n) = n\<close>
+  by simp_all
+
+lemma selector_name_positional_parity_definition:
+  \<open>selector_name_parity_boxed x = (case x of Boxed n \<Rightarrow> n | Spared _ \<Rightarrow> undefined)\<close>
+  \<open>selector_name_native_boxed y =
+    (case y of NativeBoxed n \<Rightarrow> n | NativeSpared _ \<Rightarrow> undefined)\<close>
+  by (simp_all add: selector_name_parity.selector_name_parity_boxed_def
+    selector_name_native_parity.selector_name_native_boxed_def)
+
+text\<open>
+The inline-only option \<open>[unprefixed_selectors]\<close> names automatic named-struct selectors and
+named enum payload selectors after the snake-case source field alone. Explicit and payload keys
+still choose their own names. Lenses, updates and Rust field registrations follow the actual
+selectors, and Rust field names and paths keep their source spelling.
+\<close>
+
+urust_datatype [unprefixed_selectors, renames = ["selectorNameCount" \<rightarrow> "selector_name_total"]]
+\<open>
+  struct SelectorNameHolder {
+    selectorNameLevel: u32,
+    selectorNameCount: u64,
+    selector_name_ready: bool,
+  }
+\<close>
+
+lemma selector_name_unprefixed_struct:
+  \<open>selector_name_level (make_selector_name_holder l c r) = l\<close>
+  \<open>selector_name_total (make_selector_name_holder l c r) = c\<close>
+  \<open>selector_name_ready (make_selector_name_holder l c r) = r\<close>
+  by simp_all
+
+lemma selector_name_unprefixed_update:
+  \<open>update_selector_name_level h (make_selector_name_holder l c r) =
+    make_selector_name_holder (h l) c r\<close>
+  by (rule selector_name_holder_selector_name_level_update_explicit)
+
+lemma selector_name_unprefixed_lens:
+  \<open>lens_view selector_name_holder_selector_name_level_lens (make_selector_name_holder l c r) = l\<close>
+  by (simp add: selector_name_holder_selector_name_level_lens_view_update_modify)
+
+urust_expr selector_name_holder_field \<open>
+  (SelectorNameHolder {
+    selectorNameLevel: 7u32,
+    selectorNameCount: 8u64,
+    selector_name_ready: true,
+  }).selectorNameLevel
+\<close>
+
+lemma selector_name_holder_field_lens:
+  \<open>selector_name_holder_field =
+    bindlift1 (lens_view selector_name_holder_selector_name_level_lens)
+      (funcall3 (lift_fun3 make_selector_name_holder) (ascribeu32 7) (ascribeu64 8) true)\<close>
+  unfolding selector_name_holder_field_def by (rule refl)
+
+urust_datatype [backend = hol, unprefixed_selectors,
+  renames = ["Gauge.selectorNameLimit" \<rightarrow> "selector_name_gauge_limit"]] \<open>
+  enum SelectorNameMeter { Dial(u32), Gauge { selectorNameReading: u32, selectorNameLimit: u32 } }
+\<close>
+
+lemma selector_name_unprefixed_hol_enum:
+  \<open>selector_name_reading (Gauge r m) = r\<close>
+  \<open>selector_name_gauge_limit (Gauge r m) = m\<close>
+  by simp_all
+
+urust_datatype [unprefixed_selectors] \<open>
+  enum SelectorNameSignal { Muted, Tone { selectorNamePitch: u32 } }
+\<close>
+
+lemma selector_name_unprefixed_custom_enum:
+  \<open>selector_name_pitch (Tone p) = p\<close>
+  by (rule selector_name_pitch_simps)
+
 chapter\<open> Rust type aliases in cast targets \<close>
 
 section\<open> Primitive equivalence and grammar composition \<close>

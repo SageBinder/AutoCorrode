@@ -1277,4 +1277,51 @@ no_adhoc_overloading store_dereference_const \<rightleftharpoons> showoff_derefe
 no_adhoc_overloading store_reference_const \<rightleftharpoons> showoff_reference
 no_adhoc_overloading store_update_const \<rightleftharpoons> showoff_update
 
+subsection\<open> Datatype selector naming \<close>
+
+text\<open>
+Enum payload rename keys use the source variant name. \<open>"Variant.field"\<close> renames a named
+payload selector and \<open>"Variant.N"\<close> gives a tuple field a selector, also after the
+constructor itself is renamed. Rust paths and patterns keep their source spelling.
+\<close>
+
+urust_datatype [backend = hol, renames = [
+  "Sent" \<rightarrow> "SelectorNameSent",
+  "Sent.0" \<rightarrow> "selector_name_sent_id",
+  "Bounced.code" \<rightarrow> "selector_name_bounce_code"
+]] \<open>
+  enum SelectorNameDelivery { Sent(u32), Bounced { code: u32 } }
+\<close>
+
+urust_expr showoff_selector_name_delivery \<open>
+  match SelectorNameDelivery::Sent(7u32) {
+    SelectorNameDelivery::Sent(id) \<Rightarrow> id,
+    SelectorNameDelivery::Bounced { code } \<Rightarrow> code,
+  }
+\<close>
+
+lemma
+  \<open>selector_name_sent_id (SelectorNameSent n) = n\<close>
+  \<open>selector_name_bounce_code (Bounced c) = c\<close>
+  by simp_all
+
+text\<open>
+The inline-only \<open>[unprefixed_selectors]\<close> drops the type prefix from automatic selectors,
+while explicit keys still choose their own names. Rust field access is unchanged.
+\<close>
+
+urust_datatype [unprefixed_selectors, renames = ["selectorNameAttempts" \<rightarrow> "selector_name_tries"]]
+\<open>
+  struct SelectorNameReceipt { selectorNameId: u32, selectorNameAttempts: u32 }
+\<close>
+
+urust_expr showoff_selector_name_receipt \<open>
+  (SelectorNameReceipt { selectorNameId: 3u32, selectorNameAttempts: 1u32 }).selectorNameAttempts
+\<close>
+
+lemma
+  \<open>selector_name_id (make_selector_name_receipt i a) = i\<close>
+  \<open>selector_name_tries (make_selector_name_receipt i a) = a\<close>
+  by simp_all
+
 end

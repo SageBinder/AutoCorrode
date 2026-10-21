@@ -414,6 +414,25 @@ and predicator facts, and a persistent generic `hol` enum its map and set facts.
 Identifier-headed paths retain their previous behavior, including unsupported widths such as
 `u128`.
 
+The datatype selector naming suite at the end of `Parser_Datatype_ML_Tests.thy` runs each command
+from a fresh state of its theory and asserts the exact source range of every rejection: unknown
+variants, fields and tuple indices, malformed indices, duplicate keys, duplicate effective
+selectors and collisions with untouched defaults on both payload backends, payload keys on
+`simple_word_enum`, and keys on tuple structs. It also compares a positional `hol` selector with
+the native `datatype` declaration that names the same field: selector constants, definitions,
+`sel`, collapse and split facts, and simplification. The unprefixed-selector rows cover option
+values, the absent attribute and scoped setting, rejection on `simple_word_enum`, unprefixed
+collisions and invalid defaults, and two declarations sharing an unprefixed name: record
+selectors shadow by short name and keep their own field positions, while custom-enum payload
+selectors raise the native duplicate-constant error at the later field. The generated-output rows
+check that keyed, unprefixed and automatic positional selectors appear in the manifest, the
+normalized generated declaration and the named verbosity-2 definitions, and that keyed and
+unprefixed selectors have definition entities at their targets or fields. The generated-name
+rows reject targets and unprefixed names equal to a constructor, an automatic Ctr_Sugar `un_`
+selector or `is_` discriminator, or a record constructor or update, at the target or field, and
+accept the names Ctr_Sugar does not generate. Automatic names that Ctr_Sugar gives to two fields
+stay natively shared, or Ctr_Sugar's error for different types, unless a key targets them.
+
 ## Rust-fidelity boundaries
 
 List matching supports closed lists and a single bare or bound rest at any position:
@@ -513,8 +532,10 @@ negative rows preserve these boundaries.
   syntax and recovery.
 - `Parser_Datatype_Examples.thy`: simple word enum path resolution and the `urust_name:` clause
   without the chunk command; datatype declarations, renames and notation registration control;
-  cast-target aliases with import and locale scoping and primitive equivalence; type alias commands
-  and dependency scopes; and record, tuple and enum pointer fields.
+  datatype selector naming with payload rename keys on both payload backends, native
+  positional-selector parity and unprefixed selectors; cast-target aliases with import and locale
+  scoping and primitive equivalence; type alias commands and dependency scopes; and record, tuple
+  and enum pointer fields.
 - `Parser_Datatype_ML_Tests.thy`: generated registrations and navigation, registry integrity,
   transactional diagnostics and command output; the type alias registry (captured templates,
   normalized generic sorts, independent instantiations, collisions) and syntax (shared type and
@@ -522,7 +543,7 @@ negative rows preserve these boundaries.
   alias failures and dependency capture; pointer signature constraints and locale contexts; the
   generic datatype suite with backend selection, explicit singleton modelling and pretty replay;
   configuration isolation of datatype declarations across theory merges, locale and nested
-  targets and every backend; and the Rust type mapping suite.
+  targets and every backend; the Rust type mapping suite; and the datatype selector naming suite.
 - `Parser_Chunk_Use_Examples.thy`: the use-import fixtures; the declaration-first `urust` reading
   entry point: mixed and one-item chunks, every item shape and layout transition, outer defaults
   and annotation overrides, every option kind, earlier declarations in later items and locale
@@ -532,7 +553,7 @@ negative rows preserve these boundaries.
   chunks: aliases used before and after their use item, imports of earlier members, shadowing among
   registrations, chunk and body imports, same-spelling type and value aliases, signatures, fields,
   calls, construction, patterns and a locale target, with kernel equalities against qualified
-  single-item controls.
+  single-item controls; and datatype selector naming through member annotations.
 - `Parser_Chunk_Use_ML_Tests.thy`: chunk ASTs, envelope slices and serialized roundtrips,
   annotation placement and lexer-state recovery, option diagnostics, validation before the first
   declaration, precedence and source-order output, equivalence with single-item artifacts and

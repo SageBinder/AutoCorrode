@@ -32,6 +32,7 @@ sig
      pretty: bool,
      register_notation: bool,
      renames: rename list,
+     unprefixed_selectors: Position.T option,
      backend: string,
      word_width: int option,
      parameters: rename list,
@@ -61,6 +62,7 @@ type declaration =
    pretty: bool,
    register_notation: bool,
    renames: rename list,
+   unprefixed_selectors: Position.T option,
    backend: string,
    word_width: int option,
    parameters: rename list,
@@ -165,33 +167,149 @@ fun duplicate_names what entries =
           else check (Symtab.update (name, ()) seen) rest
   in check Symtab.empty entries end
 
+fun payload_key variant member = variant ^ "." ^ member
+
+(* Rust tuple indices are decimal literals without leading zeros. *)
+fun tuple_index text =
+  if text = "0" orelse
+      (text <> "" andalso String.sub (text, 0) <> #"0" andalso
+        forall_string Symbol.is_ascii_digit text)
+  then SOME (Value.parse_int text)
+  else NONE
+
+(* The reason a rename key names nothing in this source item. A struct key is a named field. An
+   enum key is a variant, which renames its constructor, or a payload key "Variant.field" or
+   "Variant.N" with the source variant name and a named field or 0-based tuple index. *)
+fun rename_key_error item key =
+  let
+    fun unknown reason = SOME ("unknown rename key " ^ quote key ^ ": " ^ reason)
+    fun field_names fields = map (fn URust_AST.Datatype_Field (name, _, _) => name) fields
+    fun variant_key enum_name variants =
+      let
+        val (variant, rest) = Substring.position "." (Substring.full key) |> apply2 Substring.string
+        val member_name = if rest = "" then NONE else SOME (unprefix "." rest)
+        val shape =
+          get_first
+            (fn URust_AST.Datatype_Variant (name, _, shape) =>
+              if name = variant then SOME shape else NONE)
+            variants
+      in
+        (case (shape, member_name) of
+           (NONE, _) => unknown ("enum " ^ quote enum_name ^ " has no variant " ^ quote variant)
+         | (SOME _, NONE) => NONE
+         | (SOME (URust_AST.Named_Shape (fields as _ :: _)), SOME field) =>
+             if member (op =) (field_names fields) field then NONE
+             else unknown ("variant " ^ quote variant ^ " has no field " ^ quote field)
+         | (SOME (URust_AST.Tuple_Shape (types as _ :: _)), SOME index) =>
+             (case tuple_index index of
+                NONE =>
+                  SOME
+                    ("invalid rename key " ^ quote key ^ ": tuple variant fields are named by " ^
+                      "0-based decimal indices without leading zeros")
+              | SOME n =>
+                  if n < length types then NONE
+                  else
+                    unknown
+                      ("variant " ^ quote variant ^ " has " ^ string_of_int (length types) ^
+                        " positional " ^ (if length types = 1 then "field" else "fields")))
+         | (SOME _, SOME _) => unknown ("variant " ^ quote variant ^ " has no payload fields"))
+      end
+  in
+    (case item of
+       URust_AST.Struct_Item (name, _, URust_AST.Named_Shape (fields as _ :: _), _) =>
+         if member (op =) (field_names fields) key then NONE
+         else unknown ("struct " ^ quote name ^ " has no field " ^ quote key)
+     | URust_AST.Struct_Item (name, _, URust_AST.Tuple_Shape (_ :: _), _) =>
+         unknown
+           ("struct " ^ quote name ^ " has only positional fields, " ^
+             "and tuple struct fields have no rename keys")
+     | URust_AST.Struct_Item (name, _, _, _) =>
+         unknown ("struct " ^ quote name ^ " has no fields")
+     | URust_AST.Enum_Item (name, _, variants, _) => variant_key name variants)
+  end
+
+fun checked_binding lthy what (name, pos) =
+  let
+    val binding = Binding.make (name, pos)
+    val _ =
+      if name <> "" andalso Symbol_Pos.is_identifier name then ()
+      else positioned_datatype_error ("invalid HOL name binding " ^ quote name ^ what) pos
+    val _ =
+      Local_Theory.full_name lthy binding
+      handle ERROR message =>
+        positioned_datatype_error message pos
+  in binding end
+
 (* Keys belong to this source declaration; targets are native HOL basenames. *)
-fun resolve_renames lthy source_names (renames: rename list) =
+fun resolve_renames lthy item (renames: rename list) =
   let
     val _ = duplicate_names "rename key" (map fst renames)
-    fun resolve ((source, source_pos), (target, target_pos)) =
-      let
-        val _ =
-          if member (op =) source_names source then ()
-          else positioned_datatype_error
-            ("unknown rename key " ^ quote source) source_pos
-        val binding = Binding.make (target, target_pos)
-        val _ =
-          if target <> "" andalso Symbol_Pos.is_identifier target then ()
-          else positioned_datatype_error
-            ("invalid HOL name binding " ^ quote target) target_pos
-        val _ =
-          Local_Theory.full_name lthy binding
-          handle ERROR message =>
-            positioned_datatype_error message target_pos
-      in (source, binding) end
+    fun resolve ((source, source_pos), target) =
+      (case rename_key_error item source of
+         SOME message => positioned_datatype_error message source_pos
+       | NONE => (source, checked_binding lthy "" target))
   in Symtab.make (map resolve renames) end
 
+fun renamed_binding renames key default =
+  the_default default (Symtab.lookup renames key)
+
 fun chosen_binding renames source default pos =
-  the_default (Binding.make (default, pos)) (Symtab.lookup renames source)
+  renamed_binding renames source (Binding.make (default, pos))
+
+(* Under unprefixed_selectors, a named struct field or named enum payload field without its own
+   key takes its snake-case source name, positioned at the field like every automatic struct
+   selector. *)
+fun add_unprefixed_selectors lthy item renames =
+  let
+    fun add key (URust_AST.Datatype_Field (name, pos, _)) table =
+      if Symtab.defined table (key name) then table
+      else
+        Symtab.update
+          (key name,
+           checked_binding lthy (" for the unprefixed selector of field " ^ quote name)
+             (snake_case name, pos))
+          table
+  in
+    (case item of
+       URust_AST.Struct_Item (_, _, URust_AST.Named_Shape fields, _) => fold (add I) fields renames
+     | URust_AST.Struct_Item _ => renames
+     | URust_AST.Enum_Item (_, _, variants, _) =>
+         fold
+           (fn URust_AST.Datatype_Variant (variant, _, URust_AST.Named_Shape fields) =>
+                 fold (add (payload_key variant)) fields
+             | _ => I)
+           variants renames)
+  end
 
 fun check_effective_names what bindings =
   duplicate_names what (map (fn b => (Binding.name_of b, Binding.pos_of b)) bindings)
+
+(* The constant names a backend binds per constructor and field must be distinct: Ctr_Sugar and
+   datatype records qualify constructors, discriminators, selectors and updates by the type, and
+   unqualified custom-enum selectors would shadow the short names of its constructors. Automatic
+   names have no source of their own and are checked first, so a conflict is reported at the
+   explicit, unprefixed or default name that introduces it, and between two such names at the
+   later one, as in D156. Two coinciding automatic names are left to the backend: Ctr_Sugar shares
+   them as one selector, as the native command does. Each kind's own duplicates are reported
+   earlier with its own message. *)
+type generated_name =
+  {name: string, kind: string, owner: string, pos: Position.T, automatic: bool}
+
+fun check_generated_names (names: generated_name list) =
+  let
+    fun check _ [] = ()
+      | check seen ((entry as {name, kind, pos, automatic, ...}) :: rest) =
+          (case Symtab.lookup seen name of
+             NONE => check (Symtab.update (name, entry) seen) rest
+           | SOME (earlier: generated_name) =>
+               if #automatic earlier andalso automatic then check seen rest
+               else
+                 positioned_datatype_error
+                   ("generated HOL " ^ kind ^ " " ^ quote name ^ " conflicts with the " ^
+                     (if #automatic earlier then "automatic " else "") ^ #kind earlier ^ " of " ^
+                     #owner earlier)
+                   pos)
+  in check Symtab.empty (filter #automatic names @ filter_out #automatic names) end
 
 fun check_constructor_arity name pos arity =
   if arity <= 14 then ()
@@ -505,6 +623,22 @@ fun make_named_struct plugins register_notation renames backend_parameters resol
            typ))
         fields resolved_types
     val _ = check_effective_names "generated HOL field" (map fst record_fields)
+    val _ =
+      check_generated_names
+        ({name = "make_" ^ hol_base, kind = "constructor", owner = rust_name,
+          pos = Binding.pos_of type_binding, automatic = true} ::
+         maps
+           (fn ((selector, _), field) =>
+             let
+               val owner = rust_name ^ "." ^ datatype_field_name field
+               val name = Binding.name_of selector
+             in
+               [{name = "update_" ^ name, kind = "update function", owner = owner,
+                 pos = datatype_field_position field, automatic = true},
+                {name = name, kind = "field", owner = owner, pos = Binding.pos_of selector,
+                 automatic = false}]
+             end)
+           (record_fields ~~ fields))
     val lthy' =
       Datatype_Records.record type_binding
         (Plugin_Name.make_filter lthy plugins)
@@ -549,20 +683,111 @@ fun enum_variant_spec renames hol_base
   let
     val _ = validate_rust_item_name "variant" (name, pos)
     val _ = validate_shape name pos shape
+    (* Payload keys use the source variant name, independently of a constructor rename. An
+       unrenamed positional field keeps the empty binding and therefore no custom selector. *)
     val fields =
       (case shape of
          URust_AST.Named_Shape named_fields =>
            map
              (fn field =>
-               (Binding.name
-                  (hol_base ^ "_" ^ snake_case name ^ "_" ^
-                    snake_case (datatype_field_name field)),
+               (renamed_binding renames (payload_key name (datatype_field_name field))
+                  (Binding.name
+                    (hol_base ^ "_" ^ snake_case name ^ "_" ^
+                      snake_case (datatype_field_name field))),
                 datatype_field_type field))
              named_fields
-       | _ => shape_fields shape)
+       | _ =>
+           map_index
+             (fn (index, (_, typ)) =>
+               (renamed_binding renames (payload_key name (string_of_int index)) Binding.empty,
+                typ))
+             (shape_fields shape))
   in
     bnf_constructor (chosen_binding renames name name pos)
       (map fst fields ~~ resolved_types)
+  end
+
+(* The payload fields of a variant specification: Rust field name or tuple index, binding, and the
+   position that explains a custom selector, its rename target or the source field of an
+   automatic name. *)
+fun payload_fields (URust_AST.Datatype_Variant (_, variant_pos, shape), (((_, _), fields), _)) =
+  let
+    val members =
+      (case shape of
+         URust_AST.Named_Shape named_fields =>
+           map (fn field => (datatype_field_name field, datatype_field_position field))
+             named_fields
+       | _ => map_index (fn (index, _) => (string_of_int index, variant_pos)) fields)
+    fun explained ((binding, _), (member, source_pos)) =
+      (member, binding,
+       if Binding.pos_of binding = Position.none then source_pos else Binding.pos_of binding)
+  in map explained (fields ~~ members) end
+
+fun payload_selector_names specification =
+  payload_fields specification
+  |> map_filter (fn (_, binding, pos) =>
+      if Binding.is_empty binding then NONE else SOME (Binding.name_of binding, pos))
+
+(* The constructors and custom selectors of the specifications as generated names. *)
+fun enum_generated_names rust_name variants specifications =
+  let
+    fun owner (URust_AST.Datatype_Variant (variant, _, _)) = rust_name ^ "::" ^ variant
+    fun constructor (variant, (((_, binding), _), _)) =
+      {name = Binding.name_of binding, kind = "constructor", owner = owner variant,
+       pos = Binding.pos_of binding, automatic = false}
+    fun selectors (specification as (variant, _)) =
+      payload_fields specification
+      |> map_filter (fn (member, binding, pos) =>
+          if Binding.is_empty binding then NONE
+          else
+            SOME {name = Binding.name_of binding, kind = "selector",
+              owner = owner variant ^ "." ^ member, pos = pos, automatic = false})
+    val paired = variants ~~ specifications
+  in map constructor paired @ maps selectors paired end
+
+(* Ctr_Sugar's own names for a datatype that has any selector: un_C, or un_Ci for the i-th of
+   several fields, for each field without a selector, and is_C discriminators, except for nullary
+   constructors, a single constructor, and the constructor of a two-constructor type whose
+   discriminator is the negation of the other one. *)
+fun ctr_sugar_automatic_names rust_name variants specifications =
+  let
+    val arities = map (fn (((_, _), fields), _) => length fields) specifications
+    val count = length specifications
+    fun nullary k = nth arities (k - 1) = 0
+    fun relied_on k = nullary k orelse (k = 1 andalso not (nullary 2))
+    fun omitted k = count = 1 orelse (count = 2 andalso relied_on (3 - k))
+    fun names k (URust_AST.Datatype_Variant (variant, variant_pos, _),
+        (((_, binding), fields), _)) =
+      let
+        val base = Binding.name_of binding
+        val owner = rust_name ^ "::" ^ variant
+        val arity = length fields
+        val discriminator =
+          if nullary k orelse omitted k then []
+          else
+            [{name = "is_" ^ base, kind = "discriminator", owner = owner, pos = variant_pos,
+              automatic = true}]
+        val selectors =
+          map_index
+            (fn (index, (field_binding, _)) =>
+              if Binding.is_empty field_binding
+              then
+                SOME
+                  {name = "un_" ^ base ^ (if arity = 1 then "" else string_of_int (index + 1)),
+                   kind = "selector", owner = owner ^ "." ^ string_of_int index,
+                   pos = variant_pos, automatic = true}
+              else NONE)
+            fields
+          |> map_filter I
+      in discriminator @ selectors end
+    val has_selectors =
+      exists (fn (((_, _), fields), _) => exists (not o Binding.is_empty o fst) fields)
+        specifications
+  in
+    if has_selectors
+    then flat (map_index (fn (index, paired) => names (index + 1) paired)
+      (variants ~~ specifications))
+    else []
   end
 
 fun make_enum plugins renames backend_parameters resolved_types
@@ -586,21 +811,6 @@ fun make_enum plugins renames backend_parameters resolved_types
       check_effective_names "generated HOL constructor"
         (map (fn URust_AST.Datatype_Variant (name, pos, _) =>
           chosen_binding renames name name pos) variants)
-    val _ =
-      duplicate_names "generated HOL selector"
-        (maps
-          (fn URust_AST.Datatype_Variant
-              (variant_name, _, shape) =>
-            (case shape of
-               URust_AST.Named_Shape fields =>
-                 map
-                   (fn field =>
-                     (snake_case variant_name ^ "_" ^
-                        snake_case (datatype_field_name field),
-                      datatype_field_position field))
-                   fields
-             | _ => []))
-          variants)
     fun variant_types (variant as URust_AST.Datatype_Variant (_, _, shape))
         remaining =
       let
@@ -609,6 +819,13 @@ fun make_enum plugins renames backend_parameters resolved_types
       in (enum_variant_spec renames hol_base variant types, rest) end
     val (constructors, remaining_types) =
       fold_map variant_types variants resolved_types
+    val _ =
+      duplicate_names "generated HOL selector"
+        (maps payload_selector_names (variants ~~ constructors))
+    val _ =
+      check_generated_names
+        (ctr_sugar_automatic_names rust_name variants constructors @
+          enum_generated_names rust_name variants constructors)
     val _ =
       if null remaining_types then ()
       else error "urust_datatype: field batch does not match the enum variants"
@@ -694,9 +911,9 @@ fun make_native_enum backend plugins width values renames backend_parameters res
     val (specifications, _) = fold_map specification variants resolved_types
     val _ = check_effective_names "generated HOL constructor"
       (map (fn (((_, binding), _), _) => binding) specifications)
-    val _ = check_effective_names "generated HOL selector"
-      (maps (fn (((_, _), fields), _) => map fst fields) specifications
-        |> filter_out Binding.is_empty)
+    val _ = duplicate_names "generated HOL selector"
+      (maps payload_selector_names (variants ~~ specifications))
+    val _ = check_generated_names (enum_generated_names rust_name variants specifications)
   in
     if backend = "enum" then
       let
@@ -1108,6 +1325,69 @@ fun report_generated_datatype_replay lthy
            in () end)
   in () end
 
+fun constructor_argument_types entry =
+  (case URust_Item_Scope.constructor_scheme entry of
+     Const (_, typ) => binder_types (Type.legacy_freeze_type typ)
+   | _ => [])
+
+(* Every generated selector, of Ctr_Sugar (including its automatic un_ names) and of the custom
+   enum, is defined by cases over the constructors, possibly applied to the datatype argument.
+   The branches that return one of their constructor arguments locate the fields it selects. *)
+fun selector_definition_fields definition =
+  let
+    val (lhs, rhs) =
+      (case Thm.prop_of definition of
+         Const (\<^const_name>\<open>Pure.eq\<close>, _) $ lhs $ rhs => (lhs, rhs)
+       | prop => HOLogic.dest_eq (HOLogic.dest_Trueprop prop))
+    val (selector, arguments) = strip_comb lhs
+    val (_, case_arguments) = strip_comb rhs
+    val branches = take (length case_arguments - length arguments) case_arguments
+    fun selected_field branch =
+      (case Term.strip_abs branch of
+         (variables, Bound index) =>
+           if index < length variables then SOME (length variables - 1 - index) else NONE
+       | _ => NONE)
+  in
+    (const_name_of selector,
+     map_filter I
+       (map_index
+         (fn (constructor, branch) => Option.map (pair constructor) (selected_field branch))
+         branches))
+  end
+
+(* The fields of each constructor in source order, as a Rust field name or tuple index with its
+   generated selector. Named fields take their selectors from the Rust field metadata. Positional
+   fields have no Rust names; their selectors, keyed or automatic, come from the generated
+   selector definitions. *)
+fun constructor_selector_rows
+    ({constructors, item, selector_definitions, ...}: generated_artifacts) =
+  let
+    val located =
+      maps
+        (fn definition =>
+          let val (selector, fields) = selector_definition_fields definition
+          in map (rpair selector) fields end)
+        selector_definitions
+    fun row (index, ((_, entry), (_, _, _, shape))) =
+      (case shape of
+         URust_AST.Named_Shape (_ :: _) =>
+           map (fn (field, selector) => (field, SOME (const_name_of selector)))
+             (URust_Item_Scope.constructor_fields entry)
+       | _ =>
+           map_index
+             (fn (field, _) =>
+               (string_of_int field, AList.lookup (op =) located (index, field)))
+             (constructor_argument_types entry))
+  in map_index row (constructors ~~ item_constructor_descriptors item) end
+
+fun generated_selectors (artifacts as {constructors, ...}: generated_artifacts) =
+  maps
+    (fn ((rust_path, _), row) =>
+      map_filter
+        (fn (member, selector) => Option.map (pair (selector_label rust_path member)) selector)
+        row)
+    (constructors ~~ constructor_selector_rows artifacts)
+
 fun pretty_type_identity lthy name =
   Pretty.mark
     (Name_Space.markup
@@ -1133,7 +1413,7 @@ fun pretty_manifest_section _ [] = []
       Pretty.str ("  " ^ title ^ ":") :: rows
 
 fun pretty_datatype_manifest lthy
-    ({rust_name, hol_type_name, constructors, selectors, lenses, register_notation,
+    (artifacts as {rust_name, hol_type_name, constructors, lenses, register_notation,
       backend, source_descriptors, source_parameters, backend_parameters, ...}:
       generated_artifacts) =
   let
@@ -1146,7 +1426,7 @@ fun pretty_datatype_manifest lthy
                (URust_Item_Scope.constructor_term entry)))
         constructors
     val selector_rows =
-      map (pretty_manifest_mapping lthy) selectors
+      map (pretty_manifest_mapping lthy) (generated_selectors artifacts)
     val lens_rows =
       map (pretty_manifest_mapping lthy) lenses
     val mapping_rows =
@@ -1187,33 +1467,26 @@ fun pretty_datatype_manifest lthy
          mapping_rows)
   end
 
-fun constructor_argument_types entry =
-  (case URust_Item_Scope.constructor_scheme entry of
-     Const (_, typ) => binder_types (Type.legacy_freeze_type typ)
-   | _ => [])
-
 fun pretty_constructor_declaration lthy
-    (rust_path, entry) =
+    ((rust_path, entry), row) =
   let
     val constructor_name =
       const_name_of
         (URust_Item_Scope.constructor_term entry)
     val arguments = constructor_argument_types entry
-    val fields = URust_Item_Scope.constructor_fields entry
     val argument_pretties =
-      if null fields
-      then map (Syntax.pretty_typ lthy) arguments
-      else
-        map2
-          (fn (_, selector) => fn typ =>
-            Pretty.block
-              [Pretty.str "(",
-               pretty_const_identity lthy
-                 (const_name_of selector),
-               Pretty.str ": ",
-               Syntax.pretty_typ lthy typ,
-               Pretty.str ")"])
-          fields arguments
+      map2
+        (fn (_, selector) => fn typ =>
+          (case selector of
+             NONE => Syntax.pretty_typ lthy typ
+           | SOME selector =>
+               Pretty.block
+                 [Pretty.str "(",
+                  pretty_const_identity lthy selector,
+                  Pretty.str ": ",
+                  Syntax.pretty_typ lthy typ,
+                  Pretty.str ")"]))
+        row arguments
   in
     Pretty.block
       ([Pretty.str "  | ",
@@ -1258,18 +1531,18 @@ fun pretty_record_declaration lthy hol_type_name backend_parameters constructors
        field_rows)
   end
 
-fun pretty_standard_datatype_declaration lthy backend hol_type_name parameters constructors =
+fun pretty_standard_datatype_declaration lthy backend hol_type_name parameters constructors rows =
   Pretty.chunks
     (Pretty.block
        [Pretty.keyword1 (if backend = "hol" then "datatype" else backend),
         Pretty.brk 1,
         pretty_parameterized_type_identity lthy hol_type_name parameters,
         Pretty.str " ="] ::
-     map (pretty_constructor_declaration lthy) constructors)
+     map (pretty_constructor_declaration lthy) (constructors ~~ rows))
 
 fun pretty_normalized_declaration lthy
-    ({hol_type_name, source_parameters, backend_parameters, backend, constructors, item, ...}:
-      generated_artifacts) =
+    (artifacts as {hol_type_name, source_parameters, backend_parameters, backend, constructors,
+      item, ...}: generated_artifacts) =
   let
     val parameters = source_parameters @ backend_parameters
   in
@@ -1278,7 +1551,8 @@ fun pretty_normalized_declaration lthy
          pretty_record_declaration lthy hol_type_name parameters constructors
      | _ =>
          pretty_standard_datatype_declaration
-           lthy backend hol_type_name parameters constructors)
+           lthy backend hol_type_name parameters constructors
+           (constructor_selector_rows artifacts))
   end
 
 fun pretty_public_definition lthy (name, theorem) =
@@ -1307,12 +1581,12 @@ fun print_generated_datatype
           [Pretty.str "",
            Pretty.keyword1 "normalized generated declaration",
            pretty_normalized_declaration lthy artifacts] @
+          (* Generated selector definitions carry no name hint; name each after its selector. *)
           map
             (pretty_public_definition lthy)
             (#selector_definitions artifacts
               |> map (fn theorem =>
-                  (Thm_Name.short
-                    (Thm.get_name_hint theorem), theorem))) @
+                  (Thm.def_name (#1 (selector_definition_fields theorem)), theorem))) @
           map
             (pretty_public_definition lthy)
             (#lens_definitions artifacts)
@@ -1397,8 +1671,8 @@ type prepared =
    discriminants: (string * URust_AST.integer_literal) list}
 
 fun prepare
-    (declaration as {source, explicit_binding, pp_test, renames, ...}
-      : declaration) source_item lthy : prepared =
+    (declaration as {source, explicit_binding, pp_test, renames, unprefixed_selectors, backend,
+      word_width, ...} : declaration) source_item lthy : prepared =
   let
     val (descriptors, repr, discriminants, item) = case source_item of
       URust_AST.Datatype_Header (descriptors, repr, values, item) => (descriptors, repr, values, item)
@@ -1417,14 +1691,18 @@ fun prepare
     val type_binding =
       the_default (infer_datatype_binding rust_name rust_pos)
         explicit_binding
-    val source_names =
-      (case item of
-         URust_AST.Struct_Item (_, _, URust_AST.Named_Shape fields, _) =>
-           map datatype_field_name fields
-       | URust_AST.Struct_Item _ => []
-       | URust_AST.Enum_Item (_, _, variants, _) =>
-           map (fn URust_AST.Datatype_Variant (name, _, _) => name) variants)
-    val resolved_renames = resolve_renames lthy source_names renames
+    val explicit_renames = resolve_renames lthy item renames
+    val resolved_renames =
+      (case unprefixed_selectors of
+         NONE => explicit_renames
+       | SOME pos =>
+           (case try (select_backend backend word_width repr discriminants) item of
+              SOME ("simple_word_enum", _, _) =>
+                positioned_datatype_error
+                  ("unprefixed_selectors does not apply to the simple_word_enum backend, " ^
+                    "which generates no selectors")
+                  pos
+            | _ => add_unprefixed_selectors lthy item explicit_renames))
   in
     {declaration = declaration, source_item = source_item, descriptors = descriptors,
      item = item, rust_name = rust_name, rust_pos = rust_pos, type_binding = type_binding,
@@ -1434,7 +1712,7 @@ fun prepare
 (* Authored definition entities of the completed artifacts, regenerated after the invisible
    backend run. *)
 fun artifact_definitions lthy
-    ({hol_type_name, constructors, selectors, lenses, selector_definitions,
+    (artifacts as {hol_type_name, constructors, lenses, selector_definitions,
       lens_definitions, ...}: generated_artifacts) =
   let
     val consts = Consts.space_of (Proof_Context.consts_of lthy)
@@ -1448,7 +1726,8 @@ fun artifact_definitions lthy
         constructors
   in
     [(Proof_Context.type_space lthy, hol_type_name)] @
-    map (pair consts) (constructor_names @ map #2 selectors @ map #2 lenses) @
+    map (pair consts)
+      (constructor_names @ map #2 (generated_selectors artifacts) @ map #2 lenses) @
     map (pair facts)
       (map (Thm_Name.short o Thm.get_name_hint) selector_definitions @
         map #1 lens_definitions)

@@ -4411,6 +4411,7 @@ ML_val\<open>
           {source = Input.string "struct PointerBad { pointer: *const u8, unrelated: \<tau>\<open>'unrelated\<close> }",
            explicit_binding = NONE, interactive = false, verbosity = 0,
            pp_test = true, pretty = false, register_notation = true, renames = [],
+           unprefixed_selectors = NONE,
            backend = "hol", word_width = NONE, parameters = [], plugins = K Plugin_Name.default_filter}
           lthy) ()
     val _ =
@@ -5122,6 +5123,7 @@ ML_val \<open>
   val result = Exn.result (URust_Datatype.define
     {source = source, explicit_binding = NONE, interactive = false, verbosity = 0,
      pp_test = true, pretty = false, register_notation = true, renames = [],
+     unprefixed_selectors = NONE,
      backend = "simple_word_enum", word_width = SOME 8, parameters = [], plugins = K Plugin_Name.default_filter})
       (Named_Target.theory_init \<^theory>)
   val _ = case result of Exn.Res _ => error "explicit word backend discarded a stored singleton payload"
@@ -6304,6 +6306,909 @@ ML_val \<open>
         (Parser_Lex_Util.text_source "8u32 >> 1u32")
   in
     val _ = ()
+  end
+\<close>
+
+chapter\<open> Datatype selector naming \<close>
+
+text\<open>
+Selector-naming audits run each command from a fresh state of this theory, so failures leave no
+declaration behind. Every rejection asserts the exact source range of its first position, which
+is the key, target, field or option that explains it.
+\<close>
+
+ML\<open>
+structure Selector_Name_Test =
+struct
+  val quiet = "declare [[urust_pp_test = false, urust_pretty = false, urust_verbosity = 0]]\n"
+
+  fun cartouche text = Symbol.open_ ^ text ^ Symbol.close
+
+  fun rename_list entries =
+    "[" ^ commas (map (fn (source, target) =>
+      quote source ^ " \<rightarrow> " ^ quote target) entries) ^ "]"
+
+  fun run_from start thy text =
+    let
+      val transitions = Outer_Syntax.parse_text thy (K thy) start (quiet ^ text)
+    in
+      Print_Mode.with_modes [Print_Mode.PIDE] (fn () =>
+        Exn.result (fn () =>
+          fold (Toplevel.command_exception true) transitions
+            (Toplevel.make_state (SOME thy))) ()) ()
+    end
+
+  fun run thy label = run_from (Position.line_file 1 label) thy
+
+  (* Output and reports of one run. Reports need a document identity in their positions. *)
+  fun run_output thy label text =
+    let
+      val output = Synchronized.var ("selector_name_output_" ^ label) ([]: string list)
+      val reports = Synchronized.var ("selector_name_reports_" ^ label) ([]: string list)
+      fun collect target chunks =
+        if Position.file_of (Position.thread_data ()) = SOME label
+        then Synchronized.change target (append chunks) else ()
+      val result =
+        Parser_Test_Report_Lock.run (fn () =>
+          Unsynchronized.setmp Private_Output.report_fn (collect reports) (fn () =>
+            Unsynchronized.setmp Private_Output.writeln_fn (collect output) (fn () =>
+              run_from (Position.make0 1 1 0 "" label label) thy text) ()) ())
+      val plain =
+        XML.content_of (YXML.parse_body (implode (Synchronized.value output)))
+        |> Symbol.explode |> filter_out Symbol.is_control |> implode
+      val markup =
+        fold Parser_Test_Reports.collect_markup
+          (maps YXML.parse_body (Synchronized.value reports)) []
+    in {result = result, plain = plain, markup = markup} end
+
+  fun has_definition_entity markup name (start, stop) =
+    exists
+      (fn (element, properties) =>
+        element = Markup.entityN andalso
+        Properties.get properties Markup.nameN = SOME name andalso
+        is_some (Properties.get properties Markup.defN) andalso
+        Properties.get properties Markup.offsetN = SOME (Value.print_int start) andalso
+        Properties.get properties Markup.end_offsetN = SOME (Value.print_int stop))
+      markup
+
+  fun plain_message exn =
+    XML.content_of (YXML.parse_body (Runtime.exn_message exn))
+
+  fun message_positions exn =
+    let
+      fun collect (XML.Text _) = []
+        | collect (XML.Elem ((name, properties), body)) =
+            (if name = Markup.positionN then [Position.of_properties properties] else []) @
+              maps collect body
+    in maps collect (YXML.parse_body (Runtime.exn_message exn)) end
+
+  (* The symbol range of needle in the occurrence-th occurrence of prefix ^ needle within the
+     complete command text, which starts at offset 1. *)
+  fun source_range text occurrence (prefix, needle) =
+    let
+      val whole = quiet ^ text
+      val pattern = prefix ^ needle
+      fun find from count =
+        let
+          val (preceding, rest) =
+            Substring.position pattern (Substring.extract (whole, from, NONE))
+          val _ =
+            if Substring.isEmpty rest
+            then error ("selector naming audit: missing " ^ quote pattern) else ()
+          val index = from + Substring.size preceding
+        in if count <= 1 then index else find (index + size pattern) (count - 1) end
+      val index = find 0 occurrence + size prefix
+      val start = length (Symbol.explode (String.substring (whole, 0, index))) + 1
+    in (start, start + length (Symbol.explode needle)) end
+
+  fun key_range text occurrence key = source_range text occurrence ("\"", key)
+
+  fun succeeded thy label text =
+    (case run thy label text of
+       Exn.Res state => Toplevel.context_of state
+     | Exn.Exn exn =>
+         if Exn.is_interrupt exn then Exn.reraise exn
+         else error (label ^ " unexpectedly failed:\n" ^ plain_message exn))
+
+  fun rejected_at thy label fragment (start, stop) text =
+    (case run thy label text of
+       Exn.Res _ => error (label ^ " unexpectedly succeeded")
+     | Exn.Exn exn =>
+         if Exn.is_interrupt exn then Exn.reraise exn
+         else
+           let
+             val message = plain_message exn
+             val actual =
+               (case message_positions exn of
+                  pos :: _ =>
+                    (Position.offset_of pos, Position.end_offset_of pos, Position.file_of pos)
+                | [] => (NONE, NONE, NONE))
+             val expected = (SOME start, SOME stop, SOME label)
+             fun show (offset, end_offset, file) =
+               @{make_string} (offset, end_offset, file)
+           in
+             if not (String.isSubstring fragment message)
+             then error (label ^ " produced the wrong diagnostic:\n" ^ message)
+             else if actual <> expected
+             then
+               error (label ^ " is positioned at " ^ show actual ^ " instead of " ^
+                 show expected ^ ":\n" ^ message)
+             else ()
+           end)
+end
+\<close>
+
+section\<open> Payload rename keys \<close>
+
+ML_val\<open>
+  local
+    structure T = Selector_Name_Test
+    val thy = \<^theory>
+    val item =
+      T.cartouche " enum SelectorNameKeys { Named { value: u32 }, Pair(u32, bool), Unit } "
+    fun rejected_key backend (label, key, fragment) =
+      let
+        val text =
+          "urust_datatype [" ^ backend ^ "renames = " ^
+            T.rename_list [(key, "selector_name_chosen")] ^ "] " ^ item
+      in T.rejected_at thy label fragment (T.key_range text 1 key) text end
+  in
+    val _ =
+      List.app (fn (suffix, backend) =>
+        List.app (fn (label, key, fragment) =>
+          rejected_key backend ("selector-name-" ^ label ^ suffix, key, fragment))
+          [("unknown-variant", "Missing.value",
+            "unknown rename key \"Missing.value\": enum \"SelectorNameKeys\" has no variant " ^
+              "\"Missing\""),
+           ("unknown-constructor", "Missing",
+            "enum \"SelectorNameKeys\" has no variant \"Missing\""),
+           ("path-variant", "SelectorNameKeys::Named.value",
+            "has no variant \"SelectorNameKeys::Named\""),
+           ("unknown-field", "Named.missing",
+            "unknown rename key \"Named.missing\": variant \"Named\" has no field \"missing\""),
+           ("nested-field", "Named.value.inner", "variant \"Named\" has no field \"value.inner\""),
+           ("named-index", "Named.0", "variant \"Named\" has no field \"0\""),
+           ("unit-payload", "Unit.0", "variant \"Unit\" has no payload fields"),
+           ("unit-field", "Unit.value", "variant \"Unit\" has no payload fields"),
+           ("out-of-range", "Pair.2",
+            "unknown rename key \"Pair.2\": variant \"Pair\" has 2 positional fields"),
+           ("large-index", "Pair.18446744073709551616", "variant \"Pair\" has 2 positional fields"),
+           ("non-decimal", "Pair.first",
+            "invalid rename key \"Pair.first\": tuple variant fields are named by 0-based " ^
+              "decimal indices"),
+           ("negative", "Pair.-1", "invalid rename key \"Pair.-1\""),
+           ("leading-zero", "Pair.01", "invalid rename key \"Pair.01\""),
+           ("hexadecimal", "Pair.0x1", "invalid rename key \"Pair.0x1\""),
+           ("separated", "Pair.0_1", "invalid rename key \"Pair.0_1\""),
+           ("empty-index", "Pair.", "invalid rename key \"Pair.\""),
+           ("empty-variant", ".0", "has no variant \"\"")])
+        [("-enum", ""), ("-hol", "backend = hol, ")]
+  end
+\<close>
+
+ML_val\<open>
+  local
+    structure T = Selector_Name_Test
+    val thy = \<^theory>
+    fun declaration backend entries item =
+      "urust_datatype [" ^ backend ^ "renames = " ^ T.rename_list entries ^ "] " ^
+        T.cartouche item
+    val keys_item = " enum SelectorNameKeys { Named { value: u32 }, Pair(u32, bool), Unit } "
+    val order_item = " enum SelectorNameOrder { Pair(u32), Named { value: u32 } } "
+  in
+    val _ =
+      List.app (fn (suffix, backend) =>
+        let
+          val duplicate_key =
+            declaration backend
+              [("Pair.0", "selector_name_first"), ("Pair.0", "selector_name_second")] keys_item
+          val _ =
+            T.rejected_at thy ("selector-name-duplicate-key" ^ suffix)
+              "duplicate rename key \"Pair.0\"" (T.key_range duplicate_key 2 "Pair.0")
+              duplicate_key
+          val duplicate_target =
+            declaration backend
+              [("Pair.0", "selector_name_same"), ("Named.value", "selector_name_same")] keys_item
+          (* Effective selectors are checked in source variant order: Named, then Pair. *)
+          val _ =
+            T.rejected_at thy ("selector-name-duplicate-target" ^ suffix)
+              "duplicate generated HOL selector \"selector_name_same\""
+              (T.key_range duplicate_target 1 "selector_name_same") duplicate_target
+          val default_after =
+            declaration backend [("Pair.1", "selector_name_keys_named_value")] keys_item
+          val _ =
+            T.rejected_at thy ("selector-name-default-after" ^ suffix)
+              "duplicate generated HOL selector \"selector_name_keys_named_value\""
+              (T.key_range default_after 1 "selector_name_keys_named_value") default_after
+          val default_before =
+            declaration backend [("Pair.0", "selector_name_order_named_value")] order_item
+          val _ =
+            T.rejected_at thy ("selector-name-default-before" ^ suffix)
+              "duplicate generated HOL selector \"selector_name_order_named_value\""
+              (T.source_range default_before 1 ("{ ", "value")) default_before
+          val collision =
+            "urust_datatype [" ^ backend ^ "renames = [] ] " ^
+              T.cartouche
+                " enum SelectorNameSnake { FooBar { value: u32 }, Foo_Bar { value: bool } } "
+          val _ =
+            T.rejected_at thy ("selector-name-default-collision" ^ suffix)
+              "duplicate generated HOL selector \"selector_name_snake_foo_bar_value\""
+              (T.source_range collision 2 ("{ ", "value")) collision
+          val resolved =
+            declaration backend [("Foo_Bar.value", "selector_name_resolved")]
+              " enum SelectorNameResolved { FooBar { value: u32 }, Foo_Bar { value: bool } } "
+          val ctxt = T.succeeded thy ("selector-name-resolved" ^ suffix) resolved
+          val entry =
+            the (URust_Item_Scope.lookup_constructor ctxt "SelectorNameResolved::Foo_Bar")
+          val _ =
+            if map (apsnd (Long_Name.base_name o dest_Const_name))
+                (URust_Item_Scope.constructor_fields entry) = [("value", "selector_name_resolved")]
+            then () else error "a payload key did not resolve a snake-case selector collision"
+        in () end)
+        [("-enum", ""), ("-hol", "backend = hol, ")]
+  end
+\<close>
+
+ML_val\<open>
+  local
+    structure T = Selector_Name_Test
+    val thy = \<^theory>
+  in
+    (* Keys use the source variant name; a constructor rename neither hides nor renames them. *)
+    val _ =
+      List.app (fn (suffix, backend) =>
+        let
+          val text =
+            "urust_datatype [" ^ backend ^ "renames = " ^
+              T.rename_list
+                [("Named", "SelectorNameModelNamed"), ("Named.value", "selector_name_value"),
+                 ("Pair", "SelectorNameModelPair"), ("Pair.1", "selector_name_flag")] ^ "] " ^
+              T.cartouche
+                " enum SelectorNameSource { Named { value: u32, other: bool }, Pair(u32, bool) } "
+          val ctxt = T.succeeded thy ("selector-name-source-variant" ^ suffix) text
+          fun entry path = the (URust_Item_Scope.lookup_constructor ctxt path)
+          val named = entry "SelectorNameSource::Named"
+          val pair = entry "SelectorNameSource::Pair"
+          val _ =
+            if map (apsnd (Long_Name.base_name o dest_Const_name))
+                (URust_Item_Scope.constructor_fields named) =
+                [("value", "selector_name_value"), ("other", "selector_name_source_named_other")]
+            then () else error ("named payload keys changed field metadata" ^ suffix)
+          val _ =
+            if map (Long_Name.base_name o dest_Const_name o URust_Item_Scope.constructor_term)
+                [named, pair] = ["SelectorNameModelNamed", "SelectorNameModelPair"] andalso
+              null (URust_Item_Scope.constructor_fields pair)
+            then () else error ("constructor keys changed with payload keys" ^ suffix)
+          val flag_type =
+            fastype_of (Proof_Context.read_const {proper = true, strict = false} ctxt
+              "selector_name_flag")
+          val _ =
+            if Long_Name.base_name (dest_Type_name (domain_type flag_type)) =
+                "selector_name_source" andalso range_type flag_type = \<^typ>\<open>bool\<close>
+            then () else error ("positional key generated the wrong selector type" ^ suffix)
+        in () end)
+        [("-enum", ""), ("-hol", "backend = hol, ")]
+
+    (* simple_word_enum variants have no payload; tuple structs have no keys. *)
+    val word =
+      "urust_datatype [word_width = 8, renames = " ^
+        T.rename_list [("On.0", "selector_name_on")] ^ "] " ^
+        T.cartouche " enum SelectorNameWord { On, Off } "
+    val _ =
+      T.rejected_at thy "selector-name-word-key" "variant \"On\" has no payload fields"
+        (T.key_range word 1 "On.0") word
+    val word_field =
+      "urust_datatype [renames = " ^ T.rename_list [("On.value", "selector_name_on")] ^ "] " ^
+        T.cartouche " #[repr(u8)] enum SelectorNameWord { On = 1, Off = 2 } "
+    val _ =
+      T.rejected_at thy "selector-name-word-field" "variant \"On\" has no payload fields"
+        (T.key_range word_field 1 "On.value") word_field
+    val _ =
+      List.app (fn (label, key) =>
+        let
+          val text =
+            "urust_datatype [renames = " ^ T.rename_list [(key, "selector_name_first")] ^ "] " ^
+              T.cartouche " struct SelectorNameTuple(u32, bool); "
+        in
+          T.rejected_at thy label
+            ("unknown rename key " ^ quote key ^ ": struct \"SelectorNameTuple\" has only " ^
+              "positional fields, and tuple struct fields have no rename keys")
+            (T.key_range text 1 key) text
+        end)
+        [("selector-name-tuple-struct-index", "0"),
+         ("selector-name-tuple-struct-qualified", "SelectorNameTuple.0")]
+  end
+\<close>
+
+section\<open> Native parity of positional selectors \<close>
+
+ML_val\<open>
+  local
+    val ctxt = \<^context>
+    fun sugar name = the (Ctr_Sugar.ctr_sugar_of ctxt name)
+    val generated = sugar \<^type_name>\<open>selector_name_parity\<close>
+    val native = sugar \<^type_name>\<open>selector_name_native_parity\<close>
+    fun const_names (sugar: Ctr_Sugar.ctr_sugar) =
+      map_filter (try dest_Const_name)
+        (#ctrs sugar @ flat (#selss sugar) @ #discs sugar @ [#casex sugar])
+    val _ =
+      if length (const_names generated) = length (const_names native) then ()
+      else error "positional selector parity: different constructor-sugar shapes"
+    val constants = const_names native ~~ const_names generated
+    val native_type = dest_Type_name (#T native)
+    val generated_type = dest_Type_name (#T generated)
+    fun rename_type (Type (name, Ts)) =
+          Type (if name = native_type then generated_type else name, map rename_type Ts)
+      | rename_type T = T
+    (* Ctr_Sugar names variables after the type. *)
+    val native_base = Long_Name.base_name native_type
+    val generated_base = Long_Name.base_name generated_type
+    fun rename_variable name =
+      if String.isPrefix native_base name
+      then generated_base ^ unprefix native_base name else name
+    fun rename (Const (name, T)) =
+          Const (the_default name (AList.lookup (op =) constants name), rename_type T)
+      | rename (Free (name, T)) = Free (rename_variable name, rename_type T)
+      | rename (Var ((name, index), T)) = Var ((rename_variable name, index), rename_type T)
+      | rename (Abs (name, T, body)) = Abs (name, rename_type T, rename body)
+      | rename (t $ u) = rename t $ rename u
+      | rename t = t
+    fun same label native_thms generated_thms =
+      if length native_thms = length generated_thms andalso
+          forall (fn (n, g) => rename (Thm.prop_of n) aconv Thm.prop_of g)
+            (native_thms ~~ generated_thms)
+      then () else error ("positional selector parity: different " ^ label)
+    val _ = same "sel facts" (flat (#sel_thmss native)) (flat (#sel_thmss generated))
+    val _ = same "selector definitions" (#sel_defs native) (#sel_defs generated)
+    val _ = same "collapse facts" (#collapses native) (#collapses generated)
+    val _ = same "split facts" (#split_sels native) (#split_sels generated)
+    val _ =
+      if map rename (flat (#selss native)) = flat (#selss generated)
+      then () else error "positional selector parity: different selector constants"
+    val _ =
+      if Long_Name.base_name (dest_Const_name (hd (hd (#selss generated)))) =
+          "selector_name_parity_boxed"
+      then () else error "positional selector parity: wrong selector name"
+    (* The default simpset alone proves each generated sel equation. *)
+    val _ =
+      List.app (fn thm =>
+        let val (goals, goal_ctxt) = Variable.import_terms true [Thm.prop_of thm] ctxt
+        in
+          ignore (Goal.prove goal_ctxt [] [] (the_single goals)
+            (fn {context, ...} => simp_tac context 1))
+        end)
+        (flat (#sel_thmss generated))
+  in end
+\<close>
+
+section\<open> Unprefixed selectors \<close>
+
+ML_val\<open>
+  local
+    structure T = Selector_Name_Test
+    val thy = \<^theory>
+    fun fields ctxt path =
+      URust_Item_Scope.constructor_fields (the (URust_Item_Scope.lookup_constructor ctxt path))
+      |> map (apsnd (Long_Name.base_name o dest_Const_name))
+    fun added_fields ctxt =
+      let val earlier = map (#serial o #3) (Micro_Rust_Names.dump \<^context>)
+      in
+        Micro_Rust_Names.dump ctxt
+        |> filter_out (fn (_, _, entry) => member (op =) earlier (#serial entry))
+        |> map (fn (kind, name, entry) =>
+            (kind, name, Long_Name.base_name (dest_Const_name (#hol_term entry))))
+      end
+    val flags_item =
+      T.cartouche
+        " struct SelectorNameFlags { selectorNameFirst: u32, selector_name_second: bool } "
+    val unprefixed =
+      [("selectorNameFirst", "selector_name_first"),
+       ("selector_name_second", "selector_name_second")]
+    val prefixed =
+      [("selectorNameFirst", "selector_name_flags_selector_name_first"),
+       ("selector_name_second", "selector_name_flags_selector_name_second")]
+  in
+    (* The bare spelling is canonical; an explicit false or an omitted option keeps the prefix. *)
+    val _ =
+      List.app (fn (label, option, expected) =>
+        let
+          val ctxt =
+            T.succeeded thy label ("urust_datatype [" ^ option ^ "] " ^ flags_item)
+          val lenses =
+            map (fn (_, selector) => "selector_name_flags_" ^ selector ^ "_lens") expected
+        in
+          if fields ctxt "SelectorNameFlags" = expected andalso
+              eq_set (op =) (added_fields ctxt,
+                map2 (fn (source, _) => fn lens => (Micro_Rust_Names.NField, source, lens))
+                  expected lenses)
+          then () else error (label ^ " chose the wrong selectors or field registrations")
+        end)
+      [("selector-name-option-bare", "unprefixed_selectors", unprefixed),
+       ("selector-name-option-true", "unprefixed_selectors = true", unprefixed),
+       ("selector-name-option-false", "unprefixed_selectors = false", prefixed),
+       ("selector-name-option-omitted", "pp_test", prefixed)]
+
+    val suppressed =
+      T.succeeded thy "selector-name-option-suppressed"
+        ("urust_datatype [unprefixed_selectors, register_notation = false] " ^ flags_item)
+    val _ =
+      if fields suppressed "SelectorNameFlags" = unprefixed andalso null (added_fields suppressed)
+        andalso can (Proof_Context.get_thm suppressed)
+          "selector_name_flags_selector_name_first_lens_valid"
+      then () else error "unprefixed selectors changed suppressed field registration"
+
+    (* The option is inline-only: no attribute and no scoped default exist. *)
+    val _ =
+      List.app (fn (label, option) =>
+        let val text = "declare [[" ^ option ^ "]]"
+        in
+          T.rejected_at thy label ("Undefined attribute: " ^ quote option)
+            (T.source_range text 1 ("[[", option)) text
+        end)
+      [("selector-name-no-attribute", "unprefixed_selectors"),
+       ("selector-name-no-scoped-setting", "urust_unprefixed_selectors")]
+    val integer = "urust_datatype [unprefixed_selectors = 1] " ^ flags_item
+    val _ =
+      T.rejected_at thy "selector-name-option-integer"
+        "uRust command option \"unprefixed_selectors\" expects true or false"
+        (T.source_range integer 1 ("= ", "1")) integer
+    val duplicate =
+      "urust_datatype [unprefixed_selectors, unprefixed_selectors = false] " ^ flags_item
+    val _ =
+      T.rejected_at thy "selector-name-option-duplicate"
+        "duplicate uRust command option \"unprefixed_selectors\""
+        (T.source_range duplicate 1 (", ", "unprefixed_selectors")) duplicate
+    val _ =
+      List.app (fn command =>
+        let val text = command ^ " [unprefixed_selectors] _ " ^ T.cartouche " () "
+        in
+          T.rejected_at thy ("selector-name-option-" ^ command)
+            "unknown uRust command option \"unprefixed_selectors\""
+            (T.source_range text 1 ("[", "unprefixed_selectors")) text
+        end)
+      ["urust_expr", "urust_fn"]
+
+    (* simple_word_enum generates no selectors, however the backend is selected. *)
+    val _ =
+      List.app (fn (label, options, item) =>
+        let val text = "urust_datatype [" ^ options ^ "] " ^ T.cartouche item
+        in
+          T.rejected_at thy label
+            "unprefixed_selectors does not apply to the simple_word_enum backend"
+            (T.source_range text 1 ("", "unprefixed_selectors")) text
+        end)
+      [("selector-name-word-width", "word_width = 8, unprefixed_selectors",
+        " enum SelectorNameWord { On, Off } "),
+       ("selector-name-word-repr", "unprefixed_selectors",
+        " #[repr(u8)] enum SelectorNameWord { On = 1, Off = 2 } "),
+       ("selector-name-word-explicit",
+        "backend = \"simple_word_enum\", word_width = 8, unprefixed_selectors",
+        " enum SelectorNameWord { On, Off } ")]
+    val _ =
+      List.app (fn (label, options, item) =>
+        ignore (T.succeeded thy label ("urust_datatype [" ^ options ^ "] " ^ T.cartouche item)))
+      [("selector-name-word-false", "word_width = 8, unprefixed_selectors = false",
+        " enum SelectorNameWord { On, Off } "),
+       ("selector-name-word-custom", "backend = \"enum\", unprefixed_selectors",
+        " #[repr(u8)] enum SelectorNameWord { On = 1, Off = 2 } "),
+       ("selector-name-tuple-struct", "unprefixed_selectors",
+        " struct SelectorNameTuple(u32, bool); ")]
+  end
+\<close>
+
+ML_val\<open>
+  local
+    structure T = Selector_Name_Test
+    val thy = \<^theory>
+    fun declaration options item =
+      "urust_datatype [" ^ options ^ "] " ^ T.cartouche item
+  in
+    (* Unprefixed names take part in every effective-name check. *)
+    val struct_collision =
+      declaration "unprefixed_selectors"
+        " struct SelectorNameCollision { selectorNameValue: u32, selector_name_value: bool } "
+    val _ =
+      T.rejected_at thy "selector-name-unprefixed-collision"
+        "duplicate generated HOL field \"selector_name_value\""
+        (T.source_range struct_collision 1 (", ", "selector_name_value")) struct_collision
+    val struct_key =
+      declaration
+        ("unprefixed_selectors, renames = " ^
+          T.rename_list [("selector_name_first", "selector_name_second")])
+        " struct SelectorNameKeyed { selector_name_first: u32, selector_name_second: bool } "
+    val _ =
+      T.rejected_at thy "selector-name-unprefixed-key-default"
+        "duplicate generated HOL field \"selector_name_second\""
+        (T.source_range struct_key 1 (", ", "selector_name_second")) struct_key
+    val _ =
+      List.app (fn (suffix, backend) =>
+        let
+          val shared =
+            declaration (backend ^ "unprefixed_selectors")
+              (" enum SelectorNameShared { First { selector_name_value: u32 }, " ^
+                "Second { selector_name_value: bool } } ")
+          val _ =
+            T.rejected_at thy ("selector-name-unprefixed-variants" ^ suffix)
+              "duplicate generated HOL selector \"selector_name_value\""
+              (T.source_range shared 2 ("{ ", "selector_name_value")) shared
+          val payload_key =
+            declaration
+              (backend ^ "unprefixed_selectors, renames = " ^
+                T.rename_list [("Second.selector_name_b", "selector_name_a")])
+              (" enum SelectorNamePayload { First { selector_name_a: u32 }, " ^
+                "Second { selector_name_b: bool } } ")
+          val _ =
+            T.rejected_at thy ("selector-name-unprefixed-payload-key" ^ suffix)
+              "duplicate generated HOL selector \"selector_name_a\""
+              (T.key_range payload_key 1 "selector_name_a") payload_key
+          val hidden =
+            declaration (backend ^ "unprefixed_selectors")
+              " enum SelectorNameHiddenChoice { Hidden { _selectorNameSecret: u32 } } "
+          val _ =
+            T.rejected_at thy ("selector-name-unprefixed-invalid-payload" ^ suffix)
+              ("invalid HOL name binding \"_selector_name_secret\" for the unprefixed selector " ^
+                "of field \"_selectorNameSecret\"")
+              (T.source_range hidden 1 ("{ ", "_selectorNameSecret")) hidden
+          val resolved =
+            declaration
+              (backend ^ "unprefixed_selectors, renames = " ^
+                T.rename_list [("Hidden._selectorNameSecret", "selector_name_secret")])
+              " enum SelectorNameHiddenChoice { Hidden { _selectorNameSecret: u32 } } "
+          val ctxt = T.succeeded thy ("selector-name-unprefixed-resolved" ^ suffix) resolved
+          val entry =
+            the (URust_Item_Scope.lookup_constructor ctxt "SelectorNameHiddenChoice::Hidden")
+        in
+          if map (apsnd (Long_Name.base_name o dest_Const_name))
+              (URust_Item_Scope.constructor_fields entry) =
+              [("_selectorNameSecret", "selector_name_secret")]
+          then () else error ("an explicit key did not replace an invalid default" ^ suffix)
+        end)
+      [("-enum", ""), ("-hol", "backend = hol, ")]
+    val hidden_struct =
+      declaration "unprefixed_selectors" " struct SelectorNameHidden { _selectorNameSecret: u32 } "
+    val _ =
+      T.rejected_at thy "selector-name-unprefixed-invalid-field"
+        "invalid HOL name binding \"_selector_name_secret\" for the unprefixed selector"
+        (T.source_range hidden_struct 1 ("{ ", "_selectorNameSecret")) hidden_struct
+  end
+\<close>
+
+ML_val\<open>
+  local
+    structure T = Selector_Name_Test
+    val thy = \<^theory>
+    val label = "selector-name-shared-structs"
+    val text =
+      "urust_datatype [unprefixed_selectors] " ^
+        T.cartouche " struct SelectorNameLeft { selector_name_shared: u32 } " ^ "\n" ^
+      "urust_datatype [unprefixed_selectors] " ^
+        T.cartouche " struct SelectorNameRight { selector_name_shared: bool } "
+    val ctxt = T.succeeded thy label text
+    fun read name =
+      dest_Const_name (Proof_Context.read_const {proper = true, strict = false} ctxt name)
+    fun qualified_path name = Long_Name.explode name |> rev |> take 2 |> rev
+    fun lens_of source =
+      Parser_Test_Elaboration.expression ctxt (Parser_Lex_Util.text_source source)
+      |> (fn term => Term.add_const_names term [])
+      |> filter (String.isSuffix "_selector_name_shared_lens")
+      |> map Long_Name.base_name
+  in
+    (* Record selectors are qualified by their type. Both declarations succeed, the later short
+       name shadows the earlier one, and each selector is defined at its own source field. *)
+    val _ =
+      if qualified_path (read "selector_name_shared") =
+            ["selector_name_right", "selector_name_shared"] andalso
+          qualified_path (read "selector_name_left.selector_name_shared") =
+            ["selector_name_left", "selector_name_shared"]
+      then () else error "unprefixed record selectors no longer shadow by short name"
+    val _ =
+      List.app (fn (qualified, occurrence) =>
+        let
+          val {pos, ...} =
+            Name_Space.the_entry (Proof_Context.const_space ctxt) (read qualified)
+          val (start, _) = T.source_range text occurrence ("{ ", "selector_name_shared")
+        in
+          if Position.offset_of pos = SOME start andalso Position.file_of pos = SOME label
+          then () else error ("unprefixed selector " ^ qualified ^ " lost its field position")
+        end)
+      [("selector_name_left.selector_name_shared", 1),
+       ("selector_name_right.selector_name_shared", 2)]
+    (* Rust field access remains type-directed between the two lenses. *)
+    val _ =
+      if lens_of "(SelectorNameLeft { selector_name_shared: 1u32 }).selector_name_shared" =
+            ["selector_name_left_selector_name_shared_lens"] andalso
+          lens_of "(SelectorNameRight { selector_name_shared: true }).selector_name_shared" =
+            ["selector_name_right_selector_name_shared_lens"]
+      then () else error "shared unprefixed field names changed Rust field resolution"
+
+    (* Custom enum payload selectors are unqualified constants, so the second declaration of the
+       same unprefixed selector is the native duplicate-constant error at its field. *)
+    val enum_label = "selector-name-shared-custom-enums"
+    val enum_text =
+      "urust_datatype [unprefixed_selectors] " ^
+        T.cartouche " enum SelectorNameFirstSignal { Tone { selector_name_level: u32 } } " ^ "\n" ^
+      "urust_datatype [unprefixed_selectors] " ^
+        T.cartouche " enum SelectorNameSecondSignal { Chime { selector_name_level: bool } } "
+    val _ =
+      T.rejected_at thy enum_label "Duplicate constant declaration"
+        (T.source_range enum_text 2 ("{ ", "selector_name_level")) enum_text
+  end
+\<close>
+
+section\<open> Generated selector output \<close>
+
+text\<open>
+Manifests, normalized generated declarations and definition entities derive from the actual
+generated selectors: keyed and automatic positional selectors appear with the named ones.
+\<close>
+
+ML_val\<open>
+  local
+    structure T = Selector_Name_Test
+    val thy = \<^theory>
+    val item =
+      " enum SelectorNameOutput { Unset, Packed(u32, bool), Marked { value: u32, other: bool } } "
+    val entries =
+      [("Packed.1", "selector_name_packed_flag"), ("Marked.value", "selector_name_marked_value")]
+    fun require label condition = if condition then () else error ("selector output: " ^ label)
+    fun index_of text plain =
+      (case Substring.position text (Substring.full plain) of
+         (before_text, rest) =>
+           if Substring.isEmpty rest then error ("selector output is missing " ^ quote text)
+           else Substring.size before_text)
+  in
+    val _ =
+      List.app (fn (suffix, backend, hol) =>
+        let
+          val label = "selector-name-output" ^ suffix
+          val text =
+            "urust_datatype [" ^ backend ^ "verbosity = 2, renames = " ^
+              T.rename_list entries ^ "] " ^ T.cartouche item
+          val {result, plain, markup} = T.run_output thy label text
+          val ctxt =
+            (case result of
+               Exn.Res state => Toplevel.context_of state
+             | Exn.Exn exn => Exn.reraise exn)
+          fun full name =
+            dest_Const_name (Proof_Context.read_const {proper = true, strict = false} ctxt name)
+          val flag = full "selector_name_packed_flag"
+          val value = full "selector_name_marked_value"
+          val other = full "selector_name_output_marked_other"
+          val manifest =
+            ["SelectorNameOutput::Packed.1 -> " ^ flag,
+             "SelectorNameOutput::Marked.value -> " ^ value,
+             "SelectorNameOutput::Marked.other -> " ^ other]
+          val positional_default = "SelectorNameOutput::Packed.0 -> "
+          (* Ctr_Sugar names the remaining positional field; the custom enum defines nothing. *)
+          val _ =
+            if hol then
+              let val default = full "un_Packed1"
+              in
+                require ("automatic hol selector in the manifest" ^ suffix)
+                  (index_of (positional_default ^ default) plain <
+                    index_of (hd manifest) plain);
+                require ("automatic hol selector in the declaration" ^ suffix)
+                  (String.isSubstring ("(" ^ default ^ ": 32 word)") plain)
+              end
+            else
+              require ("custom enum invented a positional selector" ^ suffix)
+                (not (String.isSubstring positional_default plain))
+          val _ =
+            require ("manifest selector order" ^ suffix)
+              (index_of (nth manifest 0) plain < index_of (nth manifest 1) plain andalso
+                index_of (nth manifest 1) plain < index_of (nth manifest 2) plain)
+          val _ =
+            List.app (fn expected =>
+              require ("normalized declaration lacks " ^ expected ^ suffix)
+                (String.isSubstring expected plain))
+              ["(" ^ flag ^ ": bool)", "(" ^ value ^ ": 32 word)", "(" ^ other ^ ": bool)",
+               "definition selector_name_packed_flag_def:",
+               "definition selector_name_marked_value_def:"]
+          val _ =
+            List.app (fn (target, name) =>
+              require ("definition entity of " ^ name ^ suffix)
+                (T.has_definition_entity markup name (T.key_range text 1 target)))
+              [("selector_name_packed_flag", flag), ("selector_name_marked_value", value)]
+        in () end)
+        [("-enum", "", false), ("-hol", "backend = hol, ", true)]
+
+    (* An unprefixed custom-enum payload selector is defined at its source field. *)
+    val label = "selector-name-output-unprefixed"
+    val text =
+      "urust_datatype [verbosity = 1, unprefixed_selectors] " ^
+        T.cartouche " enum SelectorNameUnprefixedOutput { Tone { selector_name_pitch_level: u32 } } "
+    val {result, plain, markup} = T.run_output thy label text
+    val ctxt =
+      (case result of
+         Exn.Res state => Toplevel.context_of state
+       | Exn.Exn exn => Exn.reraise exn)
+    val pitch =
+      dest_Const_name (Proof_Context.read_const {proper = true, strict = false} ctxt
+        "selector_name_pitch_level")
+    val _ =
+      require "unprefixed selector in the manifest"
+        (String.isSubstring
+          ("SelectorNameUnprefixedOutput::Tone.selector_name_pitch_level -> " ^ pitch) plain)
+    val _ =
+      require "definition entity of an unprefixed selector"
+        (T.has_definition_entity markup pitch
+          (T.source_range text 1 ("{ ", "selector_name_pitch_level")))
+  end
+\<close>
+
+section\<open> Generated name conflicts \<close>
+
+text\<open>
+Rename targets and unprefixed names are checked against every name the backend binds for the
+declaration: constructors, Ctr_Sugar's automatic \<open>un_\<close> selectors and \<open>is_\<close>
+discriminators exactly where it generates them, other selectors, and record constructors and
+updates. Conflicts are positioned at the explicit or unprefixed name.
+\<close>
+
+ML_val\<open>
+  local
+    structure T = Selector_Name_Test
+    val thy = \<^theory>
+    fun declaration backend entries item =
+      "urust_datatype [" ^ backend ^ "renames = " ^ T.rename_list entries ^ "] " ^
+        T.cartouche item
+    val hol = "backend = hol, "
+    fun rejected_at_target label backend entries item (target, occurrence) fragment =
+      let val text = declaration backend entries item
+      in T.rejected_at thy label fragment (T.key_range text occurrence target) text end
+    fun fields ctxt path =
+      URust_Item_Scope.constructor_fields (the (URust_Item_Scope.lookup_constructor ctxt path))
+      |> map (apsnd (Long_Name.base_name o dest_Const_name))
+    fun read ctxt name =
+      Long_Name.base_name
+        (dest_Const_name (Proof_Context.read_const {proper = true, strict = false} ctxt name))
+  in
+    (* Ctr_Sugar's automatic selectors: a shared, mistyped or same-constructor coincidence. *)
+    val _ =
+      List.app (fn (label, entries, item, target, fragment) =>
+        rejected_at_target ("selector-name-automatic-" ^ label) hol entries item target fragment)
+        [("same-type", [("B.0", "un_A")], " enum SelectorNameMerge { A(u32), B(u32) } ",
+          ("un_A", 1),
+          "generated HOL selector \"un_A\" conflicts with the automatic selector of " ^
+            "SelectorNameMerge::A.0"),
+         ("named-payload", [("B.value", "un_A")],
+          " enum SelectorNameMerge { A(u32), B { value: u32 } } ", ("un_A", 1),
+          "conflicts with the automatic selector of SelectorNameMerge::A.0"),
+         ("different-type", [("B.0", "un_A")], " enum SelectorNameMerge { A(u32), B(bool) } ",
+          ("un_A", 1), "conflicts with the automatic selector of SelectorNameMerge::A.0"),
+         ("same-variant", [("A.0", "un_A2")], " enum SelectorNameMerge { A(u32, u32), B } ",
+          ("un_A2", 1), "conflicts with the automatic selector of SelectorNameMerge::A.1"),
+         ("renamed-constructor",
+          [("A", "SelectorNameModelA"), ("B.0", "un_SelectorNameModelA")],
+          " enum SelectorNameMerge { A(u32), B(u32) } ", ("un_SelectorNameModelA", 1),
+          "conflicts with the automatic selector of SelectorNameMerge::A.0"),
+         ("discriminator", [("B.0", "is_A")], " enum SelectorNameMerge { A(u32), B(u32) } ",
+          ("is_A", 1),
+          "generated HOL selector \"is_A\" conflicts with the automatic discriminator of " ^
+            "SelectorNameMerge::A"),
+         ("discriminator-three", [("C.0", "is_B")],
+          " enum SelectorNameMerge { A, B(u32), C(u32) } ", ("is_B", 1),
+          "conflicts with the automatic discriminator of SelectorNameMerge::B"),
+         ("constructor-discriminator", [("A.0", "selector_name_first"), ("B", "is_A")],
+          " enum SelectorNameMerge { A(u32), B(u32) } ", ("is_A", 1),
+          "generated HOL constructor \"is_A\" conflicts with the automatic discriminator of " ^
+            "SelectorNameMerge::A")]
+
+    (* Only the names Ctr_Sugar generates are reserved. *)
+    val _ =
+      List.app (fn (label, entries, item, checks) =>
+        let val ctxt = T.succeeded thy ("selector-name-automatic-" ^ label)
+          (declaration hol entries item)
+        in List.app (fn (name, expected) =>
+          if read ctxt name = expected then ()
+          else error ("selector-name-automatic-" ^ label ^ " generated the wrong " ^ name)) checks
+        end)
+      [("own-default", [("A.0", "un_A")], " enum SelectorNameOwn { A(u32), B(u32) } ",
+        [("un_A", "un_A"), ("un_B", "un_B"), ("is_A", "is_A")]),
+       ("omitted-discriminator", [("A.0", "is_B")], " enum SelectorNameOmitted { A(u32), B(u32) } ",
+        [("is_B", "is_B"), ("is_A", "is_A")]),
+       ("nullary-discriminator", [("B.0", "is_A")], " enum SelectorNameNullary { A, B(u32) } ",
+        [("is_A", "is_A")]),
+       ("renamed-default", [("A", "SelectorNameModelA"), ("B.0", "un_A")],
+        " enum SelectorNameRenamedDefault { A(u32), B(u32) } ",
+        [("un_A", "un_A"), ("un_SelectorNameModelA", "un_SelectorNameModelA")])]
+
+    (* Unqualified custom-enum selectors would shadow constructors; there are no discriminators. *)
+    val _ =
+      List.app (fn (suffix, backend) =>
+        rejected_at_target ("selector-name-constructor" ^ suffix) backend [("Packed.1", "Unset")]
+          " enum SelectorNameShadow { Unset, Packed(u32, bool) } " ("Unset", 1)
+          ("generated HOL selector \"Unset\" conflicts with the constructor of " ^
+            "SelectorNameShadow::Unset"))
+        [("-enum", ""), ("-hol", hol)]
+    val _ =
+      List.app (fn (suffix, backend) =>
+        rejected_at_target ("selector-name-renamed-constructor" ^ suffix) backend
+          [("Unset", "SelectorNameModelUnset"), ("Marked.value", "SelectorNameModelUnset")]
+          " enum SelectorNameShadow { Unset, Marked { value: u32 } } "
+          ("SelectorNameModelUnset", 2)
+          "conflicts with the constructor of SelectorNameShadow::Unset")
+        [("-enum", ""), ("-hol", hol)]
+    val custom_discriminator =
+      T.succeeded thy "selector-name-custom-discriminator"
+        (declaration "" [("B.0", "is_A")] " enum SelectorNameCustomDisc { A(u32), B(u32) } ")
+    val _ =
+      if read custom_discriminator "is_A" = "is_A" then ()
+      else error "the custom enum reserved a discriminator name"
+
+    (* Record constructors and updates. *)
+    val update =
+      declaration "unprefixed_selectors, " [("selectorNameFirst", "update_selector_name_second")]
+        " struct SelectorNameRecord { selectorNameFirst: u32, selector_name_second: bool } "
+    val _ =
+      T.rejected_at thy "selector-name-record-update"
+        ("generated HOL field \"update_selector_name_second\" conflicts with the automatic " ^
+          "update function of SelectorNameRecord.selector_name_second")
+        (T.key_range update 1 "update_selector_name_second") update
+    val constructor =
+      declaration "" [("selectorNameFirst", "make_selector_name_record")]
+        " struct SelectorNameRecord { selectorNameFirst: u32 } "
+    val _ =
+      T.rejected_at thy "selector-name-record-constructor"
+        ("generated HOL field \"make_selector_name_record\" conflicts with the automatic " ^
+          "constructor of SelectorNameRecord")
+        (T.key_range constructor 1 "make_selector_name_record") constructor
+    val unprefixed =
+      "urust_datatype [unprefixed_selectors] " ^
+        T.cartouche " struct SelectorNameMade { makeSelectorNameMade: u32 } "
+    val _ =
+      T.rejected_at thy "selector-name-unprefixed-record-constructor"
+        "generated HOL field \"make_selector_name_made\" conflicts with the automatic constructor"
+        (T.source_range unprefixed 1 ("{ ", "makeSelectorNameMade")) unprefixed
+    val own_update =
+      T.succeeded thy "selector-name-record-own-update"
+        (declaration "" [("selectorNameFirst", "update_selector_name_first")]
+          " struct SelectorNameRecord { selectorNameFirst: u32 } ")
+    val _ =
+      if fields own_update "SelectorNameRecord" =
+          [("selectorNameFirst", "update_selector_name_first")]
+      then () else error "a selector named after its own update was rejected"
+  end
+\<close>
+
+ML_val\<open>
+  local
+    structure T = Selector_Name_Test
+    val thy = \<^theory>
+    fun pair_item second =
+      T.cartouche (" enum SelectorNamePair { A(u32, u32), A1(" ^ second ^ "), N { v: u32 } } ")
+  in
+    (* Ctr_Sugar names A's first field and A1's field both un_A1. Without a key or unprefixed
+       name involved this is the native behaviour: one shared selector for equal types. *)
+    val shared =
+      T.succeeded thy "selector-name-automatic-shared"
+        ("urust_datatype [backend = hol] " ^ pair_item "u32")
+    val sugar =
+      the (Ctr_Sugar.ctr_sugar_of shared
+        (dest_Type_name (body_type (fastype_of (URust_Item_Scope.constructor_scheme
+          (the (URust_Item_Scope.lookup_constructor shared "SelectorNamePair::A1")))))))
+    val _ =
+      if map (map (Long_Name.base_name o dest_Const_name)) (#selss sugar) =
+          [["un_A1", "un_A2"], ["un_A1"], ["selector_name_pair_n_v"]] andalso
+        hd (hd (#selss sugar)) = hd (nth (#selss sugar) 1)
+      then () else error "coinciding automatic selectors were not shared natively"
+
+    (* For different field types the native Ctr_Sugar error stands, at the command. *)
+    val mistyped = "urust_datatype [backend = hol] " ^ pair_item "bool"
+    val _ =
+      T.rejected_at thy "selector-name-automatic-shared-mistyped"
+        "Inconsistent range type for selector \"un_A1\""
+        (T.source_range mistyped 1 ("", "urust_datatype")) mistyped
+
+    (* A key that targets the shared automatic name is still rejected at the key. *)
+    val keyed =
+      "urust_datatype [backend = hol, renames = " ^ T.rename_list [("N.v", "un_A1")] ^ "] " ^
+        pair_item "u32"
+    val _ =
+      T.rejected_at thy "selector-name-automatic-shared-keyed"
+        ("generated HOL selector \"un_A1\" conflicts with the automatic selector of " ^
+          "SelectorNamePair::A.0")
+        (T.key_range keyed 1 "un_A1") keyed
   end
 \<close>
 

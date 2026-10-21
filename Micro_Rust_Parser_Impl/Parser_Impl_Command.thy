@@ -148,13 +148,24 @@ installed; the setting affects subsequent declarations only. Unit/tuple structs 
 the option but do not generate field-lens aliases. A generated lens can be registered later with,
 for example, \<open>urust_notation (field) packet_packet_sample_value_lens ("sampleValue")\<close>.
 The inline-only structured option \<open>renames = ["source" \<rightarrow> "HOL"]\<close> chooses
-named-struct selector basenames or enum constructor basenames. Both strings must be quoted;
-keys are unqualified source field or variant names. Targets are used as written, subject to
-native binding rules. Missing entries and an empty list retain the defaults. Duplicate keys,
-unknown keys, invalid bindings, and duplicate effective names (including untouched defaults)
-are positioned errors. Field lenses follow the actual selector names; Rust aliases and paths
-always retain their source spellings. The outer HOL type binding is independent, and struct
-constructors and enum payload selectors remain automatic.
+named-struct selector basenames, enum constructor basenames, or enum payload selector basenames.
+Both strings must be quoted. Struct keys are unqualified source field names. Enum keys are source
+variant names, which rename only constructors, or payload keys \<open>"Variant.field"\<close> and
+\<open>"Variant.N"\<close> with the source variant name and a named field or 0-based decimal tuple
+index. A positional key adds a selector for that field on the HOL and custom enum backends; tuple
+structs have no keys. Targets are used as written, subject to native binding rules. Missing
+entries and an empty list retain the defaults. Duplicate keys, unknown variants, fields or
+indices, invalid bindings, and duplicate effective names (including untouched defaults) are
+positioned errors, as are targets equal to another generated name of the declaration: a
+constructor, an automatic Ctr_Sugar \<open>un_\<close> selector or \<open>is_\<close> discriminator, or a
+record constructor or update. Field lenses follow the actual selector names; Rust aliases and
+paths always retain their source spellings. The outer HOL type binding is independent, and struct
+constructors remain automatic. Automatic named-struct selectors are prefixed by the HOL type
+name and automatic named enum payload selectors by the type and snake-case variant names. The
+inline-only Boolean \<open>[unprefixed_selectors]\<close>, canonically bare, names both after the
+snake-case field alone; explicit and payload keys still override it. It has no attribute or
+scoped setting, and the \<open>simple_word_enum\<close> backend, which generates no selectors,
+rejects it.
 Type/const parameters retain source order, including unused parameters. Const parameters use
 HOL length types, initially \<open>len0\<close> and strengthened where fields require \<open>len\<close>.
 The option \<open>parameters = ["T" \<rightarrow> "'a::address_type"]\<close> supplies local HOL names/sorts.
@@ -432,6 +443,13 @@ val function_option_configs =
      (input_option, Type_Config urust_input), (output_option, Type_Config urust_output)]
     declaration_option_configs
 
+(* unprefixed_selectors is an inline-only Boolean. Its configuration only gives the schema entry
+   its Boolean value type: it is never set up as an attribute, and datatype_declaration reads the
+   inline value and its position alone. *)
+val unprefixed_selectors_option = "unprefixed_selectors"
+val unprefixed_selectors_inline =
+  Config.declare_bool (unprefixed_selectors_option, \<^here>) (K false)
+
 val datatype_option_configs =
   Symtab.make
     [(pp_test_option, Boolean_Config urust_pp_test),
@@ -439,6 +457,7 @@ val datatype_option_configs =
      (verbosity_option, Integer_Config urust_verbosity),
      (register_notation_option, Boolean_Config urust_register_notation),
      (renames_option, Renames_Config),
+     (unprefixed_selectors_option, Boolean_Config unprefixed_selectors_inline),
      ("parameters", Renames_Config),
      ("backend", Backend_Config),
      ("word_width", Width_Config),
@@ -1864,7 +1883,11 @@ fun datatype_declaration
             SOME (Renames_Value renames, _) => renames
           | NONE => []
           | SOME (_, pos) =>
-              option_type_error renames_option "a quoted rename list" pos)}
+              option_type_error renames_option "a quoted rename list" pos),
+       unprefixed_selectors =
+         (case Symtab.lookup options unprefixed_selectors_option of
+            SOME (Boolean_Value true, pos) => SOME pos
+          | _ => NONE)}
   in (declaration, warnings) end
 
 datatype prepared_datatype =

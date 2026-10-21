@@ -1315,4 +1315,38 @@ text\<open> An import-only chunk validates and resolves its imports and declares
 
 urust \<open> use demo::{value as only_value, increment}; \<close>
 
+section\<open> Datatype selector naming in annotations \<close>
+
+text\<open>
+A member's \<omega> annotation carries \<open>unprefixed_selectors\<close> and qualified payload rename keys
+exactly as the single-item datatype command does.
+\<close>
+
+urust \<open>
+  \<omega>\<open>unprefixed_selectors, renames = ["selectorNameChunkTotal" \<rightarrow> "selector_name_chunk_sum"]\<close>
+  struct SelectorNameChunkTally { selectorNameChunkCount: u32, selectorNameChunkTotal: u64 }
+
+  \<omega>\<open>backend = hol, renames = ["Filled.0" \<rightarrow> "selector_name_chunk_filled"]\<close>
+  enum SelectorNameChunkSlot { Hollow, Filled(u32) }
+
+  fn SelectorNameChunkRead(tally: SelectorNameChunkTally) -> u32 { tally.selectorNameChunkCount }
+\<close>
+
+thm selector_name_chunk_tally_selector_name_chunk_count_lens_valid
+
+lemma
+  \<open>selector_name_chunk_count (make_selector_name_chunk_tally c t) = c\<close>
+  \<open>selector_name_chunk_sum (make_selector_name_chunk_tally c t) = t\<close>
+  \<open>selector_name_chunk_filled (Filled n) = n\<close>
+  by simp_all
+
+urust_fn \<open>
+  fn SelectorNameChunkReadControl(tally: SelectorNameChunkTally) -> u32 {
+    tally.selectorNameChunkCount
+  }
+\<close>
+
+lemma \<open> selector_name_chunk_read = selector_name_chunk_read_control \<close>
+  unfolding selector_name_chunk_read_def selector_name_chunk_read_control_def by (rule refl)
+
 end
