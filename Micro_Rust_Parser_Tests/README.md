@@ -413,7 +413,10 @@ selectors shadow by short name and keep their own field positions, while custom-
 selectors raise the native duplicate-constant error at the later field. The generated-output rows
 check that keyed, unprefixed and automatic positional selectors appear in the manifest, the
 normalized generated declaration and the named verbosity-2 definitions, and that keyed and
-unprefixed selectors have definition entities at their targets or fields.
+unprefixed selectors have definition entities at their targets or fields. The generated-name
+rows reject targets and unprefixed names equal to a constructor, an automatic Ctr_Sugar `un_`
+selector or `is_` discriminator, or a record constructor or update, at the target or field, and
+accept the names Ctr_Sugar does not generate.
 
 ## Rust-fidelity boundaries
 

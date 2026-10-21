@@ -6563,4 +6563,139 @@ ML_val\<open>
   end
 \<close>
 
+section\<open> Generated name conflicts \<close>
+
+text\<open>
+Rename targets and unprefixed names are checked against every name the backend binds for the
+declaration: constructors, Ctr_Sugar's automatic \<open>un_\<close> selectors and \<open>is_\<close>
+discriminators exactly where it generates them, other selectors, and record constructors and
+updates. Conflicts are positioned at the explicit or unprefixed name.
+\<close>
+
+ML_val\<open>
+  local
+    structure T = Selector_Name_Test
+    val thy = \<^theory>
+    fun declaration backend entries item =
+      "urust_datatype [" ^ backend ^ "renames = " ^ T.rename_list entries ^ "] " ^
+        T.cartouche item
+    val hol = "backend = hol, "
+    fun rejected_at_target label backend entries item (target, occurrence) fragment =
+      let val text = declaration backend entries item
+      in T.rejected_at thy label fragment (T.key_range text occurrence target) text end
+    fun fields ctxt path =
+      URust_Item_Scope.constructor_fields (the (URust_Item_Scope.lookup_constructor ctxt path))
+      |> map (apsnd (Long_Name.base_name o dest_Const_name))
+    fun read ctxt name =
+      Long_Name.base_name
+        (dest_Const_name (Proof_Context.read_const {proper = true, strict = false} ctxt name))
+  in
+    (* Ctr_Sugar's automatic selectors: a shared, mistyped or same-constructor coincidence. *)
+    val _ =
+      List.app (fn (label, entries, item, target, fragment) =>
+        rejected_at_target ("selector-name-automatic-" ^ label) hol entries item target fragment)
+        [("same-type", [("B.0", "un_A")], " enum SelectorNameMerge { A(u32), B(u32) } ",
+          ("un_A", 1),
+          "generated HOL selector \"un_A\" conflicts with the automatic selector of " ^
+            "SelectorNameMerge::A.0"),
+         ("named-payload", [("B.value", "un_A")],
+          " enum SelectorNameMerge { A(u32), B { value: u32 } } ", ("un_A", 1),
+          "conflicts with the automatic selector of SelectorNameMerge::A.0"),
+         ("different-type", [("B.0", "un_A")], " enum SelectorNameMerge { A(u32), B(bool) } ",
+          ("un_A", 1), "conflicts with the automatic selector of SelectorNameMerge::A.0"),
+         ("same-variant", [("A.0", "un_A2")], " enum SelectorNameMerge { A(u32, u32), B } ",
+          ("un_A2", 1), "conflicts with the automatic selector of SelectorNameMerge::A.1"),
+         ("renamed-constructor",
+          [("A", "SelectorNameModelA"), ("B.0", "un_SelectorNameModelA")],
+          " enum SelectorNameMerge { A(u32), B(u32) } ", ("un_SelectorNameModelA", 1),
+          "conflicts with the automatic selector of SelectorNameMerge::A.0"),
+         ("discriminator", [("B.0", "is_A")], " enum SelectorNameMerge { A(u32), B(u32) } ",
+          ("is_A", 1),
+          "generated HOL selector \"is_A\" conflicts with the automatic discriminator of " ^
+            "SelectorNameMerge::A"),
+         ("discriminator-three", [("C.0", "is_B")],
+          " enum SelectorNameMerge { A, B(u32), C(u32) } ", ("is_B", 1),
+          "conflicts with the automatic discriminator of SelectorNameMerge::B"),
+         ("constructor-discriminator", [("A.0", "selector_name_first"), ("B", "is_A")],
+          " enum SelectorNameMerge { A(u32), B(u32) } ", ("is_A", 1),
+          "generated HOL constructor \"is_A\" conflicts with the automatic discriminator of " ^
+            "SelectorNameMerge::A")]
+
+    (* Only the names Ctr_Sugar generates are reserved. *)
+    val _ =
+      List.app (fn (label, entries, item, checks) =>
+        let val ctxt = T.succeeded thy ("selector-name-automatic-" ^ label)
+          (declaration hol entries item)
+        in List.app (fn (name, expected) =>
+          if read ctxt name = expected then ()
+          else error ("selector-name-automatic-" ^ label ^ " generated the wrong " ^ name)) checks
+        end)
+      [("own-default", [("A.0", "un_A")], " enum SelectorNameOwn { A(u32), B(u32) } ",
+        [("un_A", "un_A"), ("un_B", "un_B"), ("is_A", "is_A")]),
+       ("omitted-discriminator", [("A.0", "is_B")], " enum SelectorNameOmitted { A(u32), B(u32) } ",
+        [("is_B", "is_B"), ("is_A", "is_A")]),
+       ("nullary-discriminator", [("B.0", "is_A")], " enum SelectorNameNullary { A, B(u32) } ",
+        [("is_A", "is_A")]),
+       ("renamed-default", [("A", "SelectorNameModelA"), ("B.0", "un_A")],
+        " enum SelectorNameRenamedDefault { A(u32), B(u32) } ",
+        [("un_A", "un_A"), ("un_SelectorNameModelA", "un_SelectorNameModelA")])]
+
+    (* Unqualified custom-enum selectors would shadow constructors; there are no discriminators. *)
+    val _ =
+      List.app (fn (suffix, backend) =>
+        rejected_at_target ("selector-name-constructor" ^ suffix) backend [("Packed.1", "Unset")]
+          " enum SelectorNameShadow { Unset, Packed(u32, bool) } " ("Unset", 1)
+          ("generated HOL selector \"Unset\" conflicts with the constructor of " ^
+            "SelectorNameShadow::Unset"))
+        [("-enum", ""), ("-hol", hol)]
+    val _ =
+      List.app (fn (suffix, backend) =>
+        rejected_at_target ("selector-name-renamed-constructor" ^ suffix) backend
+          [("Unset", "SelectorNameModelUnset"), ("Marked.value", "SelectorNameModelUnset")]
+          " enum SelectorNameShadow { Unset, Marked { value: u32 } } "
+          ("SelectorNameModelUnset", 2)
+          "conflicts with the constructor of SelectorNameShadow::Unset")
+        [("-enum", ""), ("-hol", hol)]
+    val custom_discriminator =
+      T.succeeded thy "selector-name-custom-discriminator"
+        (declaration "" [("B.0", "is_A")] " enum SelectorNameCustomDisc { A(u32), B(u32) } ")
+    val _ =
+      if read custom_discriminator "is_A" = "is_A" then ()
+      else error "the custom enum reserved a discriminator name"
+
+    (* Record constructors and updates. *)
+    val update =
+      declaration "unprefixed_selectors, " [("selectorNameFirst", "update_selector_name_second")]
+        " struct SelectorNameRecord { selectorNameFirst: u32, selector_name_second: bool } "
+    val _ =
+      T.rejected_at thy "selector-name-record-update"
+        ("generated HOL field \"update_selector_name_second\" conflicts with the automatic " ^
+          "update function of SelectorNameRecord.selector_name_second")
+        (T.key_range update 1 "update_selector_name_second") update
+    val constructor =
+      declaration "" [("selectorNameFirst", "make_selector_name_record")]
+        " struct SelectorNameRecord { selectorNameFirst: u32 } "
+    val _ =
+      T.rejected_at thy "selector-name-record-constructor"
+        ("generated HOL field \"make_selector_name_record\" conflicts with the automatic " ^
+          "constructor of SelectorNameRecord")
+        (T.key_range constructor 1 "make_selector_name_record") constructor
+    val unprefixed =
+      "urust_datatype [unprefixed_selectors] " ^
+        T.cartouche " struct SelectorNameMade { makeSelectorNameMade: u32 } "
+    val _ =
+      T.rejected_at thy "selector-name-unprefixed-record-constructor"
+        "generated HOL field \"make_selector_name_made\" conflicts with the automatic constructor"
+        (T.source_range unprefixed 1 ("{ ", "makeSelectorNameMade")) unprefixed
+    val own_update =
+      T.succeeded thy "selector-name-record-own-update"
+        (declaration "" [("selectorNameFirst", "update_selector_name_first")]
+          " struct SelectorNameRecord { selectorNameFirst: u32 } ")
+    val _ =
+      if fields own_update "SelectorNameRecord" =
+          [("selectorNameFirst", "update_selector_name_first")]
+      then () else error "a selector named after its own update was rejected"
+  end
+\<close>
+
 end

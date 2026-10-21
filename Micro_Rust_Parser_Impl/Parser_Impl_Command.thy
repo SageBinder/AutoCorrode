@@ -156,13 +156,16 @@ index. A positional key adds a selector for that field on the HOL and custom enu
 structs have no keys. Targets are used as written, subject to native binding rules. Missing
 entries and an empty list retain the defaults. Duplicate keys, unknown variants, fields or
 indices, invalid bindings, and duplicate effective names (including untouched defaults) are
-positioned errors. Field lenses follow the actual selector names; Rust aliases and paths always
-retain their source spellings. The outer HOL type binding is independent, and struct constructors
-remain automatic. Automatic named-struct selectors are prefixed by the HOL type name and automatic
-named enum payload selectors by the type and snake-case variant names. The inline-only Boolean
-\<open>[unprefixed_selectors]\<close>, canonically bare, names both after the snake-case field alone;
-explicit and payload keys still override it. It has no attribute or scoped setting, and the
-\<open>simple_word_enum\<close> backend, which generates no selectors, rejects it.
+positioned errors, as are targets equal to another generated name of the declaration: a
+constructor, an automatic Ctr_Sugar \<open>un_\<close> selector or \<open>is_\<close> discriminator, or a
+record constructor or update. Field lenses follow the actual selector names; Rust aliases and
+paths always retain their source spellings. The outer HOL type binding is independent, and struct
+constructors remain automatic. Automatic named-struct selectors are prefixed by the HOL type
+name and automatic named enum payload selectors by the type and snake-case variant names. The
+inline-only Boolean \<open>[unprefixed_selectors]\<close>, canonically bare, names both after the
+snake-case field alone; explicit and payload keys still override it. It has no attribute or
+scoped setting, and the \<open>simple_word_enum\<close> backend, which generates no selectors,
+rejects it.
 Type/const parameters retain source order, including unused parameters. Const parameters use
 HOL length types, initially \<open>len0\<close> and strengthened where fields require \<open>len\<close>.
 The option \<open>parameters = ["T" \<rightarrow> "'a::address_type"]\<close> supplies local HOL names/sorts.

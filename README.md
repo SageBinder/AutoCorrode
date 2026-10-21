@@ -320,7 +320,12 @@ a `_simps` fact for the custom enum. Unkeyed positional fields keep the backend 
 fields have no keys.
 Missing entries retain automatic names, and `renames = []` preserves all defaults. Unknown variants,
 fields and tuple indices, malformed indices, duplicate keys, and duplicate effective targets,
-including collisions with untouched defaults, are positioned errors.
+including collisions with untouched defaults, are positioned errors. Targets and unprefixed names
+must also differ from every other name the declaration generates: constructors (after renames),
+Ctr_Sugar's automatic `un_C`/`un_Ci` selectors and `is_C` discriminators on `backend = hol`,
+exactly where Ctr_Sugar generates them, and record constructors `make_…` and updates `update_…`.
+A conflict is reported at the explicit target or unprefixed field that introduces it; on the
+custom enum this also prevents an unqualified selector from shadowing a constructor.
 An explicit selector override can resolve a snake-case field collision. The outer HOL type binding
 remains independent, and struct constructors retain automatic naming.
 Renames are inline-only and compose with the other datatype options.

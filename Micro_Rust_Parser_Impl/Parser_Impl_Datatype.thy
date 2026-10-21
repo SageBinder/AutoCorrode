@@ -284,6 +284,29 @@ fun add_unprefixed_selectors lthy item renames =
 fun check_effective_names what bindings =
   duplicate_names what (map (fn b => (Binding.name_of b, Binding.pos_of b)) bindings)
 
+(* The constant names a backend binds per constructor and field must be distinct: Ctr_Sugar and
+   datatype records qualify constructors, discriminators, selectors and updates by the type, and
+   unqualified custom-enum selectors would shadow the short names of its constructors. Automatic
+   names have no source of their own and are checked first, so a conflict is reported at the
+   explicit, unprefixed or default name that introduces it, and between two such names at the
+   later one, as in D156. Each kind's own duplicates are reported earlier with its own message. *)
+type generated_name =
+  {name: string, kind: string, owner: string, pos: Position.T, automatic: bool}
+
+fun check_generated_names (names: generated_name list) =
+  let
+    fun check _ [] = ()
+      | check seen ((entry as {name, kind, pos, ...}) :: rest) =
+          (case Symtab.lookup seen name of
+             NONE => check (Symtab.update (name, entry) seen) rest
+           | SOME (earlier: generated_name) =>
+               positioned_datatype_error
+                 ("generated HOL " ^ kind ^ " " ^ quote name ^ " conflicts with the " ^
+                   (if #automatic earlier then "automatic " else "") ^ #kind earlier ^ " of " ^
+                   #owner earlier)
+                 pos)
+  in check Symtab.empty (filter #automatic names @ filter_out #automatic names) end
+
 fun check_constructor_arity name pos arity =
   if arity <= 14 then ()
   else
@@ -592,6 +615,22 @@ fun make_named_struct plugins register_notation renames backend_parameters resol
            typ))
         fields resolved_types
     val _ = check_effective_names "generated HOL field" (map fst record_fields)
+    val _ =
+      check_generated_names
+        ({name = "make_" ^ hol_base, kind = "constructor", owner = rust_name,
+          pos = Binding.pos_of type_binding, automatic = true} ::
+         maps
+           (fn ((selector, _), field) =>
+             let
+               val owner = rust_name ^ "." ^ datatype_field_name field
+               val name = Binding.name_of selector
+             in
+               [{name = "update_" ^ name, kind = "update function", owner = owner,
+                 pos = datatype_field_position field, automatic = true},
+                {name = name, kind = "field", owner = owner, pos = Binding.pos_of selector,
+                 automatic = false}]
+             end)
+           (record_fields ~~ fields))
     val lthy' =
       Datatype_Records.record type_binding
         (Plugin_Name.make_filter lthy plugins)
@@ -660,21 +699,87 @@ fun enum_variant_spec renames hol_base
       (map fst fields ~~ resolved_types)
   end
 
-(* The custom selectors of a variant specification, each at the position that explains it: a
-   rename target, or the source field of an automatic name. *)
-fun payload_selector_names
-    (URust_AST.Datatype_Variant (_, _, shape), (((_, _), fields), _)) =
+(* The payload fields of a variant specification: Rust field name or tuple index, binding, and the
+   position that explains a custom selector, its rename target or the source field of an
+   automatic name. *)
+fun payload_fields (URust_AST.Datatype_Variant (_, variant_pos, shape), (((_, _), fields), _)) =
   let
-    val source_positions =
+    val members =
       (case shape of
-         URust_AST.Named_Shape named_fields => map datatype_field_position named_fields
-       | _ => map (K Position.none) fields)
-    fun explained (binding, _) source_pos =
-      (Binding.name_of binding,
+         URust_AST.Named_Shape named_fields =>
+           map (fn field => (datatype_field_name field, datatype_field_position field))
+             named_fields
+       | _ => map_index (fn (index, _) => (string_of_int index, variant_pos)) fields)
+    fun explained ((binding, _), (member, source_pos)) =
+      (member, binding,
        if Binding.pos_of binding = Position.none then source_pos else Binding.pos_of binding)
+  in map explained (fields ~~ members) end
+
+fun payload_selector_names specification =
+  payload_fields specification
+  |> map_filter (fn (_, binding, pos) =>
+      if Binding.is_empty binding then NONE else SOME (Binding.name_of binding, pos))
+
+(* The constructors and custom selectors of the specifications as generated names. *)
+fun enum_generated_names rust_name variants specifications =
+  let
+    fun owner (URust_AST.Datatype_Variant (variant, _, _)) = rust_name ^ "::" ^ variant
+    fun constructor (variant, (((_, binding), _), _)) =
+      {name = Binding.name_of binding, kind = "constructor", owner = owner variant,
+       pos = Binding.pos_of binding, automatic = false}
+    fun selectors (specification as (variant, _)) =
+      payload_fields specification
+      |> map_filter (fn (member, binding, pos) =>
+          if Binding.is_empty binding then NONE
+          else
+            SOME {name = Binding.name_of binding, kind = "selector",
+              owner = owner variant ^ "." ^ member, pos = pos, automatic = false})
+    val paired = variants ~~ specifications
+  in map constructor paired @ maps selectors paired end
+
+(* Ctr_Sugar's own names for a datatype that has any selector: un_C, or un_Ci for the i-th of
+   several fields, for each field without a selector, and is_C discriminators, except for nullary
+   constructors, a single constructor, and the constructor of a two-constructor type whose
+   discriminator is the negation of the other one. *)
+fun ctr_sugar_automatic_names rust_name variants specifications =
+  let
+    val arities = map (fn (((_, _), fields), _) => length fields) specifications
+    val count = length specifications
+    fun nullary k = nth arities (k - 1) = 0
+    fun relied_on k = nullary k orelse (k = 1 andalso not (nullary 2))
+    fun omitted k = count = 1 orelse (count = 2 andalso relied_on (3 - k))
+    fun names k (URust_AST.Datatype_Variant (variant, variant_pos, _),
+        (((_, binding), fields), _)) =
+      let
+        val base = Binding.name_of binding
+        val owner = rust_name ^ "::" ^ variant
+        val arity = length fields
+        val discriminator =
+          if nullary k orelse omitted k then []
+          else
+            [{name = "is_" ^ base, kind = "discriminator", owner = owner, pos = variant_pos,
+              automatic = true}]
+        val selectors =
+          map_index
+            (fn (index, (field_binding, _)) =>
+              if Binding.is_empty field_binding
+              then
+                SOME
+                  {name = "un_" ^ base ^ (if arity = 1 then "" else string_of_int (index + 1)),
+                   kind = "selector", owner = owner ^ "." ^ string_of_int index,
+                   pos = variant_pos, automatic = true}
+              else NONE)
+            fields
+          |> map_filter I
+      in discriminator @ selectors end
+    val has_selectors =
+      exists (fn (((_, _), fields), _) => exists (not o Binding.is_empty o fst) fields)
+        specifications
   in
-    map2 explained fields source_positions
-    |> filter_out (fn (name, _) => name = "")
+    if has_selectors
+    then flat (map_index (fn (index, paired) => names (index + 1) paired)
+      (variants ~~ specifications))
+    else []
   end
 
 fun make_enum plugins renames backend_parameters resolved_types
@@ -709,6 +814,10 @@ fun make_enum plugins renames backend_parameters resolved_types
     val _ =
       duplicate_names "generated HOL selector"
         (maps payload_selector_names (variants ~~ constructors))
+    val _ =
+      check_generated_names
+        (ctr_sugar_automatic_names rust_name variants constructors @
+          enum_generated_names rust_name variants constructors)
     val _ =
       if null remaining_types then ()
       else error "urust_datatype: field batch does not match the enum variants"
@@ -796,6 +905,7 @@ fun make_native_enum backend plugins width values renames backend_parameters res
       (map (fn (((_, binding), _), _) => binding) specifications)
     val _ = duplicate_names "generated HOL selector"
       (maps payload_selector_names (variants ~~ specifications))
+    val _ = check_generated_names (enum_generated_names rust_name variants specifications)
   in
     if backend = "enum" then
       let
