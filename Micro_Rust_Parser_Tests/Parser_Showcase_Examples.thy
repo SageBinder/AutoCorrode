@@ -69,18 +69,18 @@ urust_expr showoff_manual_datatype_field \<open>
 \<close>
 
 text\<open>
-Declaration-local \<open>renames\<close> chooses HOL selector or enum constructor basenames.
+Declaration-local \<open>hol_names\<close> chooses HOL selector or enum constructor basenames.
 Both sides are quoted; Rust paths and field spellings continue to come from the source.
 The lens name follows the chosen selector.
 \<close>
 
-urust_datatype [renames = ["sampleValue" \<rightarrow> "sample"], pp_test, pretty] \<open>
+urust_datatype [hol_names = ["sampleValue" \<rightarrow> "sample"], pp_test, pretty] \<open>
   struct RenamedSample { sampleValue: u32 }
 \<close>
 
 thm renamed_sample_sample_lens_valid
 
-urust_datatype [renames = ["Ready" \<rightarrow> "ModelReady"]] \<open>
+urust_datatype [hol_names = ["Ready" \<rightarrow> "ModelReady"]] \<open>
   enum RenamedState { Ready(u32), Empty }
 \<close>
 
@@ -262,7 +262,7 @@ including its HOL name; the outer list supplies defaults shared by every item.
 \<close>
 
 urust [verbosity = 1] \<open>
-  \<omega>\<open>renames = ["sampleCount" \<rightarrow> "sample_count"]\<close>
+  \<omega>\<open>hol_names = ["sampleCount" \<rightarrow> "sample_count"]\<close>
   struct ShowcaseReading { sampleCount: u32, ready: bool }
 
   \<omega>\<open>name = "showcase_signal", verbosity = 2\<close>
@@ -1314,7 +1314,7 @@ payload selector and \<open>"Variant.N"\<close> gives a tuple field a selector, 
 constructor itself is renamed. Rust paths and patterns keep their source spelling.
 \<close>
 
-urust_datatype [backend = hol, renames = [
+urust_datatype [backend = hol, hol_names = [
   "Sent" \<rightarrow> "SelectorNameSent",
   "Sent.0" \<rightarrow> "selector_name_sent_id",
   "Bounced.code" \<rightarrow> "selector_name_bounce_code"
@@ -1339,7 +1339,7 @@ The inline-only \<open>[unprefixed_selectors]\<close> drops the type prefix from
 while explicit keys still choose their own names. Rust field access is unchanged.
 \<close>
 
-urust_datatype [unprefixed_selectors, renames = ["selectorNameAttempts" \<rightarrow> "selector_name_tries"]]
+urust_datatype [unprefixed_selectors, hol_names = ["selectorNameAttempts" \<rightarrow> "selector_name_tries"]]
 \<open>
   struct SelectorNameReceipt { selectorNameId: u32, selectorNameAttempts: u32 }
 \<close>

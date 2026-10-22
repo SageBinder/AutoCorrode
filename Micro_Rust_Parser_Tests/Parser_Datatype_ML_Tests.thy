@@ -63,7 +63,7 @@ ML_val \<open>
 context
 begin
 
-urust_datatype [renames = ["value" \<rightarrow> "context_sample"]] \<open>
+urust_datatype [hol_names = ["value" \<rightarrow> "context_sample"]] \<open>
   struct ContextRename { value: u32 }
 \<close>
 urust_datatype \<open> struct ContextDefault { value: bool } \<close>
@@ -1832,7 +1832,7 @@ ML_val \<open>
 
     val _ =
       assert_succeeded "renamed-short-selectors"
-        ("urust_datatype [renames = " ^
+        ("urust_datatype [hol_names = " ^
           rename_list [("first", "f"), ("second", "g"), ("third", "r"), ("fourth", "arg0")] ^
           "] " ^ datatype_source "ShortSelectors" "first: u32, second: bool, third: u64, fourth: u8" ^
           "\nthm short_selectors_f_lens_valid short_selectors_f_lens_view_update_modify " ^
@@ -1846,15 +1846,15 @@ ML_val \<open>
     val _ =
       List.app (fn source =>
         assert_succeeded "empty-renames-shape"
-          ("urust_datatype [pp_test, renames = []] " ^ cartouche source))
+          ("urust_datatype [pp_test, hol_names = []] " ^ cartouche source))
         ["struct EmptyRenameUnit;", "struct EmptyRenameTuple(u32);",
          "enum EmptyRenameEnum { First, Second(u32) }"]
 
     val _ =
       assert_succeeded "independent-renames"
-        ("urust_datatype [renames = " ^ rename_list [("value", "shared")] ^ "] " ^
+        ("urust_datatype [hol_names = " ^ rename_list [("value", "shared")] ^ "] " ^
           datatype_source "RenameLeft" "value: u32" ^ "\n" ^
-          "urust_datatype [renames = " ^ rename_list [("value", "shared")] ^ "] " ^
+          "urust_datatype [hol_names = " ^ rename_list [("value", "shared")] ^ "] " ^
           datatype_source "RenameRight" "value: bool" ^ "\n" ^
           "lemma independent_lens_identities: " ^
           quote "lens_view rename_left_shared_lens = rename_left.shared" ^ " " ^
@@ -1892,20 +1892,20 @@ ML_val \<open>
         [("default", "", "",
           [("sourceValue", "rename_fixture_source_value"),
            ("otherValue", "rename_fixture_other_value")], true),
-         ("empty", "[renames = [], pp_test]", "",
+         ("empty", "[hol_names = [], pp_test]", "",
           [("sourceValue", "rename_fixture_source_value"),
            ("otherValue", "rename_fixture_other_value")], true),
-         ("partial", "[renames = " ^ rename_list [("sourceValue", "chosen")] ^ "]", "",
+         ("partial", "[hol_names = " ^ rename_list [("sourceValue", "chosen")] ^ "]", "",
           [("sourceValue", "chosen"), ("otherValue", "rename_fixture_other_value")], true),
-         ("explicit", "[pretty, pp_test, renames = " ^
+         ("explicit", "[pretty, pp_test, hol_names = " ^
            rename_list [("otherValue", "UpperCase"), ("sourceValue", "chosen")] ^
            ", register_notation, verbosity = 1]", "explicit_rename",
           [("sourceValue", "chosen"), ("otherValue", "UpperCase")], true),
-         ("reordered", "[renames = " ^
+         ("reordered", "[hol_names = " ^
            rename_list [("sourceValue", "chosen"), ("otherValue", "UpperCase")] ^
            ", pp_test]", "explicit_rename",
           [("sourceValue", "chosen"), ("otherValue", "UpperCase")], true),
-         ("suppressed", "[register_notation = false, renames = " ^
+         ("suppressed", "[register_notation = false, hol_names = " ^
            rename_list [("sourceValue", "chosen")] ^ ", pp_test, pretty, verbosity = 2]",
           "", [("sourceValue", "chosen"), ("otherValue", "rename_fixture_other_value")], false)]
 
@@ -1915,7 +1915,7 @@ ML_val \<open>
           let
             val ctxt =
               capture_result true ("enum-renames-" ^ label)
-                ("urust_datatype [pp_test, pretty, verbosity = 1, renames = " ^
+                ("urust_datatype [pp_test, pretty, verbosity = 1, hol_names = " ^
                   rename_list entries ^ "] " ^
                   cartouche "enum RenameEnumFixture { Unit, Tuple(u32, bool), Named { value: u32 } }")
               |> #1 |> result_context
@@ -1945,66 +1945,66 @@ ML_val \<open>
         (fn (label, options, item, diagnostic) =>
           assert_rejected_all ("rename-error-" ^ label) [diagnostic, label]
             ("urust_datatype [" ^ options ^ "] " ^ cartouche item))
-        [("duplicate-key", "renames = " ^
+        [("duplicate-key", "hol_names = " ^
             rename_list [("value", "a"), ("value", "b")],
           "struct RenameError { value: u32 }", "duplicate rename key"),
-         ("unknown-field", "renames = " ^ rename_list [("missing", "a")],
+         ("unknown-field", "hol_names = " ^ rename_list [("missing", "a")],
           "struct RenameError { value: u32 }", "unknown rename key"),
-         ("qualified-key", "renames = " ^ rename_list [("RenameError::value", "a")],
+         ("qualified-key", "hol_names = " ^ rename_list [("RenameError::value", "a")],
           "struct RenameError { value: u32 }", "unknown rename key"),
-         ("enum-field-key", "renames = " ^ rename_list [("value", "a")],
+         ("enum-field-key", "hol_names = " ^ rename_list [("value", "a")],
           "enum RenameError { Named { value: u32 } }", "unknown rename key"),
-         ("unknown-variant", "renames = " ^ rename_list [("Missing", "Chosen")],
+         ("unknown-variant", "hol_names = " ^ rename_list [("Missing", "Chosen")],
           "enum RenameError { First }", "unknown rename key"),
-         ("unit-struct", "renames = " ^ rename_list [("RenameError", "a")],
+         ("unit-struct", "hol_names = " ^ rename_list [("RenameError", "a")],
           "struct RenameError;", "unknown rename key"),
-         ("tuple-struct", "renames = " ^ rename_list [("0", "a")],
+         ("tuple-struct", "hol_names = " ^ rename_list [("0", "a")],
           "struct RenameError(u32);", "unknown rename key"),
-         ("duplicate-field-target", "renames = " ^
+         ("duplicate-field-target", "hol_names = " ^
             rename_list [("value", "a"), ("other", "a")],
           "struct RenameError { value: u32, other: bool }", "duplicate generated HOL field"),
-         ("default-field-target", "renames = " ^ rename_list [("value", "rename_error_other")],
+         ("default-field-target", "hol_names = " ^ rename_list [("value", "rename_error_other")],
           "struct RenameError { value: u32, other: bool }", "duplicate generated HOL field"),
-         ("duplicate-variant-target", "renames = " ^
+         ("duplicate-variant-target", "hol_names = " ^
             rename_list [("First", "Chosen"), ("Second", "Chosen")],
           "enum RenameError { First, Second }", "duplicate generated HOL constructor"),
-         ("default-variant-target", "renames = " ^ rename_list [("First", "Second")],
+         ("default-variant-target", "hol_names = " ^ rename_list [("First", "Second")],
           "enum RenameError { First, Second }", "duplicate generated HOL constructor"),
-         ("empty-target", "renames = " ^ rename_list [("value", "")],
+         ("empty-target", "hol_names = " ^ rename_list [("value", "")],
           "struct RenameError { value: u32 }", "invalid HOL name binding"),
-         ("qualified-target", "renames = " ^ rename_list [("value", "Model.field")],
+         ("qualified-target", "hol_names = " ^ rename_list [("value", "Model.field")],
           "struct RenameError { value: u32 }", "invalid HOL name binding"),
-         ("space-target", "renames = " ^ rename_list [("value", "two words")],
+         ("space-target", "hol_names = " ^ rename_list [("value", "two words")],
           "struct RenameError { value: u32 }", "invalid HOL name binding"),
-         ("reserved-target", "renames = " ^ rename_list [("value", "__")],
+         ("reserved-target", "hol_names = " ^ rename_list [("value", "__")],
           "struct RenameError { value: u32 }", "invalid HOL name binding"),
-         ("bare-option", "renames", "struct RenameError;", "expects a quoted rename list"),
-         ("boolean-option", "renames = true", "struct RenameError;", "expects a quoted rename list"),
-         ("integer-option", "renames = 1", "struct RenameError;", "expects a quoted rename list"),
-         ("duplicate-option", "renames = [], renames = []",
+         ("bare-option", "hol_names", "struct RenameError;", "expects a quoted rename list"),
+         ("boolean-option", "hol_names = true", "struct RenameError;", "expects a quoted rename list"),
+         ("integer-option", "hol_names = 1", "struct RenameError;", "expects a quoted rename list"),
+         ("duplicate-option", "hol_names = [], hol_names = []",
           "struct RenameError;", "duplicate uRust command option"),
-         ("unquoted-key", "renames = [value \<rightarrow> \"chosen\"]",
+         ("unquoted-key", "hol_names = [value \<rightarrow> \"chosen\"]",
           "struct RenameError { value: u32 }", "Outer syntax error"),
-         ("unquoted-target", "renames = [\"value\" \<rightarrow> chosen]",
+         ("unquoted-target", "hol_names = [\"value\" \<rightarrow> chosen]",
           "struct RenameError { value: u32 }", "Outer syntax error"),
-         ("equals-separator", "renames = [\"value\" = \"chosen\"]",
+         ("equals-separator", "hol_names = [\"value\" = \"chosen\"]",
           "struct RenameError { value: u32 }", "Outer syntax error"),
-         ("mapsto-separator", "renames = [\"value\" \<mapsto> \"chosen\"]",
+         ("mapsto-separator", "hol_names = [\"value\" \<mapsto> \"chosen\"]",
           "struct RenameError { value: u32 }", "Outer syntax error"),
-         ("missing-comma", "renames = [\"value\" \<rightarrow> \"a\" \"other\" \<rightarrow> \"b\"]",
+         ("missing-comma", "hol_names = [\"value\" \<rightarrow> \"a\" \"other\" \<rightarrow> \"b\"]",
           "struct RenameError { value: u32, other: bool }", "Outer syntax error"),
-         ("trailing-comma", "renames = [\"value\" \<rightarrow> \"a\",]",
+         ("trailing-comma", "hol_names = [\"value\" \<rightarrow> \"a\",]",
           "struct RenameError { value: u32 }", "Outer syntax error"),
-         ("missing-close", "renames = [[\"value\" \<rightarrow> \"a\"]",
+         ("missing-close", "hol_names = [[\"value\" \<rightarrow> \"a\"]",
           "struct RenameError { value: u32 }", "Outer syntax error")]
 
     val _ =
       assert_rejected_all "rename-position-key" ["unknown rename key", "line 3"]
-        ("urust_datatype [renames = [\n\"missing\" \<rightarrow> \"chosen\"]] " ^
+        ("urust_datatype [hol_names = [\n\"missing\" \<rightarrow> \"chosen\"]] " ^
           datatype_source "PositionRename" "value: u32")
     val _ =
       assert_rejected_all "rename-position-target" ["invalid HOL name binding", "line 3"]
-        ("urust_datatype [renames = [\"value\" \<rightarrow>\n\"bad.name\"]] " ^
+        ("urust_datatype [hol_names = [\"value\" \<rightarrow>\n\"bad.name\"]] " ^
           datatype_source "PositionRename" "value: u32")
     val _ =
       assert_succeeded "renamed-named-construction"
@@ -2013,13 +2013,23 @@ ML_val \<open>
     val _ =
       List.app (fn command =>
         assert_rejected ("renames-on-" ^ command)
-          "unknown uRust command option \"renames\""
-          (command ^ " [renames] _ " ^ cartouche "()"))
+          "unknown uRust command option \"hol_names\""
+          (command ^ " [hol_names] _ " ^ cartouche "()"))
         ["urust_expr", "urust_fn"]
+
+    (* The former spellings of hol_names and hol_type_parameters have no compatibility alias. *)
+    val _ =
+      List.app (fn (former, value) =>
+        assert_rejected ("former-" ^ former ^ "-spelling")
+          ("unknown uRust command option " ^ quote former)
+          ("urust_datatype [" ^ former ^ " = " ^ value ^ "] " ^
+            cartouche "struct FormerSpelling<T> { value: T }"))
+        [("renames", rename_list [("value", "chosen")]),
+         ("parameters", rename_list [("T", "'element")])]
 
     val _ =
       assert_succeeded "rename-error-recovery"
-        ("urust_datatype [renames = " ^ rename_list [("value", "recovered_selector")] ^
+        ("urust_datatype [hol_names = " ^ rename_list [("value", "recovered_selector")] ^
          "] " ^ datatype_source "RenameRecovery" "value: u32")
 
     val _ =
@@ -2028,7 +2038,7 @@ ML_val \<open>
           let
             val captured =
               capture_full_result true ("renamed-output-" ^ string_of_int level)
-                ("urust_datatype [renames = " ^
+                ("urust_datatype [hol_names = " ^
                   rename_list [("sourceValue", "actual_selector")] ^
                   ", pp_test, pretty, verbosity = " ^ string_of_int level ^ "] output_rename " ^
                   datatype_source "OutputRename" "sourceValue: u32")
@@ -2293,7 +2303,7 @@ ML_val \<open>
       List.app
         (fn (label, entries, prefix, source, diagnostic) =>
           assert_datatype_atomic
-            ("[renames = " ^ rename_list entries ^
+            ("[hol_names = " ^ rename_list entries ^
               ", register_notation = false, pp_test, pretty, verbosity = 2]")
             label prefix source diagnostic)
         [("renamed-unknown-atomic", [("missing", "chosen")], "",
@@ -4560,7 +4570,7 @@ urust_datatype \<open> struct EmptyNamed<T> {} \<close>
 
 urust_datatype \<open> struct EmptyTuple<T>(); \<close>
 
-urust_datatype [parameters = ["T" \<rightarrow> "'element::ord"]] \<open>
+urust_datatype [hol_type_parameters = ["T" \<rightarrow> "'element::ord"]] \<open>
   struct SortedHint<T>;
 \<close>
 
@@ -4580,11 +4590,11 @@ urust_type_alias \<open> type ForwardBuffer<T, const N: usize> = Buffer<T, N>; \
 
 urust_type_alias \<open> type UnusedWidth<const N: usize> = u8; \<close>
 
-urust_datatype [parameters = ["N" \<rightarrow> "'length::len"]] \<open>
+urust_datatype [hol_type_parameters = ["N" \<rightarrow> "'length::len"]] \<open>
   struct IndirectBuffer<T, const N: usize> { inner: ForwardBuffer<T, N> }
 \<close>
 
-urust_datatype [parameters = ["T" \<rightarrow> "'element", "P" \<rightarrow> "'tag"]] \<open>
+urust_datatype [hol_type_parameters = ["T" \<rightarrow> "'element", "P" \<rightarrow> "'tag"]] \<open>
   enum Choice<T, P> { Empty, Data(T), Named { value: T, active: bool } }
 \<close>
 
@@ -4603,7 +4613,7 @@ urust_datatype [backend = "simple_word_enum", word_width = 16,
 
 urust_datatype [word_width = 8] \<open> enum Boundary { Min = 0, Max = 255 } \<close>
 
-urust_datatype [word_width = 8, renames = ["On" \<rightarrow> "ModelOn"]] \<open>
+urust_datatype [word_width = 8, hol_names = ["On" \<rightarrow> "ModelOn"]] \<open>
   enum RenamedWord<T, const N: usize> { Off, On = 3 }
 \<close>
 
@@ -4611,11 +4621,11 @@ urust_datatype [word_width = 8] model_flags \<open>
   enum SourceFlags<T, P> { FlagOff, FlagOn = 5 }
 \<close>
 
-urust_datatype [renames = ["Wrapped" \<rightarrow> "ModelWrapped"]] \<open>
+urust_datatype [hol_names = ["Wrapped" \<rightarrow> "ModelWrapped"]] \<open>
   enum RenamedPayload<T, P> { Wrapped { value: T } }
 \<close>
 
-urust_datatype [parameters = ["T" \<rightarrow> "'a", "P" \<rightarrow> "'b"]] \<open>
+urust_datatype [hol_type_parameters = ["T" \<rightarrow> "'a", "P" \<rightarrow> "'b"]] \<open>
   enum ParameterNames<T, P> { ParameterValue(T), ParameterEmpty }
 \<close>
 
@@ -4794,10 +4804,10 @@ local
      ("const-minimum-sort", "", "struct Invalid { value: LooseConst<\<tau>\<open>nat\<close>> }", "does not satisfy sort"),
      ("const-field", "", "struct Invalid<const N: usize> { value: N }", "const parameters used as field"),
      ("zero-array", "", "struct Invalid { value: [u8; 0] }", "does not satisfy sort"),
-     ("override-sort", "[parameters = [\"N\" \<rightarrow> \"'n::len0\"]]",
+     ("override-sort", "[hol_type_parameters = [\"N\" \<rightarrow> \"'n::len0\"]]",
        "struct Invalid<const N: usize> { value: [u8; N] }", "does not satisfy inferred sort"),
-     ("override-unknown", "[parameters = [\"X\" \<rightarrow> \"'x\"]]", "struct Invalid<T>;", "unknown parameter override"),
-     ("override-duplicate-name", "[parameters = [\"T\" \<rightarrow> \"'x\", \"U\" \<rightarrow> \"'x\"]]",
+     ("override-unknown", "[hol_type_parameters = [\"X\" \<rightarrow> \"'x\"]]", "struct Invalid<T>;", "unknown parameter override"),
+     ("override-duplicate-name", "[hol_type_parameters = [\"T\" \<rightarrow> \"'x\", \"U\" \<rightarrow> \"'x\"]]",
        "struct Invalid<T, U>;", "HOL parameter names must be distinct"),
      ("automatic-marker", "", "struct Invalid<T> { value: PhantomData<T> }", "automatic PhantomData field handling is deferred"),
      ("qualified-marker", "", "struct Invalid<T> { value: core::marker::PhantomData<T> }", "automatic PhantomData field handling is deferred"),
@@ -5276,8 +5286,8 @@ local
       "  live_parameter_record_values :: \<open>('a \<times> 'l) list\<close>\n" ^
       "micro_rust_record live_parameter_record\n" ^
       "  (live_parameter_record_len = \"len\", live_parameter_record_values = \"values\")",
-      "urust_datatype [parameters = [\"A\" \<rightarrow> \"'a\", \"L\" \<rightarrow> \"'l\"],\n" ^
-      "  renames = [\"len\" \<rightarrow> \"live_parameter_record_len\",\n" ^
+      "urust_datatype [hol_type_parameters = [\"A\" \<rightarrow> \"'a\", \"L\" \<rightarrow> \"'l\"],\n" ^
+      "  hol_names = [\"len\" \<rightarrow> \"live_parameter_record_len\",\n" ^
       "    \"values\" \<rightarrow> \"live_parameter_record_values\"]] live_parameter_record " ^
       cartouche "struct LiveParameterRecord<A, L> { len: u64, values: \<tau>\<open>('a \<times> 'l) list\<close> }",
       ["'a", "'l"]),
@@ -5307,7 +5317,7 @@ local
       ["'t"]),
      ("live-parameter-marker", "live_parameter_marker",
       "datatype ('t::ord, 'n::len0) live_parameter_marker = make_live_parameter_marker",
-      "urust_datatype [parameters = [\"T\" \<rightarrow> \"'t::ord\"]] " ^
+      "urust_datatype [hol_type_parameters = [\"T\" \<rightarrow> \"'t::ord\"]] " ^
       cartouche "struct LiveParameterMarker<T, const N: usize>;",
       ["'t", "'n"]),
      ("live-parameter-pair", "live_parameter_pair",
@@ -6449,7 +6459,7 @@ ML_val\<open>
     fun rejected_key backend (label, key, fragment) =
       let
         val text =
-          "urust_datatype [" ^ backend ^ "renames = " ^
+          "urust_datatype [" ^ backend ^ "hol_names = " ^
             T.rename_list [(key, "selector_name_chosen")] ^ "] " ^ item
       in T.rejected_at thy label fragment (T.key_range text 1 key) text end
   in
@@ -6491,7 +6501,7 @@ ML_val\<open>
     structure T = Selector_Name_Test
     val thy = \<^theory>
     fun declaration backend entries item =
-      "urust_datatype [" ^ backend ^ "renames = " ^ T.rename_list entries ^ "] " ^
+      "urust_datatype [" ^ backend ^ "hol_names = " ^ T.rename_list entries ^ "] " ^
         T.cartouche item
     val keys_item = " enum SelectorNameKeys { Named { value: u32 }, Pair(u32, bool), Unit } "
     val order_item = " enum SelectorNameOrder { Pair(u32), Named { value: u32 } } "
@@ -6527,7 +6537,7 @@ ML_val\<open>
               "duplicate generated HOL selector \"selector_name_order_named_value\""
               (T.source_range default_before 1 ("{ ", "value")) default_before
           val collision =
-            "urust_datatype [" ^ backend ^ "renames = [] ] " ^
+            "urust_datatype [" ^ backend ^ "hol_names = [] ] " ^
               T.cartouche
                 " enum SelectorNameSnake { FooBar { value: u32 }, Foo_Bar { value: bool } } "
           val _ =
@@ -6559,7 +6569,7 @@ ML_val\<open>
       List.app (fn (suffix, backend) =>
         let
           val text =
-            "urust_datatype [" ^ backend ^ "renames = " ^
+            "urust_datatype [" ^ backend ^ "hol_names = " ^
               T.rename_list
                 [("Named", "SelectorNameModelNamed"), ("Named.value", "selector_name_value"),
                  ("Pair", "SelectorNameModelPair"), ("Pair.1", "selector_name_flag")] ^ "] " ^
@@ -6591,14 +6601,14 @@ ML_val\<open>
 
     (* simple_word_enum variants have no payload; tuple structs have no keys. *)
     val word =
-      "urust_datatype [word_width = 8, renames = " ^
+      "urust_datatype [word_width = 8, hol_names = " ^
         T.rename_list [("On.0", "selector_name_on")] ^ "] " ^
         T.cartouche " enum SelectorNameWord { On, Off } "
     val _ =
       T.rejected_at thy "selector-name-word-key" "variant \"On\" has no payload fields"
         (T.key_range word 1 "On.0") word
     val word_field =
-      "urust_datatype [renames = " ^ T.rename_list [("On.value", "selector_name_on")] ^ "] " ^
+      "urust_datatype [hol_names = " ^ T.rename_list [("On.value", "selector_name_on")] ^ "] " ^
         T.cartouche " #[repr(u8)] enum SelectorNameWord { On = 1, Off = 2 } "
     val _ =
       T.rejected_at thy "selector-name-word-field" "variant \"On\" has no payload fields"
@@ -6607,7 +6617,7 @@ ML_val\<open>
       List.app (fn (label, key) =>
         let
           val text =
-            "urust_datatype [renames = " ^ T.rename_list [(key, "selector_name_first")] ^ "] " ^
+            "urust_datatype [hol_names = " ^ T.rename_list [(key, "selector_name_first")] ^ "] " ^
               T.cartouche " struct SelectorNameTuple(u32, bool); "
         in
           T.rejected_at thy label
@@ -6813,7 +6823,7 @@ ML_val\<open>
         (T.source_range struct_collision 1 (", ", "selector_name_value")) struct_collision
     val struct_key =
       declaration
-        ("unprefixed_selectors, renames = " ^
+        ("unprefixed_selectors, hol_names = " ^
           T.rename_list [("selector_name_first", "selector_name_second")])
         " struct SelectorNameKeyed { selector_name_first: u32, selector_name_second: bool } "
     val _ =
@@ -6833,7 +6843,7 @@ ML_val\<open>
               (T.source_range shared 2 ("{ ", "selector_name_value")) shared
           val payload_key =
             declaration
-              (backend ^ "unprefixed_selectors, renames = " ^
+              (backend ^ "unprefixed_selectors, hol_names = " ^
                 T.rename_list [("Second.selector_name_b", "selector_name_a")])
               (" enum SelectorNamePayload { First { selector_name_a: u32 }, " ^
                 "Second { selector_name_b: bool } } ")
@@ -6851,7 +6861,7 @@ ML_val\<open>
               (T.source_range hidden 1 ("{ ", "_selectorNameSecret")) hidden
           val resolved =
             declaration
-              (backend ^ "unprefixed_selectors, renames = " ^
+              (backend ^ "unprefixed_selectors, hol_names = " ^
                 T.rename_list [("Hidden._selectorNameSecret", "selector_name_secret")])
               " enum SelectorNameHiddenChoice { Hidden { _selectorNameSecret: u32 } } "
           val ctxt = T.succeeded thy ("selector-name-unprefixed-resolved" ^ suffix) resolved
@@ -6962,7 +6972,7 @@ ML_val\<open>
         let
           val label = "selector-name-output" ^ suffix
           val text =
-            "urust_datatype [" ^ backend ^ "verbosity = 2, renames = " ^
+            "urust_datatype [" ^ backend ^ "verbosity = 2, hol_names = " ^
               T.rename_list entries ^ "] " ^ T.cartouche item
           val {result, plain, markup} = T.run_output thy label text
           val ctxt =
@@ -7053,7 +7063,7 @@ ML_val\<open>
     structure T = Selector_Name_Test
     val thy = \<^theory>
     fun declaration backend entries item =
-      "urust_datatype [" ^ backend ^ "renames = " ^ T.rename_list entries ^ "] " ^
+      "urust_datatype [" ^ backend ^ "hol_names = " ^ T.rename_list entries ^ "] " ^
         T.cartouche item
     val hol = "backend = hol, "
     fun rejected_at_target label backend entries item (target, occurrence) fragment =
@@ -7205,7 +7215,7 @@ ML_val\<open>
 
     (* A key that targets the shared automatic name is still rejected at the key. *)
     val keyed =
-      "urust_datatype [backend = hol, renames = " ^ T.rename_list [("N.v", "un_A1")] ^ "] " ^
+      "urust_datatype [backend = hol, hol_names = " ^ T.rename_list [("N.v", "un_A1")] ^ "] " ^
         pair_item "u32"
     val _ =
       T.rejected_at thy "selector-name-automatic-shared-keyed"

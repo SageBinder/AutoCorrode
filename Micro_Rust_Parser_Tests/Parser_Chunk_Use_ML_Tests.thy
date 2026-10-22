@@ -358,7 +358,7 @@ ML\<open>
 local
   open Chunk_Test
   val text =
-    "\n  " ^ annotation "renames = [\"a\" \<rightarrow> \"b\"], name = \<open>pair\<close>" ^ "\n" ^
+    "\n  " ^ annotation "hol_names = [\"a\" \<rightarrow> \"b\"], name = \<open>pair\<close>" ^ "\n" ^
     "  struct ChunkAstNamed { a: u32 }\n\n" ^
     "  fn ChunkAstFunction(x: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { let s = \"} " ^ annotation "x" ^ "\"; x }\n" ^
     "  // " ^ annotation "comment text" ^ " stays a comment\n" ^
@@ -389,7 +389,7 @@ local
   val _ =
     require "annotation ownership changed"
       (payloads =
-        [SOME ("renames = [\"a\" \<rightarrow> \"b\"], name = \<open>pair\<close>"), NONE, NONE, NONE,
+        [SOME ("hol_names = [\"a\" \<rightarrow> \"b\"], name = \<open>pair\<close>"), NONE, NONE, NONE,
          NONE, NONE, NONE, SOME "backend = hol", NONE, NONE])
   val slices = map (Input.string_of o URust_AST.annotated_item_source) items
   val _ =
@@ -417,7 +417,7 @@ local
          (#1 (range_of text "fn ChunkAstLast" 0), #2 (range_of text (Symbol.close ^ " }") 0))])
   val SOME first_annotation = URust_AST.annotated_item_annotation (hd items)
   val layout = URust_AST.annotation_source_layout first_annotation
-  val annotation_text = annotation "renames = [\"a\" \<rightarrow> \"b\"], name = \<open>pair\<close>"
+  val annotation_text = annotation "hol_names = [\"a\" \<rightarrow> \"b\"], name = \<open>pair\<close>"
   val (annotation_start, annotation_stop) = range_of text annotation_text 0
   val _ =
     require "annotation span is not the complete marker and cartouche"
@@ -592,7 +592,7 @@ local
       (fn option =>
         rejects ("outer-" ^ option) ["option " ^ quote option, "is declaration-specific"]
           (chunk ("[" ^ option ^ " = true] ") item) option 0)
-      ["abbrev", "application_def", "name", "renames", "state", "backend", "attrs"]
+      ["abbrev", "application_def", "name", "hol_names", "state", "backend", "attrs"]
   (* An outer channel option names the scoped default that shares a type across the chunk. *)
   val _ =
     List.app
@@ -614,8 +614,8 @@ local
     rejects "outer-mistyped" ["\"verbosity\" expects an integer from 0 to 2"]
       (chunk "[verbosity = true] " item) "true" 0
   val _ =
-    rejects "fn-renames" ["option \"renames\" does not apply to fn declarations"]
-      (chunk "" (annotated "renames = [\"value\" \<rightarrow> \"v\"]" item)) "renames" 0
+    rejects "fn-renames" ["option \"hol_names\" does not apply to fn declarations"]
+      (chunk "" (annotated "hol_names = [\"value\" \<rightarrow> \"v\"]" item)) "hol_names" 0
   val _ =
     rejects "struct-abbrev" ["option \"abbrev\" does not apply to struct or enum declarations"]
       (chunk "" (annotated "abbrev" datatype_item)) "abbrev" 0
@@ -624,7 +624,7 @@ local
       (chunk "" (annotated "state = \<open>unit\<close>" enum_item)) "state" 0
   val _ =
     rejects "annotation-unknown" ["unknown uRust command option \"colour\""]
-      (chunk "" (annotated "renames = [\"value\" \<rightarrow> \"v\"], colour" datatype_item))
+      (chunk "" (annotated "hol_names = [\"value\" \<rightarrow> \"v\"], colour" datatype_item))
       "colour" 0
   val _ =
     rejects "annotation-prefixed" ["unknown uRust command option \"urust_abbrev\""]
@@ -909,7 +909,7 @@ struct
     "  }\n" ^
     "  " ^ annotation "attrs = [micro_rust_simps]" ^ "\n" ^
     "  fn AtomicAttributed(value: u32) -> u32 { value }\n" ^
-    "  " ^ annotation "renames = [\"atomicValue\" \<rightarrow> \"atomic_value\"]" ^ "\n" ^
+    "  " ^ annotation "hol_names = [\"atomicValue\" \<rightarrow> \"atomic_value\"]" ^ "\n" ^
     "  struct AtomicRecord { atomicValue: u32 }\n" ^
     "  enum AtomicChoice { AtomicYes, AtomicNo(u32) }\n" ^
     "  #[repr(u8)]\n" ^
@@ -955,7 +955,7 @@ struct
        ["unknown Rust type \"AtomicMissing\""]),
      ("validation", "  " ^ annotation "abbrev, application_def" ^ "\n  fn AtomicMode() {}\n",
        ["abbreviation mode cannot be combined"]),
-     ("rename", "  " ^ annotation "renames = [\"value\" \<rightarrow> \"a\", \"value\" \<rightarrow> \"b\"]" ^
+     ("rename", "  " ^ annotation "hol_names = [\"value\" \<rightarrow> \"a\", \"value\" \<rightarrow> \"b\"]" ^
         "\n  struct AtomicRenamed { value: u32 }\n", ["duplicate rename key"]),
      ("forward",
        "  fn AtomicForward() -> u32 { AtomicLater() }\n  fn AtomicLater() -> u32 { 1 }\n",
@@ -967,7 +967,7 @@ struct
      ("existing-datatype", "  struct ChunkPacket { other: u32 }\n",
        ["conflicting active mappings for \"ChunkPacket\""]),
      ("rename-collision",
-       "  " ^ annotation "renames = [\"first\" \<rightarrow> \"atomic_pair_second\"]" ^
+       "  " ^ annotation "hol_names = [\"first\" \<rightarrow> \"atomic_pair_second\"]" ^
          "\n  struct AtomicPair { first: u32, second: u32 }\n",
        ["duplicate generated HOL field \"atomic_pair_second\""])]
   fun failing_case target wrap (label, failing, expected) =
@@ -1181,7 +1181,7 @@ local
   val annotated =
     quiet_prefix "" ^ "urust " ^
       command_source
-        ("  " ^ annotation "renames = [\"sampleValue\" \<rightarrow> \"sample\"], name = \"markup_packet\"" ^ "\n" ^
+        ("  " ^ annotation "hol_names = [\"sampleValue\" \<rightarrow> \"sample\"], name = \"markup_packet\"" ^ "\n" ^
          "  struct MarkupPacket { sampleValue: u32 }\n" ^
          "  " ^ annotation "state = \<open>'s::linorder\<close>, attrs = [micro_rust_simps]" ^ "\n" ^
          "  fn MarkupRead(packet: MarkupPacket) -> u32 { packet.sampleValue }")
@@ -1251,9 +1251,9 @@ local
   val body =
     "  " ^ annotation "pp_test, pretty = false, verbosity = 2, register_notation = true" ^ "\n" ^
     "  fn ReplayFirst(value: u32) -> u32 { value }\n" ^
-    "  " ^ annotation "renames = [\"replayValue\" \<rightarrow> \"replay_value\"], name = replay_cell" ^ "\n" ^
+    "  " ^ annotation "hol_names = [\"replayValue\" \<rightarrow> \"replay_value\"], name = replay_cell" ^ "\n" ^
     "  struct ReplayCell { replayValue: u32 }\n" ^
-    "  " ^ annotation "parameters = [\"T\" \<rightarrow> \"'element::ord\"], backend = hol, plugins = (plugins only: code)" ^ "\n" ^
+    "  " ^ annotation "hol_type_parameters = [\"T\" \<rightarrow> \"'element::ord\"], backend = hol, plugins = (plugins only: code)" ^ "\n" ^
     "  struct ReplayHolder<T> { element: T }\n" ^
     "  " ^ annotation "backend = \"simple_word_enum\", word_width = 8" ^ "\n" ^
     "  enum ReplayWord { ReplayLow = 1, ReplayHigh = 2 }\n" ^
@@ -1471,7 +1471,7 @@ local
       ["chunk_no_such_attribute"]
   val _ =
     case_ "rename-key"
-      ("  " ^ annotation "renames = [\"missing\" \<rightarrow> \"a\"]" ^
+      ("  " ^ annotation "hol_names = [\"missing\" \<rightarrow> \"a\"]" ^
         "\n  struct ChunkValidatedCell { value: u32 }\n")
       ["unknown rename key \"missing\""]
   val _ =

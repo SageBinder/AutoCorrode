@@ -126,11 +126,11 @@ section\<open> Rust datatype declarations \<close>
 
 declare [[urust_pp_test = true, urust_pretty = true, urust_verbosity = 2]]
 
-urust_datatype [renames = ["renameSampleValue" \<rightarrow> "sample"]] \<open>
+urust_datatype [hol_names = ["renameSampleValue" \<rightarrow> "sample"]] \<open>
   struct RenamedPacket { renameSampleValue: u32, valid: bool }
 \<close>
 
-urust_datatype [backend = hol, renames = [
+urust_datatype [backend = hol, hol_names = [
   "Ready" \<rightarrow> "ModelReady",
   "Data" \<rightarrow> "ModelData",
   "Empty" \<rightarrow> "ModelEmpty"
@@ -138,7 +138,7 @@ urust_datatype [backend = hol, renames = [
   enum RenamedChoice { Empty, Data(u32, bool), Ready { value: u32, active: bool } }
 \<close>
 
-urust_datatype [renames = ["fooBar" \<rightarrow> "distinct_field"]] \<open>
+urust_datatype [hol_names = ["fooBar" \<rightarrow> "distinct_field"]] \<open>
   struct RenameCollision { fooBar: u32, foo_bar: bool }
 \<close>
 
@@ -197,7 +197,7 @@ lemma renamed_variants_eq:
 locale renamed_locale
 begin
 
-urust_datatype [renames = ["value" \<rightarrow> "LocaleSample"],
+urust_datatype [hol_names = ["value" \<rightarrow> "LocaleSample"],
   register_notation = false] \<open> struct LocaleRename { value: u32 } \<close>
 thm locale_rename_LocaleSample_lens_valid locale_rename_LocaleSample_update_explicit
 
@@ -503,7 +503,7 @@ plain variant key still renames only the constructor, so a payload key keeps the
 name after a constructor rename.
 \<close>
 
-urust_datatype [backend = hol, renames = [
+urust_datatype [backend = hol, hol_names = [
   "Flagged" \<rightarrow> "SelectorNameFlagged",
   "Flagged.value" \<rightarrow> "selector_name_flag_value",
   "Paired.1" \<rightarrow> "selector_name_pair_flag"
@@ -526,7 +526,7 @@ urust_expr selector_name_hol_pattern \<open>
   }
 \<close>
 
-urust_datatype [renames = [
+urust_datatype [hol_names = [
   "Marked.value" \<rightarrow> "selector_name_mark_value",
   "Packed.1" \<rightarrow> "selector_name_pack_flag"
 ]] \<open>
@@ -553,7 +553,7 @@ are simplification rules. The other positional field keeps Ctr_Sugar's default s
 datatype selector_name_native_parity =
   NativeBoxed (selector_name_native_boxed: "32 word") | NativeSpared "64 word"
 
-urust_datatype [backend = hol, renames = ["Boxed.0" \<rightarrow> "selector_name_parity_boxed"]] \<open>
+urust_datatype [backend = hol, hol_names = ["Boxed.0" \<rightarrow> "selector_name_parity_boxed"]] \<open>
   enum SelectorNameParity { Boxed(u32), Spared(u64) }
 \<close>
 
@@ -583,7 +583,7 @@ still choose their own names. Lenses, updates and Rust field registrations follo
 selectors, and Rust field names and paths keep their source spelling.
 \<close>
 
-urust_datatype [unprefixed_selectors, renames = ["selectorNameCount" \<rightarrow> "selector_name_total"]]
+urust_datatype [unprefixed_selectors, hol_names = ["selectorNameCount" \<rightarrow> "selector_name_total"]]
 \<open>
   struct SelectorNameHolder {
     selectorNameLevel: u32,
@@ -622,7 +622,7 @@ lemma selector_name_holder_field_lens:
   unfolding selector_name_holder_field_def by (rule refl)
 
 urust_datatype [backend = hol, unprefixed_selectors,
-  renames = ["Gauge.selectorNameLimit" \<rightarrow> "selector_name_gauge_limit"]] \<open>
+  hol_names = ["Gauge.selectorNameLimit" \<rightarrow> "selector_name_gauge_limit"]] \<open>
   enum SelectorNameMeter { Dial(u32), Gauge { selectorNameReading: u32, selectorNameLimit: u32 } }
 \<close>
 

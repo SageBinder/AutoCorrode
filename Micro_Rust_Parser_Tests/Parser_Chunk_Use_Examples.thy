@@ -101,7 +101,7 @@ An optional outer list supplies defaults for \<open>pp_test\<close>, \<open>pret
 section\<open> Mixed functions and datatypes \<close>
 
 urust \<open>
-  \<omega>\<open>renames = ["sampleValue" \<rightarrow> "sample"]\<close>
+  \<omega>\<open>hol_names = ["sampleValue" \<rightarrow> "sample"]\<close>
   struct ChunkPacket { sampleValue: u32, valid: bool }
 
   \<omega>\<open>name = "chunk_choice"\<close>
@@ -129,7 +129,7 @@ urust_fn [application_def] \<open> fn ControlPacketValue(packet: ChunkPacket) ->
 urust_fn [abbrev, register_notation = false]
   \<open> fn ControlIdentity(value: u32) -> u32 { value } \<close>
 
-urust_datatype [renames = ["sampleValue" \<rightarrow> "sample"]]
+urust_datatype [hol_names = ["sampleValue" \<rightarrow> "sample"]]
   \<open> struct ControlPacket { sampleValue: u32, valid: bool } \<close>
 
 urust_datatype control_choice \<open> enum ControlChoice { Ready, Empty } \<close>
@@ -222,7 +222,7 @@ urust \<open>
   \<omega>\<open>state = \<open>'s::cancellative_sepalg\<close>, abort = \<open>bool\<close>, input = \<open>unit\<close>, output = \<open>unit\<close>\<close>
   fn ChunkChannels(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { value }
 
-  \<omega>\<open>parameters = ["T" \<rightarrow> "'element::ord"], name = chunk_holder\<close>
+  \<omega>\<open>hol_type_parameters = ["T" \<rightarrow> "'element::ord"], name = chunk_holder\<close>
   struct ChunkHolder<T> { element: T }
 
   \<omega>\<open>backend = hol\<close>
@@ -255,7 +255,7 @@ urust_fn [attrs = [micro_rust_simps], pp_test = true, pretty = false, verbosity 
 urust_fn [state = \<open>'s::cancellative_sepalg\<close>, abort = \<open>bool\<close>, input = \<open>unit\<close>, output = \<open>unit\<close>]
   \<open> fn ControlChannels(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { value } \<close>
 
-urust_datatype [parameters = ["T" \<rightarrow> "'element::ord"]] control_holder
+urust_datatype [hol_type_parameters = ["T" \<rightarrow> "'element::ord"]] control_holder
   \<open> struct ControlHolder<T> { element: T } \<close>
 
 urust_datatype [backend = "simple_word_enum", word_width = 16, plugins = (plugins only: word_conversion)]
@@ -1325,10 +1325,10 @@ exactly as the single-item datatype command does.
 \<close>
 
 urust \<open>
-  \<omega>\<open>unprefixed_selectors, renames = ["selectorNameChunkTotal" \<rightarrow> "selector_name_chunk_sum"]\<close>
+  \<omega>\<open>unprefixed_selectors, hol_names = ["selectorNameChunkTotal" \<rightarrow> "selector_name_chunk_sum"]\<close>
   struct SelectorNameChunkTally { selectorNameChunkCount: u32, selectorNameChunkTotal: u64 }
 
-  \<omega>\<open>backend = hol, renames = ["Filled.0" \<rightarrow> "selector_name_chunk_filled"]\<close>
+  \<omega>\<open>backend = hol, hol_names = ["Filled.0" \<rightarrow> "selector_name_chunk_filled"]\<close>
   enum SelectorNameChunkSlot { Hollow, Filled(u32) }
 
   fn SelectorNameChunkRead(tally: SelectorNameChunkTally) -> u32 { tally.selectorNameChunkCount }

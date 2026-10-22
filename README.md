@@ -255,7 +255,7 @@ Manual mappings distinguish const placeholders, for example
 `urust_type "Sized<'a, const 'n>" = ‹('a, 'n::len) array›`.
 Fixed array values use the existing HOL array operations and value escapes. Array expression forms
 retain their existing list model; this increment adds declaration/type support without changing it.
-`parameters = ["T" → "'element", "N" → "'length::len"]` chooses declaration-local HOL names and
+`hol_type_parameters = ["T" → "'element", "N" → "'length::len"]` chooses declaration-local HOL names and
 sorts; explicit sorts must satisfy the inferred requirements.
 
 ```isabelle
@@ -306,19 +306,19 @@ representations with source adapters belongs to a separate increment.
 Recursive and mutually recursive declarations, general const evaluation, zero-length fixed arrays,
 lifetimes, and Rust trait-bound/default translation remain unsupported.
 
-Declaration-local `renames` chooses named-struct HOL selectors, enum HOL constructors, and enum
+Declaration-local `hol_names` chooses named-struct HOL selectors, enum HOL constructors, and enum
 payload selectors:
 
 ```isabelle
-urust_datatype [renames = ["sampleValue" → "sample"]] ‹
+urust_datatype [hol_names = ["sampleValue" → "sample"]] ‹
   struct Packet { sampleValue: u32 }
 ›
 
-urust_datatype [renames = ["Ready" → "ModelReady"]] ‹
+urust_datatype [hol_names = ["Ready" → "ModelReady"]] ‹
   enum Choice { Ready { value: u32 }, Empty }
 ›
 
-urust_datatype [backend = hol, renames = ["Ready.value" → "ready_value", "Stored.0" → "stored"]] ‹
+urust_datatype [backend = hol, hol_names = ["Ready.value" → "ready_value", "Stored.0" → "stored"]] ‹
   enum Event { Ready { value: u32 }, Stored(u64, bool) }
 ›
 ```
@@ -337,12 +337,12 @@ on both payload backends: through Ctr_Sugar for `backend = hol`, and as a case-d
 a `_simps` fact for the custom enum. Unkeyed positional fields keep the backend default: Ctr_Sugar's
 `un_` selectors once a HOL datatype has any selector, and none on the custom enum. Tuple-struct
 fields have no keys.
-Missing entries retain automatic names, and `renames = []` preserves all defaults. Unknown variants,
+Missing entries retain automatic names, and `hol_names = []` preserves all defaults. Unknown variants,
 fields and tuple indices, malformed indices, duplicate keys, and duplicate effective targets,
 including collisions with untouched defaults, are positioned errors. Every name that uRust
 chooses for the declaration (a target, an unprefixed name, an untouched constructor or an untouched
 default selector) must also differ from every other per-constructor or per-field name the
-declaration generates: constructors (after renames), Ctr_Sugar's automatic `un_C`/`un_Ci`
+declaration generates: constructors (after `hol_names`), Ctr_Sugar's automatic `un_C`/`un_Ci`
 selectors and `is_C` discriminators on `backend = hol`, exactly where Ctr_Sugar generates them,
 other selectors, and record constructors `make_…` and updates `update_…`. On the custom enum this
 also prevents an unqualified selector from shadowing a constructor. A conflict with an automatic
@@ -367,7 +367,7 @@ shadows an earlier short name. The inline-only Boolean option `[unprefixed_selec
 both kinds `<snake field>`:
 
 ```isabelle
-urust_datatype [unprefixed_selectors, renames = ["sampleCount" → "total"]] ‹
+urust_datatype [unprefixed_selectors, hol_names = ["sampleCount" → "total"]] ‹
   struct Sample { sampleValue: u32, sampleCount: u64 }
 ›
 ```

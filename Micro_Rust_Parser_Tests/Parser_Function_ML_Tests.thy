@@ -4100,7 +4100,7 @@ local
   val base = initial thy
   fun commands rendering =
     "urust_datatype [" ^ rendering ^
-      ", backend = hol, renames = [\"Stored\" \<rightarrow> \"CompositionReplayStored\"]] " ^
+      ", backend = hol, hol_names = [\"Stored\" \<rightarrow> \"CompositionReplayStored\"]] " ^
       cartouche "enum CompositionReplay<T, P, const N: usize> { Stored(T), Absent }" ^ "\n" ^
     "urust_type_alias " ^
       cartouche "type CompositionReplayAlias<T, P, const N: usize> = CompositionReplay<T, P, N>;" ^ "\n" ^

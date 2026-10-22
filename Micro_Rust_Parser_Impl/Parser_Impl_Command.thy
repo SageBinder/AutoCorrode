@@ -154,7 +154,7 @@ their proofs, constructor paths, source-field metadata, and type mappings. Exist
 installed; the setting affects subsequent declarations only. Unit/tuple structs and enums accept
 the option but do not generate field-lens aliases. A generated lens can be registered later with,
 for example, \<open>urust_notation (field) packet_packet_sample_value_lens ("sampleValue")\<close>.
-The inline-only structured option \<open>renames = ["source" \<rightarrow> "HOL"]\<close> chooses
+The inline-only structured option \<open>hol_names = ["source" \<rightarrow> "HOL"]\<close> chooses
 named-struct selector basenames, enum constructor basenames, or enum payload selector basenames.
 Both strings must be quoted. Struct keys are unqualified source field names. Enum keys are source
 variant names, which rename only constructors, or payload keys \<open>"Variant.field"\<close> and
@@ -179,7 +179,8 @@ scoped setting, and the \<open>simple_word_enum\<close> backend, which generates
 rejects it.
 Type/const parameters retain source order, including unused parameters. Const parameters use
 HOL length types, initially \<open>len0\<close> and strengthened where fields require \<open>len\<close>.
-The option \<open>parameters = ["T" \<rightarrow> "'a::address_type"]\<close> supplies local HOL names/sorts.
+The option \<open>hol_type_parameters = ["T" \<rightarrow> "'a::address_type"]\<close> supplies local HOL
+names/sorts.
 Unused type parameters are retained independently of fields. Automatic \<open>PhantomData\<close> field
 handling is deferred; ordinary explicit HOL definitions and manual type/notation mappings remain
 available, with all mapped fields stored and required.
@@ -384,7 +385,8 @@ val abbrev_option = "abbrev"
 val application_def_option = "application_def"
 val attributes_option = "attrs"
 val register_notation_option = "register_notation"
-val renames_option = "renames"
+val hol_names_option = "hol_names"
+val hol_type_parameters_option = "hol_type_parameters"
 val state_option = "state"
 val abort_option = "abort"
 val input_option = "input"
@@ -407,7 +409,9 @@ val name_option = "name"
      a named definition.
    - urust_register_notation controls function callable entries and datatype field-lens aliases;
      its inline alias is register_notation.
-   - renames is inline-only and carries positioned source-to-HOL pairs for datatype generation.
+   - hol_names is inline-only and carries positioned source-to-HOL pairs for datatype generation.
+   - hol_type_parameters is inline-only and carries positioned source-to-HOL type parameter names
+     for datatype generation.
    - state, abort, input and output are positioned HOL channel types for functions. Each falls
      back to the source of its scoped default attribute urust_state, urust_abort, urust_input or
      urust_output, and otherwise remains unconstrained.
@@ -468,9 +472,9 @@ val datatype_option_configs =
      (pretty_option, Boolean_Config urust_pretty),
      (verbosity_option, Integer_Config urust_verbosity),
      (register_notation_option, Boolean_Config urust_register_notation),
-     (renames_option, Renames_Config),
+     (hol_names_option, Renames_Config),
      (unprefixed_selectors_option, Boolean_Config unprefixed_selectors_inline),
-     ("parameters", Renames_Config),
+     (hol_type_parameters_option, Renames_Config),
      ("backend", Backend_Config),
      ("word_width", Width_Config),
      ("plugins", Plugins_Config)]
@@ -1934,16 +1938,16 @@ fun datatype_declaration
          SOME (Backend_Value value, _) => value | _ => "auto"),
        word_width = (case Symtab.lookup options "word_width" of
          SOME (Integer_Value value, _) => SOME value | _ => NONE),
-       parameters = (case Symtab.lookup options "parameters" of
+       parameters = (case Symtab.lookup options hol_type_parameters_option of
          SOME (Renames_Value value, _) => value | _ => []),
        plugins = (case Symtab.lookup options "plugins" of
          SOME (Plugins_Value value, _) => value | _ => K Plugin_Name.default_filter),
        renames =
-         (case Symtab.lookup options renames_option of
+         (case Symtab.lookup options hol_names_option of
             SOME (Renames_Value renames, _) => renames
           | NONE => []
           | SOME (_, pos) =>
-              option_type_error renames_option "a quoted rename list" pos),
+              option_type_error hol_names_option "a quoted rename list" pos),
        unprefixed_selectors =
          (case Symtab.lookup options unprefixed_selectors_option of
             SOME (Boolean_Value true, pos) => SOME pos

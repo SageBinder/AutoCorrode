@@ -533,7 +533,7 @@ negative rows preserve these boundaries.
   checked resolved denotations; and positioned bound-rest ASTs, binder markup, malformed rest
   syntax and recovery.
 - `Parser_Datatype_Examples.thy`: simple word enum path resolution and the `urust_name:` clause
-  without the chunk command; datatype declarations, renames and notation registration control;
+  without the chunk command; datatype declarations, `hol_names` and notation registration control;
   datatype selector naming with payload rename keys on both payload backends, native
   positional-selector parity and unprefixed selectors; cast-target aliases with import and locale
   scoping and primitive equivalence; type alias commands and dependency scopes; and record, tuple
