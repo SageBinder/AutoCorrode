@@ -358,7 +358,7 @@ ML\<open>
 local
   open Chunk_Test
   val text =
-    "\n  " ^ annotation "hol_names = [\"a\" \<rightarrow> \"b\"], name = \<open>pair\<close>" ^ "\n" ^
+    "\n  " ^ annotation "hol_names = [\"a\" \<rightarrow> \<open>b\<close>], name = \<open>pair\<close>" ^ "\n" ^
     "  struct ChunkAstNamed { a: u32 }\n\n" ^
     "  fn ChunkAstFunction(x: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { let s = \"} " ^ annotation "x" ^ "\"; x }\n" ^
     "  // " ^ annotation "comment text" ^ " stays a comment\n" ^
@@ -389,7 +389,7 @@ local
   val _ =
     require "annotation ownership changed"
       (payloads =
-        [SOME ("hol_names = [\"a\" \<rightarrow> \"b\"], name = \<open>pair\<close>"), NONE, NONE, NONE,
+        [SOME ("hol_names = [\"a\" \<rightarrow> \<open>b\<close>], name = \<open>pair\<close>"), NONE, NONE, NONE,
          NONE, NONE, NONE, SOME "backend = hol", NONE, NONE])
   val slices = map (Input.string_of o URust_AST.annotated_item_source) items
   val _ =
@@ -417,7 +417,7 @@ local
          (#1 (range_of text "fn ChunkAstLast" 0), #2 (range_of text (Symbol.close ^ " }") 0))])
   val SOME first_annotation = URust_AST.annotated_item_annotation (hd items)
   val layout = URust_AST.annotation_source_layout first_annotation
-  val annotation_text = annotation "hol_names = [\"a\" \<rightarrow> \"b\"], name = \<open>pair\<close>"
+  val annotation_text = annotation "hol_names = [\"a\" \<rightarrow> \<open>b\<close>], name = \<open>pair\<close>"
   val (annotation_start, annotation_stop) = range_of text annotation_text 0
   val _ =
     require "annotation span is not the complete marker and cartouche"
@@ -615,7 +615,7 @@ local
       (chunk "[verbosity = true] " item) "true" 0
   val _ =
     rejects "fn-renames" ["option \"hol_names\" does not apply to fn declarations"]
-      (chunk "" (annotated "hol_names = [\"value\" \<rightarrow> \"v\"]" item)) "hol_names" 0
+      (chunk "" (annotated "hol_names = [\"value\" \<rightarrow> \<open>v\<close>]" item)) "hol_names" 0
   val _ =
     rejects "struct-abbrev" ["option \"abbrev\" does not apply to struct or enum declarations"]
       (chunk "" (annotated "abbrev" datatype_item)) "abbrev" 0
@@ -624,7 +624,7 @@ local
       (chunk "" (annotated "state = \<open>unit\<close>" enum_item)) "state" 0
   val _ =
     rejects "annotation-unknown" ["unknown uRust command option \"colour\""]
-      (chunk "" (annotated "hol_names = [\"value\" \<rightarrow> \"v\"], colour" datatype_item))
+      (chunk "" (annotated "hol_names = [\"value\" \<rightarrow> \<open>v\<close>], colour" datatype_item))
       "colour" 0
   val _ =
     rejects "annotation-prefixed" ["unknown uRust command option \"urust_abbrev\""]
@@ -909,7 +909,7 @@ struct
     "  }\n" ^
     "  " ^ annotation "attrs = [micro_rust_simps]" ^ "\n" ^
     "  fn AtomicAttributed(value: u32) -> u32 { value }\n" ^
-    "  " ^ annotation "hol_names = [\"atomicValue\" \<rightarrow> \"atomic_value\"]" ^ "\n" ^
+    "  " ^ annotation "hol_names = [\"atomicValue\" \<rightarrow> \<open>atomic_value\<close>]" ^ "\n" ^
     "  struct AtomicRecord { atomicValue: u32 }\n" ^
     "  enum AtomicChoice { AtomicYes, AtomicNo(u32) }\n" ^
     "  #[repr(u8)]\n" ^
@@ -955,7 +955,7 @@ struct
        ["unknown Rust type \"AtomicMissing\""]),
      ("validation", "  " ^ annotation "abbrev, application_def" ^ "\n  fn AtomicMode() {}\n",
        ["abbreviation mode cannot be combined"]),
-     ("rename", "  " ^ annotation "hol_names = [\"value\" \<rightarrow> \"a\", \"value\" \<rightarrow> \"b\"]" ^
+     ("rename", "  " ^ annotation "hol_names = [\"value\" \<rightarrow> \<open>a\<close>, \"value\" \<rightarrow> \<open>b\<close>]" ^
         "\n  struct AtomicRenamed { value: u32 }\n", ["duplicate rename key"]),
      ("forward",
        "  fn AtomicForward() -> u32 { AtomicLater() }\n  fn AtomicLater() -> u32 { 1 }\n",
@@ -967,7 +967,7 @@ struct
      ("existing-datatype", "  struct ChunkPacket { other: u32 }\n",
        ["conflicting active mappings for \"ChunkPacket\""]),
      ("rename-collision",
-       "  " ^ annotation "hol_names = [\"first\" \<rightarrow> \"atomic_pair_second\"]" ^
+       "  " ^ annotation "hol_names = [\"first\" \<rightarrow> \<open>atomic_pair_second\<close>]" ^
          "\n  struct AtomicPair { first: u32, second: u32 }\n",
        ["duplicate generated HOL field \"atomic_pair_second\""])]
   fun failing_case target wrap (label, failing, expected) =
@@ -1181,7 +1181,7 @@ local
   val annotated =
     quiet_prefix "" ^ "urust " ^
       command_source
-        ("  " ^ annotation "hol_names = [\"sampleValue\" \<rightarrow> \"sample\"], name = \"markup_packet\"" ^ "\n" ^
+        ("  " ^ annotation "hol_names = [\"sampleValue\" \<rightarrow> \<open>sample\<close>], name = \"markup_packet\"" ^ "\n" ^
          "  struct MarkupPacket { sampleValue: u32 }\n" ^
          "  " ^ annotation "state = \<open>'s::linorder\<close>, attrs = [micro_rust_simps]" ^ "\n" ^
          "  fn MarkupRead(packet: MarkupPacket) -> u32 { packet.sampleValue }")
@@ -1189,11 +1189,13 @@ local
   val _ = result_context result
   fun names_at needle occurrence =
     map #1 (reports_at (range_of annotated needle occurrence) reports)
+  (* The first closing delimiter ends the payload's \<open>sample\<close> target; the second ends
+     the annotation. *)
   val _ =
     require "annotation marker, delimiter or payload markup changed"
       (member (op =) (names_at omega 0) Markup.literalN andalso
         member (op =) (names_at Symbol.open_ 1) Markup.delimiterN andalso
-        member (op =) (names_at Symbol.close 0) Markup.delimiterN andalso
+        member (op =) (names_at Symbol.close 1) Markup.delimiterN andalso
         member (op =) (names_at "\"sampleValue\"" 0) Markup.stringN andalso
         member (op =) (names_at "\<rightarrow>" 0) Markup.delimiterN andalso
         member (op =) (names_at "\"markup_packet\"" 0) Markup.stringN andalso
@@ -1251,9 +1253,9 @@ local
   val body =
     "  " ^ annotation "pp_test, pretty = false, verbosity = 2, register_notation = true" ^ "\n" ^
     "  fn ReplayFirst(value: u32) -> u32 { value }\n" ^
-    "  " ^ annotation "hol_names = [\"replayValue\" \<rightarrow> \"replay_value\"], name = replay_cell" ^ "\n" ^
+    "  " ^ annotation "hol_names = [\"replayValue\" \<rightarrow> \<open>replay_value\<close>], name = replay_cell" ^ "\n" ^
     "  struct ReplayCell { replayValue: u32 }\n" ^
-    "  " ^ annotation "hol_type_parameters = [\"T\" \<rightarrow> \"'element::ord\"], backend = hol, plugins = (plugins only: code)" ^ "\n" ^
+    "  " ^ annotation "hol_type_parameters = [\"T\" \<rightarrow> \<open>'element::ord\<close>], backend = hol, plugins = (plugins only: code)" ^ "\n" ^
     "  struct ReplayHolder<T> { element: T }\n" ^
     "  " ^ annotation "backend = \"simple_word_enum\", word_width = 8" ^ "\n" ^
     "  enum ReplayWord { ReplayLow = 1, ReplayHigh = 2 }\n" ^
@@ -1471,7 +1473,7 @@ local
       ["chunk_no_such_attribute"]
   val _ =
     case_ "rename-key"
-      ("  " ^ annotation "hol_names = [\"missing\" \<rightarrow> \"a\"]" ^
+      ("  " ^ annotation "hol_names = [\"missing\" \<rightarrow> \<open>a\<close>]" ^
         "\n  struct ChunkValidatedCell { value: u32 }\n")
       ["unknown rename key \"missing\""]
   val _ =

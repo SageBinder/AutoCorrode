@@ -63,7 +63,7 @@ ML_val \<open>
 context
 begin
 
-urust_datatype [hol_names = ["value" \<rightarrow> "context_sample"]] \<open>
+urust_datatype [hol_names = ["value" \<rightarrow> \<open>context_sample\<close>]] \<open>
   struct ContextRename { value: u32 }
 \<close>
 urust_datatype \<open> struct ContextDefault { value: bool } \<close>
@@ -1828,7 +1828,7 @@ ML_val \<open>
 
     fun rename_list entries =
       "[" ^ commas (map (fn (source, target) =>
-        quote source ^ " \<rightarrow> " ^ quote target) entries) ^ "]"
+        quote source ^ " \<rightarrow> " ^ cartouche target) entries) ^ "]"
 
     val _ =
       assert_succeeded "renamed-short-selectors"
@@ -1978,33 +1978,37 @@ ML_val \<open>
           "struct RenameError { value: u32 }", "invalid HOL name binding"),
          ("reserved-target", "hol_names = " ^ rename_list [("value", "__")],
           "struct RenameError { value: u32 }", "invalid HOL name binding"),
-         ("bare-option", "hol_names", "struct RenameError;", "expects a quoted rename list"),
-         ("boolean-option", "hol_names = true", "struct RenameError;", "expects a quoted rename list"),
-         ("integer-option", "hol_names = 1", "struct RenameError;", "expects a quoted rename list"),
+         ("bare-option", "hol_names", "struct RenameError;", "expects a rename list"),
+         ("boolean-option", "hol_names = true", "struct RenameError;", "expects a rename list"),
+         ("integer-option", "hol_names = 1", "struct RenameError;", "expects a rename list"),
          ("duplicate-option", "hol_names = [], hol_names = []",
           "struct RenameError;", "duplicate uRust command option"),
-         ("unquoted-key", "hol_names = [value \<rightarrow> \"chosen\"]",
+         ("unquoted-key", "hol_names = [value \<rightarrow> \<open>chosen\<close>]",
           "struct RenameError { value: u32 }", "Outer syntax error"),
          ("unquoted-target", "hol_names = [\"value\" \<rightarrow> chosen]",
           "struct RenameError { value: u32 }", "Outer syntax error"),
-         ("equals-separator", "hol_names = [\"value\" = \"chosen\"]",
+         ("quoted-target", "hol_names = [\"value\" \<rightarrow> \"chosen\"]",
           "struct RenameError { value: u32 }", "Outer syntax error"),
-         ("mapsto-separator", "hol_names = [\"value\" \<mapsto> \"chosen\"]",
+         ("quoted-parameter-target", "hol_type_parameters = [\"T\" \<rightarrow> \"'element\"]",
+          "struct RenameError<T> { value: T }", "Outer syntax error"),
+         ("equals-separator", "hol_names = [\"value\" = \<open>chosen\<close>]",
           "struct RenameError { value: u32 }", "Outer syntax error"),
-         ("missing-comma", "hol_names = [\"value\" \<rightarrow> \"a\" \"other\" \<rightarrow> \"b\"]",
+         ("mapsto-separator", "hol_names = [\"value\" \<mapsto> \<open>chosen\<close>]",
+          "struct RenameError { value: u32 }", "Outer syntax error"),
+         ("missing-comma", "hol_names = [\"value\" \<rightarrow> \<open>a\<close> \"other\" \<rightarrow> \<open>b\<close>]",
           "struct RenameError { value: u32, other: bool }", "Outer syntax error"),
-         ("trailing-comma", "hol_names = [\"value\" \<rightarrow> \"a\",]",
+         ("trailing-comma", "hol_names = [\"value\" \<rightarrow> \<open>a\<close>,]",
           "struct RenameError { value: u32 }", "Outer syntax error"),
-         ("missing-close", "hol_names = [[\"value\" \<rightarrow> \"a\"]",
+         ("missing-close", "hol_names = [[\"value\" \<rightarrow> \<open>a\<close>]",
           "struct RenameError { value: u32 }", "Outer syntax error")]
 
     val _ =
       assert_rejected_all "rename-position-key" ["unknown rename key", "line 3"]
-        ("urust_datatype [hol_names = [\n\"missing\" \<rightarrow> \"chosen\"]] " ^
+        ("urust_datatype [hol_names = [\n\"missing\" \<rightarrow> \<open>chosen\<close>]] " ^
           datatype_source "PositionRename" "value: u32")
     val _ =
       assert_rejected_all "rename-position-target" ["invalid HOL name binding", "line 3"]
-        ("urust_datatype [hol_names = [\"value\" \<rightarrow>\n\"bad.name\"]] " ^
+        ("urust_datatype [hol_names = [\"value\" \<rightarrow>\n\<open>bad.name\<close>]] " ^
           datatype_source "PositionRename" "value: u32")
     val _ =
       assert_succeeded "renamed-named-construction"
@@ -4570,7 +4574,7 @@ urust_datatype \<open> struct EmptyNamed<T> {} \<close>
 
 urust_datatype \<open> struct EmptyTuple<T>(); \<close>
 
-urust_datatype [hol_type_parameters = ["T" \<rightarrow> "'element::ord"]] \<open>
+urust_datatype [hol_type_parameters = ["T" \<rightarrow> \<open>'element::ord\<close>]] \<open>
   struct SortedHint<T>;
 \<close>
 
@@ -4590,11 +4594,11 @@ urust_type_alias \<open> type ForwardBuffer<T, const N: usize> = Buffer<T, N>; \
 
 urust_type_alias \<open> type UnusedWidth<const N: usize> = u8; \<close>
 
-urust_datatype [hol_type_parameters = ["N" \<rightarrow> "'length::len"]] \<open>
+urust_datatype [hol_type_parameters = ["N" \<rightarrow> \<open>'length::len\<close>]] \<open>
   struct IndirectBuffer<T, const N: usize> { inner: ForwardBuffer<T, N> }
 \<close>
 
-urust_datatype [hol_type_parameters = ["T" \<rightarrow> "'element", "P" \<rightarrow> "'tag"]] \<open>
+urust_datatype [hol_type_parameters = ["T" \<rightarrow> \<open>'element\<close>, "P" \<rightarrow> \<open>'tag\<close>]] \<open>
   enum Choice<T, P> { Empty, Data(T), Named { value: T, active: bool } }
 \<close>
 
@@ -4613,7 +4617,7 @@ urust_datatype [backend = "simple_word_enum", word_width = 16,
 
 urust_datatype [word_width = 8] \<open> enum Boundary { Min = 0, Max = 255 } \<close>
 
-urust_datatype [word_width = 8, hol_names = ["On" \<rightarrow> "ModelOn"]] \<open>
+urust_datatype [word_width = 8, hol_names = ["On" \<rightarrow> \<open>ModelOn\<close>]] \<open>
   enum RenamedWord<T, const N: usize> { Off, On = 3 }
 \<close>
 
@@ -4621,11 +4625,11 @@ urust_datatype [word_width = 8] model_flags \<open>
   enum SourceFlags<T, P> { FlagOff, FlagOn = 5 }
 \<close>
 
-urust_datatype [hol_names = ["Wrapped" \<rightarrow> "ModelWrapped"]] \<open>
+urust_datatype [hol_names = ["Wrapped" \<rightarrow> \<open>ModelWrapped\<close>]] \<open>
   enum RenamedPayload<T, P> { Wrapped { value: T } }
 \<close>
 
-urust_datatype [hol_type_parameters = ["T" \<rightarrow> "'a", "P" \<rightarrow> "'b"]] \<open>
+urust_datatype [hol_type_parameters = ["T" \<rightarrow> \<open>'a\<close>, "P" \<rightarrow> \<open>'b\<close>]] \<open>
   enum ParameterNames<T, P> { ParameterValue(T), ParameterEmpty }
 \<close>
 
@@ -4804,10 +4808,10 @@ local
      ("const-minimum-sort", "", "struct Invalid { value: LooseConst<\<tau>\<open>nat\<close>> }", "does not satisfy sort"),
      ("const-field", "", "struct Invalid<const N: usize> { value: N }", "const parameters used as field"),
      ("zero-array", "", "struct Invalid { value: [u8; 0] }", "does not satisfy sort"),
-     ("override-sort", "[hol_type_parameters = [\"N\" \<rightarrow> \"'n::len0\"]]",
+     ("override-sort", "[hol_type_parameters = [\"N\" \<rightarrow> \<open>'n::len0\<close>]]",
        "struct Invalid<const N: usize> { value: [u8; N] }", "does not satisfy inferred sort"),
-     ("override-unknown", "[hol_type_parameters = [\"X\" \<rightarrow> \"'x\"]]", "struct Invalid<T>;", "unknown parameter override"),
-     ("override-duplicate-name", "[hol_type_parameters = [\"T\" \<rightarrow> \"'x\", \"U\" \<rightarrow> \"'x\"]]",
+     ("override-unknown", "[hol_type_parameters = [\"X\" \<rightarrow> \<open>'x\<close>]]", "struct Invalid<T>;", "unknown parameter override"),
+     ("override-duplicate-name", "[hol_type_parameters = [\"T\" \<rightarrow> \<open>'x\<close>, \"U\" \<rightarrow> \<open>'x\<close>]]",
        "struct Invalid<T, U>;", "HOL parameter names must be distinct"),
      ("automatic-marker", "", "struct Invalid<T> { value: PhantomData<T> }", "automatic PhantomData field handling is deferred"),
      ("qualified-marker", "", "struct Invalid<T> { value: core::marker::PhantomData<T> }", "automatic PhantomData field handling is deferred"),
@@ -5286,9 +5290,9 @@ local
       "  live_parameter_record_values :: \<open>('a \<times> 'l) list\<close>\n" ^
       "micro_rust_record live_parameter_record\n" ^
       "  (live_parameter_record_len = \"len\", live_parameter_record_values = \"values\")",
-      "urust_datatype [hol_type_parameters = [\"A\" \<rightarrow> \"'a\", \"L\" \<rightarrow> \"'l\"],\n" ^
-      "  hol_names = [\"len\" \<rightarrow> \"live_parameter_record_len\",\n" ^
-      "    \"values\" \<rightarrow> \"live_parameter_record_values\"]] live_parameter_record " ^
+      "urust_datatype [hol_type_parameters = [\"A\" \<rightarrow> \<open>'a\<close>, \"L\" \<rightarrow> \<open>'l\<close>],\n" ^
+      "  hol_names = [\"len\" \<rightarrow> \<open>live_parameter_record_len\<close>,\n" ^
+      "    \"values\" \<rightarrow> \<open>live_parameter_record_values\<close>]] live_parameter_record " ^
       cartouche "struct LiveParameterRecord<A, L> { len: u64, values: \<tau>\<open>('a \<times> 'l) list\<close> }",
       ["'a", "'l"]),
      ("live-parameter-choice", "live_parameter_choice",
@@ -5317,7 +5321,7 @@ local
       ["'t"]),
      ("live-parameter-marker", "live_parameter_marker",
       "datatype ('t::ord, 'n::len0) live_parameter_marker = make_live_parameter_marker",
-      "urust_datatype [hol_type_parameters = [\"T\" \<rightarrow> \"'t::ord\"]] " ^
+      "urust_datatype [hol_type_parameters = [\"T\" \<rightarrow> \<open>'t::ord\<close>]] " ^
       cartouche "struct LiveParameterMarker<T, const N: usize>;",
       ["'t", "'n"]),
      ("live-parameter-pair", "live_parameter_pair",
@@ -6336,7 +6340,7 @@ struct
 
   fun rename_list entries =
     "[" ^ commas (map (fn (source, target) =>
-      quote source ^ " \<rightarrow> " ^ quote target) entries) ^ "]"
+      quote source ^ " \<rightarrow> " ^ cartouche target) entries) ^ "]"
 
   fun run_from start thy text =
     let
@@ -6412,6 +6416,9 @@ struct
     in (start, start + length (Symbol.explode needle)) end
 
   fun key_range text occurrence key = source_range text occurrence ("\"", key)
+
+  fun target_range text occurrence target =
+    source_range text occurrence (Symbol.open_, target)
 
   fun succeeded thy label text =
     (case run thy label text of
@@ -6523,13 +6530,13 @@ ML_val\<open>
           val _ =
             T.rejected_at thy ("selector-name-duplicate-target" ^ suffix)
               "duplicate generated HOL selector \"selector_name_same\""
-              (T.key_range duplicate_target 1 "selector_name_same") duplicate_target
+              (T.target_range duplicate_target 1 "selector_name_same") duplicate_target
           val default_after =
             declaration backend [("Pair.1", "selector_name_keys_named_value")] keys_item
           val _ =
             T.rejected_at thy ("selector-name-default-after" ^ suffix)
               "duplicate generated HOL selector \"selector_name_keys_named_value\""
-              (T.key_range default_after 1 "selector_name_keys_named_value") default_after
+              (T.target_range default_after 1 "selector_name_keys_named_value") default_after
           val default_before =
             declaration backend [("Pair.0", "selector_name_order_named_value")] order_item
           val _ =
@@ -6850,7 +6857,7 @@ ML_val\<open>
           val _ =
             T.rejected_at thy ("selector-name-unprefixed-payload-key" ^ suffix)
               "duplicate generated HOL selector \"selector_name_a\""
-              (T.key_range payload_key 1 "selector_name_a") payload_key
+              (T.target_range payload_key 1 "selector_name_a") payload_key
           val hidden =
             declaration (backend ^ "unprefixed_selectors")
               " enum SelectorNameHiddenChoice { Hidden { _selectorNameSecret: u32 } } "
@@ -7017,7 +7024,7 @@ ML_val\<open>
           val _ =
             List.app (fn (target, name) =>
               require ("definition entity of " ^ name ^ suffix)
-                (T.has_definition_entity markup name (T.key_range text 1 target)))
+                (T.has_definition_entity markup name (T.target_range text 1 target)))
               [("selector_name_packed_flag", flag), ("selector_name_marked_value", value)]
         in () end)
         [("-enum", "", false), ("-hol", "backend = hol, ", true)]
@@ -7068,7 +7075,7 @@ ML_val\<open>
     val hol = "backend = hol, "
     fun rejected_at_target label backend entries item (target, occurrence) fragment =
       let val text = declaration backend entries item
-      in T.rejected_at thy label fragment (T.key_range text occurrence target) text end
+      in T.rejected_at thy label fragment (T.target_range text occurrence target) text end
     fun fields ctxt path =
       URust_Item_Scope.constructor_fields (the (URust_Item_Scope.lookup_constructor ctxt path))
       |> map (apsnd (Long_Name.base_name o dest_Const_name))
@@ -7157,7 +7164,7 @@ ML_val\<open>
       T.rejected_at thy "selector-name-record-update"
         ("generated HOL field \"update_selector_name_second\" conflicts with the automatic " ^
           "update function of SelectorNameRecord.selector_name_second")
-        (T.key_range update 1 "update_selector_name_second") update
+        (T.target_range update 1 "update_selector_name_second") update
     val constructor =
       declaration "" [("selectorNameFirst", "make_selector_name_record")]
         " struct SelectorNameRecord { selectorNameFirst: u32 } "
@@ -7165,7 +7172,7 @@ ML_val\<open>
       T.rejected_at thy "selector-name-record-constructor"
         ("generated HOL field \"make_selector_name_record\" conflicts with the automatic " ^
           "constructor of SelectorNameRecord")
-        (T.key_range constructor 1 "make_selector_name_record") constructor
+        (T.target_range constructor 1 "make_selector_name_record") constructor
     val unprefixed =
       "urust_datatype [unprefixed_selectors] " ^
         T.cartouche " struct SelectorNameMade { makeSelectorNameMade: u32 } "
@@ -7221,7 +7228,7 @@ ML_val\<open>
       T.rejected_at thy "selector-name-automatic-shared-keyed"
         ("generated HOL selector \"un_A1\" conflicts with the automatic selector of " ^
           "SelectorNamePair::A.0")
-        (T.key_range keyed 1 "un_A1") keyed
+        (T.target_range keyed 1 "un_A1") keyed
   end
 \<close>
 

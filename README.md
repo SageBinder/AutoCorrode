@@ -255,8 +255,8 @@ Manual mappings distinguish const placeholders, for example
 `urust_type "Sized<'a, const 'n>" = ‹('a, 'n::len) array›`.
 Fixed array values use the existing HOL array operations and value escapes. Array expression forms
 retain their existing list model; this increment adds declaration/type support without changing it.
-`hol_type_parameters = ["T" → "'element", "N" → "'length::len"]` chooses declaration-local HOL names and
-sorts; explicit sorts must satisfy the inferred requirements.
+`hol_type_parameters = ["T" → ‹'element›, "N" → ‹'length::len›]` chooses declaration-local HOL
+names and sorts; explicit sorts must satisfy the inferred requirements.
 
 ```isabelle
 urust_datatype ‹ struct Buffer<T, const N: usize> { values: [T; N] } ›
@@ -310,20 +310,20 @@ Declaration-local `hol_names` chooses named-struct HOL selectors, enum HOL const
 payload selectors:
 
 ```isabelle
-urust_datatype [hol_names = ["sampleValue" → "sample"]] ‹
+urust_datatype [hol_names = ["sampleValue" → ‹sample›]] ‹
   struct Packet { sampleValue: u32 }
 ›
 
-urust_datatype [hol_names = ["Ready" → "ModelReady"]] ‹
+urust_datatype [hol_names = ["Ready" → ‹ModelReady›]] ‹
   enum Choice { Ready { value: u32 }, Empty }
 ›
 
-urust_datatype [backend = hol, hol_names = ["Ready.value" → "ready_value", "Stored.0" → "stored"]] ‹
+urust_datatype [backend = hol, hol_names = ["Ready.value" → ‹ready_value›, "Stored.0" → ‹stored›]] ‹
   enum Event { Ready { value: u32 }, Stored(u64, bool) }
 ›
 ```
 
-Both sides require quoted strings; theory files use Isabelle's ASCII escape for →.
+Keys are quoted strings and targets are cartouches; theory files use Isabelle's ASCII escape for →.
 Struct keys are unqualified source field names. Enum keys are source variant names, which rename
 constructors, or payload keys written with the source variant name: `"Variant.field"` for a named
 payload field and `"Variant.N"` for a positional field, where `N` is the 0-based decimal Rust tuple
@@ -367,7 +367,7 @@ shadows an earlier short name. The inline-only Boolean option `[unprefixed_selec
 both kinds `<snake field>`:
 
 ```isabelle
-urust_datatype [unprefixed_selectors, hol_names = ["sampleCount" → "total"]] ‹
+urust_datatype [unprefixed_selectors, hol_names = ["sampleCount" → ‹total›]] ‹
   struct Sample { sampleValue: u32, sampleCount: u64 }
 ›
 ```

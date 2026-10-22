@@ -154,14 +154,14 @@ their proofs, constructor paths, source-field metadata, and type mappings. Exist
 installed; the setting affects subsequent declarations only. Unit/tuple structs and enums accept
 the option but do not generate field-lens aliases. A generated lens can be registered later with,
 for example, \<open>urust_notation (field) packet_packet_sample_value_lens ("sampleValue")\<close>.
-The inline-only structured option \<open>hol_names = ["source" \<rightarrow> "HOL"]\<close> chooses
-named-struct selector basenames, enum constructor basenames, or enum payload selector basenames.
-Both strings must be quoted. Struct keys are unqualified source field names. Enum keys are source
-variant names, which rename only constructors, or payload keys \<open>"Variant.field"\<close> and
-\<open>"Variant.N"\<close> with the source variant name and a named field or 0-based decimal tuple
-index. A positional key adds a selector for that field on the HOL and custom enum backends; tuple
-structs have no keys. Targets are used as written, subject to native binding rules. Missing
-entries and an empty list retain the defaults. Duplicate keys, unknown variants, fields or
+The inline-only structured option \<open>hol_names = ["source" \<rightarrow> \<open>HOL\<close>]\<close>
+chooses named-struct selector basenames, enum constructor basenames, or enum payload selector
+basenames. Keys are quoted strings and targets are cartouches. Struct keys are unqualified source
+field names. Enum keys are source variant names, which rename only constructors, or payload keys
+\<open>"Variant.field"\<close> and \<open>"Variant.N"\<close> with the source variant name and a named
+field or 0-based decimal tuple index. A positional key adds a selector for that field on the HOL
+and custom enum backends; tuple structs have no keys. Targets are used as written, subject to
+native binding rules. Missing entries and an empty list retain the defaults. Duplicate keys, unknown variants, fields or
 indices, invalid bindings, and duplicate effective names (including untouched defaults) are
 positioned errors. Every name uRust chooses for the declaration (a target, an unprefixed name, an
 untouched constructor or an untouched default selector) must also differ from the other
@@ -179,8 +179,8 @@ scoped setting, and the \<open>simple_word_enum\<close> backend, which generates
 rejects it.
 Type/const parameters retain source order, including unused parameters. Const parameters use
 HOL length types, initially \<open>len0\<close> and strengthened where fields require \<open>len\<close>.
-The option \<open>hol_type_parameters = ["T" \<rightarrow> "'a::address_type"]\<close> supplies local HOL
-names/sorts.
+The option \<open>hol_type_parameters = ["T" \<rightarrow> \<open>'a::address_type\<close>]\<close> supplies local
+HOL names/sorts, with the same quoted keys and cartouche targets.
 Unused type parameters are retained independently of fields. Automatic \<open>PhantomData\<close> field
 handling is deferred; ordinary explicit HOL definitions and manual type/notation mappings remain
 available, with all mapped fields stored and required.
@@ -512,6 +512,8 @@ fun option_type_error name expected pos =
       " expects " ^ expected ^
       Position.here pos)
 
+val rename_list_expectation = "a rename list of \"key\" \<rightarrow> \<open>HOL\<close> pairs"
+
 fun name_expectation anonymous =
   if anonymous then "a HOL binding or _" else "a HOL binding"
 
@@ -539,7 +541,7 @@ fun add_inline_option option_configs
               | (Attributes_Config, NONE) =>
                   option_type_error name "an Isabelle attribute list" name_pos
               | (Renames_Config, NONE) =>
-                  option_type_error name "a quoted rename list" name_pos
+                  option_type_error name rename_list_expectation name_pos
               | (Type_Config _, NONE) =>
                   option_type_error name "a HOL type" name_pos
               | (Name_Config {anonymous}, NONE) =>
@@ -577,7 +579,7 @@ fun add_inline_option option_configs
               | (Attributes_Config, SOME (_, value_pos)) =>
                   option_type_error name "an Isabelle attribute list" value_pos
               | (Renames_Config, SOME (_, value_pos)) =>
-                  option_type_error name "a quoted rename list" value_pos
+                  option_type_error name rename_list_expectation value_pos
               | (Type_Config _, SOME (_, value_pos)) =>
                   option_type_error name "a HOL type" value_pos)
          in Symtab.update (name, (checked_value, name_pos)) options end)
@@ -1947,7 +1949,7 @@ fun datatype_declaration
             SOME (Renames_Value renames, _) => renames
           | NONE => []
           | SOME (_, pos) =>
-              option_type_error hol_names_option "a quoted rename list" pos),
+              option_type_error hol_names_option rename_list_expectation pos),
        unprefixed_selectors =
          (case Symtab.lookup options unprefixed_selectors_option of
             SOME (Boolean_Value true, pos) => SOME pos
@@ -2018,10 +2020,16 @@ fun prepare_datatype_item lthy {interactive, roundtrip, options, source, item} =
      options = Symtab.delete_safe name_option options,
      explicit_binding = option_datatype_binding options, source = source, item = item}
 
+(* Source keys are quoted Rust names; targets are HOL names or types, written as cartouches and
+   positioned at their content, like the content of a quoted key. *)
+val parse_rename_target =
+  Parse.token Parse.cartouche >> Parser_Lex_Util.cartouche_source >>
+    (fn source => (Input.string_of source, Input.pos_of source))
+
 val parse_renames =
   Parse.$$$ "[" |--
     Parse.!!! (Parse.enum ","
-      (Parse.string_position --| Parse.$$$ "\<rightarrow>" -- Parse.string_position)
+      (Parse.string_position --| Parse.$$$ "\<rightarrow>" -- parse_rename_target)
       --| Parse.$$$ "]")
 
 fun parse_option_value config =

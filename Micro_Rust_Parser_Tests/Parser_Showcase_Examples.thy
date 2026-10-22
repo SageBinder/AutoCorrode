@@ -74,13 +74,13 @@ Both sides are quoted; Rust paths and field spellings continue to come from the 
 The lens name follows the chosen selector.
 \<close>
 
-urust_datatype [hol_names = ["sampleValue" \<rightarrow> "sample"], pp_test, pretty] \<open>
+urust_datatype [hol_names = ["sampleValue" \<rightarrow> \<open>sample\<close>], pp_test, pretty] \<open>
   struct RenamedSample { sampleValue: u32 }
 \<close>
 
 thm renamed_sample_sample_lens_valid
 
-urust_datatype [hol_names = ["Ready" \<rightarrow> "ModelReady"]] \<open>
+urust_datatype [hol_names = ["Ready" \<rightarrow> \<open>ModelReady\<close>]] \<open>
   enum RenamedState { Ready(u32), Empty }
 \<close>
 
@@ -262,7 +262,7 @@ including its HOL name; the outer list supplies defaults shared by every item.
 \<close>
 
 urust [verbosity = 1] \<open>
-  \<omega>\<open>hol_names = ["sampleCount" \<rightarrow> "sample_count"]\<close>
+  \<omega>\<open>hol_names = ["sampleCount" \<rightarrow> \<open>sample_count\<close>]\<close>
   struct ShowcaseReading { sampleCount: u32, ready: bool }
 
   \<omega>\<open>name = "showcase_signal", verbosity = 2\<close>
@@ -1315,9 +1315,9 @@ constructor itself is renamed. Rust paths and patterns keep their source spellin
 \<close>
 
 urust_datatype [backend = hol, hol_names = [
-  "Sent" \<rightarrow> "SelectorNameSent",
-  "Sent.0" \<rightarrow> "selector_name_sent_id",
-  "Bounced.code" \<rightarrow> "selector_name_bounce_code"
+  "Sent" \<rightarrow> \<open>SelectorNameSent\<close>,
+  "Sent.0" \<rightarrow> \<open>selector_name_sent_id\<close>,
+  "Bounced.code" \<rightarrow> \<open>selector_name_bounce_code\<close>
 ]] \<open>
   enum SelectorNameDelivery { Sent(u32), Bounced { code: u32 } }
 \<close>
@@ -1339,7 +1339,7 @@ The inline-only \<open>[unprefixed_selectors]\<close> drops the type prefix from
 while explicit keys still choose their own names. Rust field access is unchanged.
 \<close>
 
-urust_datatype [unprefixed_selectors, hol_names = ["selectorNameAttempts" \<rightarrow> "selector_name_tries"]]
+urust_datatype [unprefixed_selectors, hol_names = ["selectorNameAttempts" \<rightarrow> \<open>selector_name_tries\<close>]]
 \<open>
   struct SelectorNameReceipt { selectorNameId: u32, selectorNameAttempts: u32 }
 \<close>

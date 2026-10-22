@@ -1769,7 +1769,7 @@ urust_expr_rejects \<open>
 
 section\<open> Generic datatypes, aliases, typed receivers and effect channels \<close>
 
-urust_datatype [hol_names = ["compositionValues" \<rightarrow> "composition_values_model"]] \<open>
+urust_datatype [hol_names = ["compositionValues" \<rightarrow> \<open>composition_values_model\<close>]] \<open>
   struct CompositionBuffer<T, const N: usize> { compositionValues: [T; N] }
 \<close>
 
@@ -1777,7 +1777,7 @@ urust_type_alias \<open>
   type CompositionAlias<T, const N: usize> = CompositionBuffer<T, N>;
 \<close>
 
-urust_datatype [hol_type_parameters = ["P" \<rightarrow> "'tag"]] \<open>
+urust_datatype [hol_type_parameters = ["P" \<rightarrow> \<open>'tag\<close>]] \<open>
   enum CompositionCustom<T, P, const N: usize> {
     CompositionEmpty,
     CompositionStored(CompositionAlias<T, N>),
@@ -1785,8 +1785,8 @@ urust_datatype [hol_type_parameters = ["P" \<rightarrow> "'tag"]] \<open>
 \<close>
 
 urust_datatype [backend = hol, hol_names = [
-  "NativeMissing" \<rightarrow> "CompositionModelMissing",
-  "NativeStored" \<rightarrow> "CompositionModelStored"
+  "NativeMissing" \<rightarrow> \<open>CompositionModelMissing\<close>,
+  "NativeStored" \<rightarrow> \<open>CompositionModelStored\<close>
 ]] \<open>
   enum CompositionNative<T, P, const N: usize> {
     NativeMissing,
@@ -1795,7 +1795,7 @@ urust_datatype [backend = hol, hol_names = [
 \<close>
 
 urust_datatype [word_width = 8, plugins = (plugins only: word_conversion urust_conversion),
-  hol_names = ["Ready" \<rightarrow> "CompositionModelReady"]] \<open>
+  hol_names = ["Ready" \<rightarrow> \<open>CompositionModelReady\<close>]] \<open>
   enum CompositionWord<T, const N: usize> { CompositionOff, Ready = 11 }
 \<close>
 
