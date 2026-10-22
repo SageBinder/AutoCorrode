@@ -157,8 +157,7 @@ begin
 
 adhoc_overloading store_reference_const \<rightleftharpoons> ref_word64.new
 
-urust_fn ntt
-  \<open>
+urust_fn \<open>
   fn ntt(f_ref: \<tau>\<open>('addr, 'gv, mlkem_poly) Global_Store.ref\<close>) -> () {
     let mut k = 1;
 

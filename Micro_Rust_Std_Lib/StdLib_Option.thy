@@ -7,8 +7,7 @@ theory StdLib_Option
 begin
 (*>*)
 
-urust_fn option_expect
-  \<open>
+urust_fn \<open>
   fn option_expect(self_value: \<tau>\<open>'v option\<close>, msg: \<tau>\<open>String.literal\<close>) -> \<tau>\<open>'v\<close> {
       match self_value {
         Some(v) \<Rightarrow> v,
@@ -30,8 +29,7 @@ lemma option_expect_spec [crush_specs]:
   by (crush_boot f: option_expect_def contract: option_expect_contract_def)
      (crush_base split!: option.splits)
 
-urust_fn option_unwrap
-  \<open>
+urust_fn \<open>
   fn option_unwrap(self_value: \<tau>\<open>'v option\<close>) -> \<tau>\<open>'v\<close> {
      self_value.expect("unwrap")
   }
@@ -49,8 +47,7 @@ lemma option_unwrap_spec [crush_specs]:
   by (crush_boot f: option_unwrap_def contract: option_unwrap_contract_def)
      (crush_base split!: option.splits)
 
-urust_fn urust_func_option_is_none
-  \<open>
+urust_fn \<open>
   fn urust_func_option_is_none(self_value: \<tau>\<open>'v option\<close>) -> bool {
      match self_value {
        Some(_) \<Rightarrow> False,
@@ -71,8 +68,7 @@ lemma option_is_none_spec [crush_specs]:
   by (crush_boot f: urust_func_option_is_none_def contract: option_is_none_contract_def)
      (crush_base simp add: Option.is_none_def split!: option.splits)
 
-urust_fn urust_func_option_is_some
-  \<open>
+urust_fn \<open>
   fn urust_func_option_is_some(self_value: \<tau>\<open>'v option\<close>) -> bool {
      match self_value {
        Some(_) \<Rightarrow> True,
@@ -94,8 +90,7 @@ lemma option_is_some_spec [crush_specs]:
   by (crush_boot f: urust_func_option_is_some_def contract: option_is_some_contract_def)
      (crush_base simp add: Option.is_none_def split!: option.splits)
 
-urust_fn ok_or
-  \<open>
+urust_fn \<open>
   fn ok_or(self_value: \<tau>\<open>'v option\<close>, e: \<tau>\<open>'e\<close>) -> \<tau>\<open>('v, 'e) result\<close> {
      match self_value {
         Some(v) \<Rightarrow> Ok(v),
@@ -129,8 +124,7 @@ begin
        
 adhoc_overloading store_update_const \<rightleftharpoons> update_fun
 
-urust_fn [register_notation = false] option_as_mut
-  \<open>
+urust_fn [register_notation = false] \<open>
   fn option_as_mut(self_value: \<tau>\<open>('a, 'b, 'v option) Global_Store.ref\<close>) -> \<tau>\<open>('a, 'b, 'v) Global_Store.ref option\<close> {
     if (*self_value).is_some() {
       Some (\<llangle>focus_option self_value\<rrangle>)
@@ -154,8 +148,7 @@ lemma option_as_mut_spec [crush_specs]:
   apply (crush_base simp add: option_focus_def split: option.splits)
   done
 
-urust_fn [register_notation = false] take_mut_ref_option
-  \<open>
+urust_fn [register_notation = false] \<open>
   fn take_mut_ref_option(ptr: \<tau>\<open>('a, 'b, 'v option) Global_Store.ref\<close>) -> \<tau>\<open>'v option\<close> {
     let val = *ptr;
     ptr = None;

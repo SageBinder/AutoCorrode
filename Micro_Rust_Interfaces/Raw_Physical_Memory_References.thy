@@ -100,9 +100,7 @@ definition points_to_raw' :: \<open>(raw_pref,8 word list) gref \<Rightarrow> sh
     \<langle>length bs = raw_pmem_region_size pr\<rangle> \<star>
     (\<Squnion>tag. points_to_tagged_phys_bytes (raw_pmem_region_base pr) sh tag bs))\<close>
 
-urust_fn [abbrev, register_notation = false]
-  update_raw_fun_fn1
-  \<open>
+urust_fn [abbrev, register_notation = false] \<open>
   fn update_raw_fun_fn1(bs: \<tau>\<open>8 word list\<close>, pr: \<tau>\<open>raw_pref\<close>) -> () {
     trace!(l\<llangle>"Raw_Tagged_Physical_Memory.update_raw_fun"\<rrangle>);
 
@@ -123,9 +121,7 @@ definition update_raw_fun :: \<open>(raw_pref, 8 word list) gref \<Rightarrow> 8
      let pr = Global_Store.address r in
        update_raw_fun_fn1 bs pr\<close>
 
-urust_fn [abbrev, register_notation = false]
-  dereference_raw_fun_fn1
-  \<open>
+urust_fn [abbrev, register_notation = false] \<open>
   fn dereference_raw_fun_fn1(pr: \<tau>\<open>raw_pref\<close>) -> \<tau>\<open>8 word list\<close> {
     trace!(l\<llangle>"Raw_Tagged_Physical_Memory.dereference_raw_fun"\<rrangle>);
 
@@ -140,8 +136,7 @@ definition dereference_raw_fun :: \<open>(raw_pref, 8 word list) gref \<Rightarr
      let pr = Global_Store.address r in
        dereference_raw_fun_fn1 pr\<close>
 
-urust_fn [register_notation = false] reference_raw_fun
-  \<open>
+urust_fn [register_notation = false] \<open>
   fn reference_raw_fun(bs: \<tau>\<open>8 word list\<close>) -> \<tau>\<open>(raw_pref, 8 word list) gref\<close> {
      trace!(l\<llangle>"Raw_Tagged_Physical_Memory.reference_raw_fun"\<rrangle>);
 

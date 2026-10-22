@@ -311,8 +311,7 @@ declare update_spec[crush_specs, crush_specs_eager]
 declare dereference_spec[crush_specs, crush_specs_eager]
 declare ro_dereference_spec[crush_specs, crush_specs_eager]
 
-urust_fn [register_notation = false] transpose
-  \<open>
+urust_fn [register_notation = false] \<open>
   fn transpose(self_value: \<tau>\<open>('a, 'b, 't option) ro_ref\<close>) -> \<tau>\<open>('a, 'b, 't) ro_ref option\<close> {
      match *self_value {
        None    \<Rightarrow> None,
@@ -406,8 +405,7 @@ adhoc_overloading store_update_const \<rightleftharpoons>
 adhoc_overloading store_reference_const \<rightleftharpoons> ref_bool.new
 adhoc_overloading store_reference_const \<rightleftharpoons> ref_nat.new
 
-urust_fn ref_test
-  \<open>
+urust_fn \<open>
   fn ref_test() -> \<tau>\<open>nat\<close> {
       let mut nat_ref = \<llangle>0 :: nat\<rrangle>;
       let mut bool_ref = \<llangle>False :: bool\<rrangle>;

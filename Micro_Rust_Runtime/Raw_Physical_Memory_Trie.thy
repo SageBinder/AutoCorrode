@@ -70,8 +70,7 @@ definition memset_tagged_phys_block :: \<open>64 word \<Rightarrow> nat \<Righta
     ('tag tagged_physical_memory, unit, 'abort, 'i, 'o) function_body\<close> where
   \<open>memset_tagged_phys_block pa n b \<equiv> FunctionBody (memset_tagged_phys_block_core pa n b)\<close>
 
-urust_fn memset_tagged_phys
-  \<open>
+urust_fn \<open>
   fn memset_tagged_phys(pa: u64, l: u64, b: u8) -> () {
     for blk in \<llangle>range_to_aligned_blocks pa l\<rrangle> {
       let addr = \<llangle>fst blk\<rrangle>;

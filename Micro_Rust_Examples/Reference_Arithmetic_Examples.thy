@@ -62,16 +62,14 @@ begin
 adhoc_overloading assign_add_const \<rightleftharpoons> urust_heap_assign_add_ref
 
 urust_fn [register_notation = false, state = \<open>arith_gv mem\<close>, abort = \<open>unit\<close>,
-    input = \<open>unit prompt\<close>, output = \<open>unit prompt_output\<close>] add_ref32
-  \<open>
+    input = \<open>unit prompt\<close>, output = \<open>unit prompt_output\<close>] \<open>
   fn add_ref32(target: \<tau>\<open>(nat, arith_gv, 32 word) Global_Store.ref\<close>, amount: u32) -> () {
     target += amount;
   }
   \<close>
 
 urust_fn [register_notation = false, state = \<open>arith_gv mem\<close>, abort = \<open>unit\<close>,
-    input = \<open>unit prompt\<close>, output = \<open>unit prompt_output\<close>] add_ref64
-  \<open>
+    input = \<open>unit prompt\<close>, output = \<open>unit prompt_output\<close>] \<open>
   fn add_ref64(target: \<tau>\<open>(nat, arith_gv, 64 word) Global_Store.ref\<close>, amount: u64) -> () {
     target += amount;
   }

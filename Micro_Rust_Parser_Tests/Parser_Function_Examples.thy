@@ -63,8 +63,7 @@ urust_fn registered_probe
     }
   \<close>
 
-urust_fn call_registered_probe
-  \<open> fn call_registered_probe(x: u64) -> bool { probe(x) } \<close>
+urust_fn \<open> fn call_registered_probe(x: u64) -> bool { probe(x) } \<close>
 
 urust_fn
   \<open>
@@ -73,8 +72,7 @@ urust_fn
     }
   \<close>
 
-urust_fn already_snake
-  \<open>
+urust_fn \<open>
     fn already_snake() {
       ()
     }
@@ -82,22 +80,19 @@ urust_fn already_snake
 
 section\<open> Authoritative signatures and parameter forms \<close>
 
-urust_fn authoritative_signature
-  \<open>
+urust_fn \<open>
     fn AuthoritativeSignature(x: u64) -> u64 {
       x + 1
     }
   \<close>
 
-urust_fn mutable_parameter
-  \<open>
+urust_fn \<open>
     fn MutableParameter(mut x: u64) -> u64 {
       x
     }
   \<close>
 
-urust_fn mixed_parameter_slots
-  \<open>
+urust_fn \<open>
     fn MixedParameterSlots(
       first: \<tau>\<open>nat\<close>,
       _: bool,
@@ -108,8 +103,7 @@ urust_fn mixed_parameter_slots
     }
   \<close>
 
-urust_fn empty_block
-  \<open>
+urust_fn \<open>
     fn EmptyBlock() {}
   \<close>
 
@@ -138,15 +132,11 @@ the channel options and the signature's HOL escapes.
 
 urust_fn
   [state = \<open>'s::cancellative_sepalg\<close>, abort = \<open>bool\<close>,
-   input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>]
-  semantic_identity
-  \<open> fn SemanticIdentity(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { value } \<close>
+   input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>] \<open> fn SemanticIdentity(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { value } \<close>
 
 urust_fn
   [state = \<open>'s::cancellative_sepalg\<close>, abort = \<open>'abort\<close>,
-   input = \<open>'i\<close>, output = \<open>'o\<close>]
-  semantic_unused_callback
-  \<open>
+   input = \<open>'i\<close>, output = \<open>'o\<close>] \<open>
     fn SemanticUnusedCallback(
       value: \<tau>\<open>nat\<close>,
       callback: \<tau>\<open>nat \<Rightarrow> ('s, unit, 'abort, 'i, 'o) function_body\<close>,
@@ -157,9 +147,7 @@ urust_fn
 
 urust_fn
   [state = \<open>'s::cancellative_sepalg\<close>, abort = \<open>bool\<close>,
-   input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>]
-  semantic_callback_client
-  \<open>
+   input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>] \<open>
     fn SemanticCallbackClient(
       value: \<tau>\<open>nat\<close>,
       callback: \<tau>\<open>nat \<Rightarrow> ('s, unit, bool, nat prompt, unit prompt_output) function_body\<close>,
@@ -172,9 +160,7 @@ urust_notation (call) semantic_unused_callback ("semantic_unused")
 
 urust_fn
   [state = \<open>'s::cancellative_sepalg\<close>, abort = \<open>bool\<close>,
-   input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>]
-  semantic_callback_method_client
-  \<open>
+   input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>] \<open>
     fn SemanticCallbackMethodClient(
       value: \<tau>\<open>nat\<close>,
       callback: \<tau>\<open>nat \<Rightarrow> ('s, unit, bool, nat prompt, unit prompt_output) function_body\<close>,
@@ -185,12 +171,9 @@ urust_fn
 
 urust_fn
   [state = \<open>unit\<close>, abort = \<open>bool\<close>,
-   input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>]
-  semantic_fixed_caller
-  \<open> fn SemanticFixedCaller(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { SemanticIdentity(value) } \<close>
+   input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>] \<open> fn SemanticFixedCaller(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { SemanticIdentity(value) } \<close>
 
-urust_fn semantic_polymorphic_identity
-  \<open> fn SemanticPolymorphicIdentity(value: \<tau>\<open>'a\<close>) -> \<tau>\<open>'a\<close> { value } \<close>
+urust_fn \<open> fn SemanticPolymorphicIdentity(value: \<tau>\<open>'a\<close>) -> \<tau>\<open>'a\<close> { value } \<close>
 
 text\<open>
 The scoped attributes \<open>urust_state\<close>, \<open>urust_abort\<close>, \<open>urust_input\<close> and \<open>urust_output\<close>
@@ -203,14 +186,11 @@ context
           urust_input = \<open>nat prompt\<close>, urust_output = \<open>unit prompt_output\<close>]]
 begin
 
-urust_fn scoped_identity
-  \<open> fn ScopedIdentity(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { value } \<close>
+urust_fn \<open> fn ScopedIdentity(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { value } \<close>
 
-urust_fn [abort = \<open>unit\<close>] scoped_unit_abort_identity
-  \<open> fn ScopedUnitAbortIdentity(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { value } \<close>
+urust_fn [abort = \<open>unit\<close>] \<open> fn ScopedUnitAbortIdentity(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { value } \<close>
 
-urust_fn [state = \<open>_\<close>] scoped_any_state_identity
-  \<open> fn ScopedAnyStateIdentity(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { value } \<close>
+urust_fn [state = \<open>_\<close>] \<open> fn ScopedAnyStateIdentity(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { value } \<close>
 
 end
 
@@ -223,8 +203,7 @@ urust_fn [abbrev] abbreviated_hol_name
     }
   \<close>
 
-urust_fn call_abbreviated_rust_name
-  \<open> fn call_abbreviated_rust_name(x: u64) -> u64 { AbbreviatedRustName(x) } \<close>
+urust_fn \<open> fn call_abbreviated_rust_name(x: u64) -> u64 { AbbreviatedRustName(x) } \<close>
 
 urust_fn [application_def, attrs = [micro_rust_simps]]
   attributed_application_function
@@ -236,8 +215,7 @@ urust_fn [application_def, attrs = [micro_rust_simps]]
 
 section\<open> Registered calls and argument boundaries \<close>
 
-urust_fn rust_maximum_call_arity
-  \<open>
+urust_fn \<open>
     fn RustMaximumCallArity(
       p01: \<tau>\<open>nat\<close>, p02: \<tau>\<open>nat\<close>, p03: \<tau>\<open>nat\<close>, p04: \<tau>\<open>nat\<close>,
       p05: \<tau>\<open>nat\<close>, p06: \<tau>\<open>nat\<close>, p07: \<tau>\<open>nat\<close>, p08: \<tau>\<open>nat\<close>,
@@ -248,8 +226,7 @@ urust_fn rust_maximum_call_arity
     }
   \<close>
 
-urust_fn invoke_rust_maximum_call_arity
-  \<open>
+urust_fn \<open>
     fn InvokeRustMaximumCallArity() -> \<tau>\<open>nat\<close> {
       RustMaximumCallArity(
         1, 2, 3, 4, 5, 6, 7,
@@ -259,16 +236,13 @@ urust_fn invoke_rust_maximum_call_arity
   \<close>
 
 urust_fn
-  [pp_test, pretty, verbosity = 2]
-  configured_function
-  \<open>
+  [pp_test, pretty, verbosity = 2] \<open>
     fn ConfiguredFunction(x: u64) -> u64 {
       x
     }
   \<close>
 
-urust_fn completed_result_type
-  \<open>
+urust_fn \<open>
     fn CompletedResultType(x: u64,) -> u64 {
       x
     }
@@ -283,15 +257,13 @@ urust_fn omitted_rust_return_type
 
 section\<open> Lexical parameters and Rust callable names \<close>
 
-urust_fn lexical_function_shadow
-  \<open>
+urust_fn \<open>
     fn LexicalFunctionShadow(RustAlias: \<tau>\<open>(64 word \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body)\<close>, x: u64) -> u64 {
       RustAlias(x)
     }
   \<close>
 
-urust_fn call_registered_function
-  \<open> fn call_registered_function(x: u64) -> u64 { RustAlias(x, true) } \<close>
+urust_fn \<open> fn call_registered_function(x: u64) -> u64 { RustAlias(x, true) } \<close>
 
 urust_fn _
   \<open>
@@ -300,8 +272,7 @@ urust_fn _
     }
   \<close>
 
-urust_fn call_inferred_function
-  \<open> fn call_inferred_function() -> () { HTTPServer() } \<close>
+urust_fn \<open> fn call_inferred_function() -> () { HTTPServer() } \<close>
 
 section\<open> Locale scope \<close>
 
@@ -309,15 +280,13 @@ locale rust_function_item_locale =
   fixes offset :: nat
 begin
 
-urust_fn locale_scoped_function
-  \<open>
+urust_fn \<open>
     fn LocaleScopedFunction(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       \<llangle>value + offset\<rrangle>
     }
   \<close>
 
-urust_fn locale_scoped_client
-  \<open>
+urust_fn \<open>
     fn LocaleScopedClient(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       LocaleScopedFunction(value)
     }
@@ -339,26 +308,26 @@ Named functions register their Rust name by default. Inline options override the
 setting. Disabling registration still creates the named HOL definition.
 \<close>
 
-urust_fn [register_notation] bare_registered \<open>
+urust_fn [register_notation] \<open>
   fn BareRegistered(value: u32) -> u32 { value }
 \<close>
 
-urust_fn [register_notation = true] explicitly_registered \<open>
+urust_fn [register_notation = true] \<open>
   fn ExplicitlyRegistered(value: u32) -> u32 { BareRegistered(value) }
 \<close>
 
-urust_fn [register_notation = false] unregistered_helper \<open>
+urust_fn [register_notation = false] \<open>
   fn UnregisteredHelper(value: u32) -> u32 { value }
 \<close>
 
 context notes [[urust_register_notation = false]]
 begin
 
-urust_fn scoped_unregistered_helper \<open>
+urust_fn \<open>
   fn ScopedUnregisteredHelper(value: u32) -> u32 { value }
 \<close>
 
-urust_fn [register_notation] scoped_registered_override \<open>
+urust_fn [register_notation] \<open>
   fn ScopedRegisteredOverride(value: u32) -> u32 { ExplicitlyRegistered(value) }
 \<close>
 
@@ -368,30 +337,23 @@ chapter\<open> Function bodies and lexical binding \<close>
 
 section\<open> Function bodies \<close>
 
-urust_fn answer
-  \<open> fn answer() -> u32 { \<llangle>42 :: 32 word\<rrangle> } \<close>
+urust_fn \<open> fn answer() -> u32 { \<llangle>42 :: 32 word\<rrangle> } \<close>
 
-urust_fn inc
-  \<open> fn inc(x: u32) -> u32 { x + \<llangle>1 :: 32 word\<rrangle> } \<close>
+urust_fn \<open> fn inc(x: u32) -> u32 { x + \<llangle>1 :: 32 word\<rrangle> } \<close>
 
-urust_fn add3
-  \<open> fn add3(a: u32, b: u32, c: u32) -> u32 { a + b + c } \<close>
+urust_fn \<open> fn add3(a: u32, b: u32, c: u32) -> u32 { a + b + c } \<close>
 
-urust_fn is_zero
-  \<open> fn is_zero(x: u32) -> bool { x == \<llangle>0 :: 32 word\<rrangle> } \<close>
+urust_fn \<open> fn is_zero(x: u32) -> bool { x == \<llangle>0 :: 32 word\<rrangle> } \<close>
 
-urust_fn safe_div
-  \<open>
+urust_fn \<open>
     fn safe_div(a: u32, b: u32) -> \<tau>\<open>(32 word, unit) result\<close> {
       if b == \<llangle>0 :: 32 word\<rrangle> { Err(()) } else { Ok(a / b) }
     }
   \<close>
 
-urust_fn discard
-  \<open> fn discard(x: u32) -> () { () } \<close>
+urust_fn \<open> fn discard(x: u32) -> () { () } \<close>
 
-urust_fn test
-  \<open>
+urust_fn \<open>
     fn test() -> () {
       let x = \<llangle>Some (0 :: nat)\<rrangle>; let Some(foo) = x else { return; }; return;
     }
@@ -400,42 +362,35 @@ hide_const test
 
 section\<open> Signature surface \<close>
 
-urust_fn fun_heterogeneous
-  \<open>
+urust_fn \<open>
     fn fun_heterogeneous(number: \<tau>\<open>nat\<close>, flag: bool, word: u32) -> \<tau>\<open>nat * bool * 32 word\<close> {
       \<llangle>(number, flag, word)\<rrangle>
     }
   \<close>
 
-urust_fn fun_polymorphic
-  \<open> fn fun_polymorphic(item: \<tau>\<open>'a\<close>) -> \<tau>\<open>'a\<close> { item } \<close>
+urust_fn \<open> fn fun_polymorphic(item: \<tau>\<open>'a\<close>) -> \<tau>\<open>'a\<close> { item } \<close>
 
-urust_fn fun_sort_constrained
-  \<open>
+urust_fn \<open>
     fn fun_sort_constrained(item: \<tau>\<open>'a::len word\<close>) -> \<tau>\<open>'a word\<close> {
       item
     }
   \<close>
 
-urust_fn fun_type_placeholders
-  \<open> fn fun_type_placeholders(item: \<tau>\<open>_\<close>) -> \<tau>\<open>_\<close> { item } \<close>
+urust_fn \<open> fn fun_type_placeholders(item: \<tau>\<open>_\<close>) -> \<tau>\<open>_\<close> { item } \<close>
 
-urust_fn fun_higher_order
-  \<open>
+urust_fn \<open>
     fn fun_higher_order(f: \<tau>\<open>(nat \<Rightarrow> nat)\<close>, item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       \<llangle>f item\<rrangle>
     }
   \<close>
 
-urust_fn fun_nested_result
-  \<open>
+urust_fn \<open>
     fn fun_nested_result() -> \<tau>\<open>(nat option, (bool, unit) result) result\<close> {
       Ok(Some(\<llangle>1 :: nat\<rrangle>))
     }
   \<close>
 
-urust_fn fun_generalized_effects
-  \<open>
+urust_fn \<open>
     fn fun_generalized_effects(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       item
     }
@@ -443,25 +398,21 @@ urust_fn fun_generalized_effects
 
 section\<open> Argument-list boundaries \<close>
 
-urust_fn fun_zero_arguments
-  \<open> fn fun_zero_arguments() -> () { () } \<close>
+urust_fn \<open> fn fun_zero_arguments() -> () { () } \<close>
 
-urust_fn fun_one_argument
-  \<open>
+urust_fn \<open>
     fn fun_one_argument(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       item
     }
   \<close>
 
-urust_fn fun_trailing_comma
-  \<open>
+urust_fn \<open>
     fn fun_trailing_comma(item: \<tau>\<open>nat\<close>, flag: bool,) -> \<tau>\<open>nat * bool\<close> {
       \<llangle>(item, flag)\<rrangle>
     }
   \<close>
 
-urust_fn fun_multiline_arguments
-  \<open>
+urust_fn \<open>
     fn fun_multiline_arguments(
       number: \<tau>\<open>nat\<close>,
       flag: bool,
@@ -471,8 +422,7 @@ urust_fn fun_multiline_arguments
     }
   \<close>
 
-urust_fn fun_sixteen_arguments
-  \<open>
+urust_fn \<open>
   fn fun_sixteen_arguments(p01: \<tau>\<open>nat\<close>, p02: \<tau>\<open>nat\<close>, p03: \<tau>\<open>nat\<close>, p04: \<tau>\<open>nat\<close>, p05: \<tau>\<open>nat\<close>, p06: \<tau>\<open>nat\<close>, p07: \<tau>\<open>nat\<close>, p08: \<tau>\<open>nat\<close>, p09: \<tau>\<open>nat\<close>, p10: \<tau>\<open>nat\<close>, p11: \<tau>\<open>nat\<close>, p12: \<tau>\<open>nat\<close>, p13: \<tau>\<open>nat\<close>, p14: \<tau>\<open>nat\<close>, p15: \<tau>\<open>nat\<close>, p16: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
     \<llangle>
       p01 + p02 + p03 + p04 + p05 + p06 + p07 + p08 +
@@ -483,43 +433,37 @@ urust_fn fun_sixteen_arguments
 
 section\<open> Ambient binding and scope \<close>
 
-urust_fn fun_plain_parameter
-  \<open>
+urust_fn \<open>
     fn fun_plain_parameter(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       item
     }
   \<close>
 
-urust_fn fun_prime_parameter
-  \<open>
+urust_fn \<open>
     fn fun_prime_parameter(item': \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       item'
     }
   \<close>
 
-urust_fn fun_value_antiquotation
-  \<open>
+urust_fn \<open>
     fn fun_value_antiquotation(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       \<llangle>item + 1\<rrangle>
     }
   \<close>
 
-urust_fn fun_expression_antiquotation
-  \<open>
+urust_fn \<open>
     fn fun_expression_antiquotation(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       \<epsilon>\<open>literal (item + 1)\<close>
     }
   \<close>
 
-urust_fn fun_parameter_call
-  \<open>
+urust_fn \<open>
     fn fun_parameter_call(callee: \<tau>\<open>(nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body)\<close>, item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       callee(item)
     }
   \<close>
 
-urust_fn fun_parameter_in_match_guard
-  \<open>
+urust_fn \<open>
   fn fun_parameter_in_match_guard(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
     match Some(item) {
       Some(inner) if inner == item \<Rightarrow> inner,
@@ -528,8 +472,7 @@ urust_fn fun_parameter_in_match_guard
   }
   \<close>
 
-urust_fn fun_parameter_in_loop
-  \<open>
+urust_fn \<open>
   fn fun_parameter_in_loop(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
     #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while (false) {
       let observed = item;
@@ -539,8 +482,7 @@ urust_fn fun_parameter_in_loop
   }
   \<close>
 
-urust_fn fun_parameter_in_closure
-  \<open>
+urust_fn \<open>
     fn fun_parameter_in_closure(outer: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close> {
       |inner| \<llangle>outer + inner\<rrangle>
     }
@@ -555,30 +497,26 @@ definition fun_struct_fixture_lift ::
 
 micro_rust_notation (call) fun_struct_fixture_lift ("FunStructFixture")
 
-urust_fn fun_parameter_in_struct
-  \<open>
+urust_fn \<open>
     fn fun_parameter_in_struct(item: \<tau>\<open>nat\<close>, flag: bool) -> \<tau>\<open>fun_struct_fixture\<close> {
       FunStructFixture { item: item, flag: flag }
     }
   \<close>
 
-urust_fn fun_nested_let_shadow
-  \<open>
+urust_fn \<open>
     fn fun_nested_let_shadow(item: \<tau>\<open>nat\<close>) -> bool {
       let item = true; item
     }
   \<close>
 
-urust_fn fun_nested_pattern_shadow
-  \<open>
+urust_fn \<open>
   fn fun_nested_pattern_shadow(item: \<tau>\<open>nat\<close>) -> bool {
     let (item, retained) = (true, \<llangle>item\<rrangle>);
     item
   }
   \<close>
 
-urust_fn fun_closure_shadow
-  \<open>
+urust_fn \<open>
     fn fun_closure_shadow(item: bool) -> \<tau>\<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close> {
       |item| \<llangle>item :: nat\<rrangle>
     }
@@ -588,8 +526,7 @@ context
   fixes item :: bool
 begin
 
-urust_fn fun_parameter_shadows_context
-  \<open>
+urust_fn \<open>
     fn fun_parameter_shadows_context(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       \<llangle>item :: nat\<rrangle>
     }
@@ -597,8 +534,7 @@ urust_fn fun_parameter_shadows_context
 
 end
 
-urust_fn fun_distinct_heterogeneous
-  \<open>
+urust_fn \<open>
     fn fun_distinct_heterogeneous(number: \<tau>\<open>nat\<close>, flag: bool, message: \<tau>\<open>String.literal\<close>) -> \<tau>\<open>nat * bool * String.literal\<close> {
       \<llangle>(number, flag, message)\<rrangle>
     }
@@ -623,15 +559,13 @@ micro_rust_notation (literal) fun_registered_literal ("funCollision")
 
 micro_rust_notation (call) fun_registered_call ("funCollision")
 
-urust_fn fun_parameter_call_wins
-  \<open>
+urust_fn \<open>
     fn fun_parameter_call_wins(funCollision: \<tau>\<open>(nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body)\<close>, item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       funCollision(item)
     }
   \<close>
 
-urust_fn fun_registered_field_wins
-  \<open>
+urust_fn \<open>
     fn fun_registered_field_wins(item: \<tau>\<open>fun_field_record\<close>, funFieldCollision: \<tau>\<open>(fun_field_record, nat) lens\<close>) -> \<tau>\<open>nat\<close> {
       item.funFieldCollision
     }
@@ -642,8 +576,7 @@ section\<open> Isabelle declaration integration \<close>
 context
 begin
 
-qualified urust_fn qualified_identity
-  \<open>
+qualified urust_fn \<open>
     fn qualified_identity(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       item
     }
@@ -655,8 +588,7 @@ locale fun_command_locale =
   fixes offset :: nat
 begin
 
-urust_fn local_add
-  \<open>
+urust_fn \<open>
     fn local_add(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       \<llangle>item + offset\<rrangle>
     }
@@ -671,22 +603,19 @@ The direct, method, and chained forms all use the normal call pipeline. The meth
 exactly one receiver and one explicit argument.
 \<close>
 
-urust_fn iterator_zip_direct
-  \<open>
+urust_fn \<open>
     fn iterator_zip_direct(left: \<tau>\<open>zip_left_iterator\<close>, right: \<tau>\<open>zip_right_iterator\<close>) -> \<tau>\<open>zip_pair_iterator\<close> {
       zip(left, right)
     }
   \<close>
 
-urust_fn iterator_zip_method
-  \<open>
+urust_fn \<open>
     fn iterator_zip_method(left: \<tau>\<open>zip_left_iterator\<close>, right: \<tau>\<open>zip_right_iterator\<close>) -> \<tau>\<open>zip_pair_iterator\<close> {
       left.zip(right)
     }
   \<close>
 
-urust_fn iterator_zip_chained
-  \<open>
+urust_fn \<open>
     fn iterator_zip_chained(left: \<tau>\<open>zip_left_iterator\<close>, right: \<tau>\<open>zip_right_iterator\<close>) -> \<tau>\<open>zip_pair_iterator\<close> {
       left.into_iter().zip(right.into_iter())
     }
@@ -696,23 +625,19 @@ chapter\<open> Declaration options and parameter slots \<close>
 
 section\<open> Application equations and attributes \<close>
 
-urust_fn [application_def]
-  typed_application_function
-  \<open>
+urust_fn [application_def] \<open>
     fn typed_application_function(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       item
     }
   \<close>
 
-urust_fn typed_zero_function_default
-  \<open>
+urust_fn \<open>
     fn typed_zero_function_default() -> \<tau>\<open>nat\<close> {
       \<llangle>7 :: nat\<rrangle>
     }
   \<close>
 
-urust_fn [application_def] typed_zero_function_application
-  \<open>
+urust_fn [application_def] \<open>
     fn typed_zero_function_application() -> \<tau>\<open>nat\<close> {
       \<llangle>7 :: nat\<rrangle>
     }
@@ -732,66 +657,53 @@ definition command_registered_zip ::
 
 urust_notation (call) command_registered_zip ("zip")
 
-urust_fn [attrs = []]
-  partial_collision_function
-  \<open>
+urust_fn [attrs = []] \<open>
     fn partial_collision_function(command_parameter_collision: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       command_parameter_collision
     }
   \<close>
 
-urust_fn [attrs = [micro_rust_simps]]
-  partial_internal_placeholder
-  \<open>
+urust_fn [attrs = [micro_rust_simps]] \<open>
     fn partial_internal_placeholder(item: \<tau>\<open>_\<close>) -> \<tau>\<open>_\<close> {
       \<llangle>item :: nat\<rrangle>
     }
   \<close>
 
-urust_fn zip_parameter_value
-  \<open> fn zip_parameter_value(zip: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { zip } \<close>
+urust_fn \<open> fn zip_parameter_value(zip: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { zip } \<close>
 
-urust_fn zip_callable_parameter
-  \<open>
+urust_fn \<open>
     fn zip_callable_parameter(zip: \<tau>\<open>(nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body)\<close>, item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       zip(item)
     }
   \<close>
 
-urust_fn zip_method_registration
-  \<open>
+urust_fn \<open>
     fn zip_method_registration(zip: \<tau>\<open>(nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body)\<close>, item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       item.zip()
     }
   \<close>
 
-urust_fn quoted_major_parameter
-  \<open> fn quoted_major_parameter(lemma: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { lemma } \<close>
+urust_fn \<open> fn quoted_major_parameter(lemma: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { lemma } \<close>
 
 section\<open> Wildcard parameter slots \<close>
 
-urust_fn wildcard_function_single
-  \<open> fn wildcard_function_single(_: \<tau>\<open>nat\<close>) -> () { () } \<close>
+urust_fn \<open> fn wildcard_function_single(_: \<tau>\<open>nat\<close>) -> () { () } \<close>
 
-urust_fn wildcard_function_mixed
-  \<open>
+urust_fn \<open>
     fn wildcard_function_mixed(_: \<tau>\<open>nat\<close>, kept: bool, _: u32) -> bool {
       kept
     }
   \<close>
 
-urust_fn wildcard_function_inferred
-  \<open>
+urust_fn \<open>
     fn wildcard_function_inferred(_: \<tau>\<open>_\<close>) -> \<tau>\<open>nat\<close> {
       \<llangle>0 :: nat\<rrangle>
     }
   \<close>
 
-urust_fn [application_def] wildcard_function_application
-  \<open> fn wildcard_function_application(_: \<tau>\<open>nat\<close>) -> () { () } \<close>
+urust_fn [application_def] \<open> fn wildcard_function_application(_: \<tau>\<open>nat\<close>) -> () { () } \<close>
 
-urust_fn [abbrev] wildcard_function_abbreviation
-  \<open>
+urust_fn [abbrev] \<open>
     fn wildcard_function_abbreviation(_: \<tau>\<open>nat\<close>, kept: bool) -> bool {
       kept
     }
@@ -803,8 +715,7 @@ is not an Isabelle identifier is desymbolized; \<open>Parser_Syntax_ML_Tests\<cl
 resulting names.
 \<close>
 
-urust_fn [application_def] underscore_function_application
-  \<open> fn underscore_function_application(_unused: u64, kept: u64) -> u64 { kept } \<close>
+urust_fn [application_def] \<open> fn underscore_function_application(_unused: u64, kept: u64) -> u64 { kept } \<close>
 
 section\<open> Anonymous checks and abbreviations \<close>
 
@@ -815,9 +726,7 @@ urust_fn [application_def] _
     }
   \<close>
 
-urust_fn [abbrev, verbosity = 2]
-  typed_function_abbrev_command
-  \<open>
+urust_fn [abbrev, verbosity = 2] \<open>
     fn typed_function_abbrev_command(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       item
     }
@@ -825,15 +734,13 @@ urust_fn [abbrev, verbosity = 2]
 
 section\<open> Pretty-printer options \<close>
 
-urust_fn [pp_test = false] pp_fun_disabled
-  \<open>
+urust_fn [pp_test = false] \<open>
     fn pp_fun_disabled(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       item
     }
   \<close>
 
-urust_fn [pp_test] pp_fun_enabled
-  \<open> fn pp_fun_enabled(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { item } \<close>
+urust_fn [pp_test] \<open> fn pp_fun_enabled(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { item } \<close>
 
 lemma pp_fun_enabled_same:
   \<open>pp_fun_enabled = pp_fun_disabled\<close>
@@ -879,158 +786,158 @@ datatype signature_unregistered_hol = Signature_Unregistered_HOL
 
 section\<open> Authoritative parameter and result types \<close>
 
-urust_fn signature_primitive \<open>
+urust_fn \<open>
   fn SignaturePrimitive(value: u8) -> u8 { value }
 \<close>
 
-urust_fn signature_custom \<open>
+urust_fn \<open>
   fn SignatureCustom(value: SignatureCount) -> SignatureCount { value }
 \<close>
 
-urust_fn signature_qualified \<open>
+urust_fn \<open>
   fn SignatureQualified(value: signature::Flag) -> signature::Flag { value }
 \<close>
 
-urust_fn signature_generic \<open>
+urust_fn \<open>
   fn SignatureGeneric(
     value: SignatureResult<SignatureOption<u8>, signature::Flag>,
   ) -> SignatureResult<SignatureOption<u8>, signature::Flag> { value }
 \<close>
 
-urust_fn signature_segmented \<open>
+urust_fn \<open>
   fn SignatureSegmented(
     value: signature::Header<u16>::Body<SignatureOption<bool>>,
   ) -> signature::Header<u16>::Body<SignatureOption<bool>> { value }
 \<close>
 
-urust_fn signature_generated_struct \<open>
+urust_fn \<open>
   fn SignatureGeneratedStruct(value: SignaturePacket) -> SignaturePacket { value }
 \<close>
 
-urust_fn signature_generated_enum \<open>
+urust_fn \<open>
   fn SignatureGeneratedEnum(value: SignatureChoice) -> SignatureChoice { value }
 \<close>
 
-urust_fn signature_grouped \<open>
+urust_fn \<open>
   fn SignatureGrouped(value: (u8)) -> (u8) { value }
 \<close>
 
-urust_fn signature_tuple \<open>
+urust_fn \<open>
   fn SignatureTuple(
     value: (u8, (bool, SignatureCount), SignatureOption<u16>),
   ) -> (u8, (bool, SignatureCount), SignatureOption<u16>) { value }
 \<close>
 
-urust_fn signature_constructed_tuple \<open>
+urust_fn \<open>
   fn SignatureConstructedTuple(value: u8, flag: bool) -> (u8, bool) {
     (value, flag)
   }
 \<close>
 
-urust_fn signature_hol_escape \<open>
+urust_fn \<open>
   fn SignatureHOLEscape(
     value: \<tau>\<open>nat option\<close>,
   ) -> \<tau>\<open>nat option\<close> { value }
 \<close>
 
-urust_fn signature_shared_variables \<open>
+urust_fn \<open>
   fn SignatureSharedVariables(
     left: \<tau>\<open>'a\<close>,
     right: \<tau>\<open>'a\<close>,
   ) -> \<tau>\<open>'a\<close> { left }
 \<close>
 
-urust_fn signature_plain_identity \<open>
+urust_fn \<open>
   fn SignaturePlainIdentity(value: \<tau>\<open>'a\<close>) -> \<tau>\<open>'a\<close> {
     value
   }
 \<close>
 
-urust_fn signature_identity_two_instantiations \<open>
+urust_fn \<open>
   fn SignatureIdentityTwoInstantiations(value: u8, flag: bool) -> (u8, bool) {
     (SignaturePlainIdentity(value), SignaturePlainIdentity(flag))
   }
 \<close>
 
-urust_fn signature_shared_sorts \<open>
+urust_fn \<open>
   fn SignatureSharedSorts(
     values: SignatureOrdered<\<tau>\<open>'a\<close>>,
     value: \<tau>\<open>'a\<close>,
   ) -> SignatureOrdered<\<tau>\<open>'a::linorder\<close>> { values }
 \<close>
 
-urust_fn signature_higher_order \<open>
+urust_fn \<open>
   fn SignatureHigherOrder(
     operation: \<tau>\<open>'a \<Rightarrow> 'b\<close>,
     value: \<tau>\<open>'a\<close>,
   ) -> \<tau>\<open>'b\<close> { \<llangle>operation value\<rrangle> }
 \<close>
 
-urust_fn signature_function_result \<open>
+urust_fn \<open>
   fn SignatureFunctionResult(
     operation: SignatureFunction,
   ) -> SignatureFunction { operation }
 \<close>
 
-urust_fn signature_holes \<open>
+urust_fn \<open>
   fn SignatureHoles(
     value: \<tau>\<open>_\<close>,
     flag: \<tau>\<open>_\<close>,
   ) -> (u8, bool) { (value, flag) }
 \<close>
 
-urust_fn signature_nested_hole \<open>
+urust_fn \<open>
   fn SignatureNestedHole(
     value: SignatureOption<\<tau>\<open>_\<close>>,
   ) -> SignatureOption<u16> { value }
 \<close>
 
-urust_fn signature_result_hole \<open>
+urust_fn \<open>
   fn SignatureResultHole(value: u32) -> \<tau>\<open>_\<close> { value }
 \<close>
 
-urust_fn signature_omitted_return \<open>
+urust_fn \<open>
   fn SignatureOmittedReturn(value: u8) {}
 \<close>
 
-urust_fn signature_inferred_result \<open>
+urust_fn \<open>
   fn SignatureInferredResult(value: u64) -> u64 { value }
 \<close>
 
-urust_fn signature_inferred_polymorphic_result \<open>
+urust_fn \<open>
   fn SignatureInferredPolymorphicResult(value: \<tau>\<open>'a\<close>) -> \<tau>\<open>'a\<close> { value }
 \<close>
 
-urust_fn signature_explicit_unit \<open>
+urust_fn \<open>
   fn SignatureExplicitUnit() -> () { () }
 \<close>
 
-urust_fn signature_inferred_state \<open>
+urust_fn \<open>
   fn SignatureInferredState() -> SignatureCount {
     \<epsilon>\<open>get (\<lambda>state::nat. state)\<close>
   }
 \<close>
 
-urust_fn signature_inferred_write \<open>
+urust_fn \<open>
   fn SignatureInferredWrite() {
     \<epsilon>\<open>put (\<lambda>state::nat. Suc state)\<close>
   }
 \<close>
 
-urust_fn signature_inferred_abort \<open>
+urust_fn \<open>
   fn SignatureInferredAbort() -> bool {
     \<epsilon>\<open>abort (CustomAbort (0 :: nat))\<close>
   }
 \<close>
 
-urust_fn signature_inferred_prompt \<open>
+urust_fn \<open>
   fn SignatureInferredPrompt(value: u8) -> u8 {
     \<y>\<i>\<e>\<l>\<d>;
     value
   }
 \<close>
 
-urust_fn signature_mixed_slots \<open>
+urust_fn \<open>
   fn SignatureMixedSlots(first: u8, _: bool, mut retained: u16, _: ()) -> u16 {
     retained
   }
@@ -1088,7 +995,7 @@ locale signature_type_only_registration =
   fixes witness :: \<open> 'a itself \<close>
 begin
 
-urust_fn [register_notation] signature_type_only_function \<open>
+urust_fn [register_notation] \<open>
   fn SignatureTypeOnlyFunction(value: \<tau>\<open>'a\<close>) -> \<tau>\<open>'a\<close> {
     value
   }
@@ -1104,8 +1011,7 @@ section\<open> Delivery-line declaration compatibility \<close>
 urust_fn [application_def] _
   \<open> fn AnonymousFunction(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { item } \<close>
 
-urust_fn fun_explicit_prompt_output
-  \<open> fn fun_explicit_prompt_output(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { item } \<close>
+urust_fn \<open> fn fun_explicit_prompt_output(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { item } \<close>
 
 chapter\<open> Function items, artifacts and parser recovery \<close>
 
@@ -1275,17 +1181,13 @@ section\<open> Holes, shared names and independent call instances \<close>
 
 urust_fn
   [state = \<open>'s::cancellative_sepalg\<close>, abort = \<open>'value::linorder\<close>,
-   input = \<open>'channel\<close>, output = \<open>'channel\<close>]
-  semantic_channel_sharing
-  \<open>
+   input = \<open>'channel\<close>, output = \<open>'channel\<close>] \<open>
     fn SemanticChannelSharing(value: \<tau>\<open>'value\<close>) -> \<tau>\<open>'value\<close> { value }
   \<close>
 
 urust_fn
   [state = \<open>_::cancellative_sepalg\<close>, abort = \<open>_::linorder\<close>,
-   input = \<open>_::finite\<close>, output = \<open>_::order\<close>]
-  semantic_sorted_holes
-  \<open> fn SemanticSortedHoles(left: \<tau>\<open>_\<close>, right: \<tau>\<open>_\<close>) {} \<close>
+   input = \<open>_::finite\<close>, output = \<open>_::order\<close>] \<open> fn SemanticSortedHoles(left: \<tau>\<open>_\<close>, right: \<tau>\<open>_\<close>) {} \<close>
 
 type_synonym 'v semantic_input_type = \<open>'v prompt\<close>
 
@@ -1293,35 +1195,23 @@ type_synonym 'v semantic_output_type = \<open>'v prompt_output\<close>
 
 urust_fn
   [state = \<open>'s::cancellative_sepalg\<close>, abort = \<open>bool\<close>,
-   input = \<open>nat semantic_input_type\<close>, output = \<open>unit semantic_output_type\<close>]
-  semantic_synonym_identity
-  \<open> fn SemanticSynonymIdentity(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { value } \<close>
+   input = \<open>nat semantic_input_type\<close>, output = \<open>unit semantic_output_type\<close>] \<open> fn SemanticSynonymIdentity(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { value } \<close>
 
 urust_fn
   [state = \<open>'s::cancellative_sepalg\<close>, abort = \<open>bool\<close>,
-   input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>]
-  semantic_pointer_identity
-  \<open> fn SemanticPointerIdentity(value: *const u8) -> *const u8 { value } \<close>
+   input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>] \<open> fn SemanticPointerIdentity(value: *const u8) -> *const u8 { value } \<close>
 
 urust_fn
-  [state = \<open>'s::cancellative_sepalg\<close>]
-  semantic_shared_names
-  \<open> fn SemanticSharedNames(value: \<tau>\<open>'inner\<close>) -> \<tau>\<open>'inner\<close> { value } \<close>
+  [state = \<open>'s::cancellative_sepalg\<close>] \<open> fn SemanticSharedNames(value: \<tau>\<open>'inner\<close>) -> \<tau>\<open>'inner\<close> { value } \<close>
 
 urust_fn
-  [state = \<open>_\<close>, abort = \<open>bool\<close>, input = \<open>_\<close>, output = \<open>_\<close>]
-  semantic_independent_holes
-  \<open> fn SemanticIndependentHoles(left: \<tau>\<open>_\<close>, right: \<tau>\<open>_\<close>) -> \<tau>\<open>_\<close> { left } \<close>
+  [state = \<open>_\<close>, abort = \<open>bool\<close>, input = \<open>_\<close>, output = \<open>_\<close>] \<open> fn SemanticIndependentHoles(left: \<tau>\<open>_\<close>, right: \<tau>\<open>_\<close>) -> \<tau>\<open>_\<close> { left } \<close>
 
 urust_fn
-  [state = \<open>unit\<close>, abort = \<open>bool\<close>]
-  semantic_specialized_name
-  \<open> fn SemanticSpecializedName(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { value } \<close>
+  [state = \<open>unit\<close>, abort = \<open>bool\<close>] \<open> fn SemanticSpecializedName(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { value } \<close>
 
 urust_fn
-  [state = \<open>unit\<close>, abort = \<open>bool\<close>]
-  semantic_two_instances
-  \<open>
+  [state = \<open>unit\<close>, abort = \<open>bool\<close>] \<open>
     fn SemanticTwoInstances(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       let ignored = SemanticSharedNames(true);
       SemanticSharedNames(value)
@@ -1330,14 +1220,10 @@ urust_fn
 
 urust_fn
   [state = \<open>'s\<close>, abort = \<open>bool\<close>,
-   input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>]
-  semantic_omitted_result
-  \<open> fn SemanticOmittedResult() -> \<tau>\<open>nat\<close> { 7 } \<close>
+   input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>] \<open> fn SemanticOmittedResult() -> \<tau>\<open>nat\<close> { 7 } \<close>
 
 urust_fn
-  [state = \<open>unit\<close>, abort = \<open>bool\<close>, input = \<open>unit\<close>, output = \<open>unit\<close>]
-  semantic_returned_computation
-  \<open>
+  [state = \<open>unit\<close>, abort = \<open>bool\<close>, input = \<open>unit\<close>, output = \<open>unit\<close>] \<open>
     fn SemanticReturnedComputation() -> \<tau>\<open>(unit, nat, bool, unit, unit) function_body\<close> {
       \<llangle>fun_literal (7::nat)\<rrangle>
     }
@@ -1353,9 +1239,7 @@ begin
 urust_fn
   [state = \<open>'s\<close>, abort = \<open>bool\<close>,
    input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>,
-   register_notation = false]
-  semantic_locale_callback
-  \<open>
+   register_notation = false] \<open>
     fn SemanticLocaleCallback(
     ) -> () {
       \<llangle>let _ = seed in ()\<rrangle>
@@ -1364,9 +1248,7 @@ urust_fn
 
 urust_fn
   [state = \<open>'s\<close>, abort = \<open>bool\<close>, input = \<open>'i\<close>, output = \<open>'o\<close>,
-   register_notation = false]
-  semantic_locale_unused
-  \<open>
+   register_notation = false] \<open>
     fn SemanticLocaleUnused(callback: \<tau>\<open>'s \<Rightarrow> ('s, unit, bool, 'i, 'o) function_body\<close>) {}
   \<close>
 
@@ -1381,11 +1263,9 @@ lemma semantic_interpreted_channels:
 
 section\<open> Every channel combination and default unit results \<close>
 
-urust_fn [abort = \<open>bool\<close>] semantic_default_unit
-  \<open> fn SemanticDefaultUnit(value: \<tau>\<open>nat\<close>) { () } \<close>
+urust_fn [abort = \<open>bool\<close>] \<open> fn SemanticDefaultUnit(value: \<tau>\<open>nat\<close>) { () } \<close>
 
-urust_fn [abort = \<open>bool\<close>] semantic_explicit_unit
-  \<open> fn SemanticExplicitUnit(value: \<tau>\<open>nat\<close>) -> () { () } \<close>
+urust_fn [abort = \<open>bool\<close>] \<open> fn SemanticExplicitUnit(value: \<tau>\<open>nat\<close>) -> () { () } \<close>
 
 lemma semantic_default_unit_equivalent:
   \<open>semantic_default_unit = semantic_explicit_unit\<close>
@@ -1409,19 +1289,15 @@ context
           urust_input = \<open>nat prompt\<close>, urust_output = \<open>unit prompt_output\<close>]]
 begin
 
-urust_fn default_identity
-  \<open> fn DefaultIdentity(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { value } \<close>
+urust_fn \<open> fn DefaultIdentity(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { value } \<close>
 
-urust_fn [abort = \<open>unit\<close>] default_abort_override
-  \<open> fn DefaultAbortOverride(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { value } \<close>
+urust_fn [abort = \<open>unit\<close>] \<open> fn DefaultAbortOverride(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { value } \<close>
 
-urust_fn default_fixed_caller
-  \<open> fn DefaultFixedCaller(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { DefaultIdentity(value) } \<close>
+urust_fn \<open> fn DefaultFixedCaller(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { DefaultIdentity(value) } \<close>
 
 end
 
-urust_fn default_outside_scope
-  \<open> fn DefaultOutsideScope(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { value } \<close>
+urust_fn \<open> fn DefaultOutsideScope(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { value } \<close>
 
 lemma default_identity_equivalent:
   \<open>default_identity = semantic_identity\<close>
@@ -1433,14 +1309,11 @@ section\<open> Explicit receiver types and ordinary parameter bindings \<close>
 
 declare [[urust_pretty = true, urust_verbosity = 2]]
 
-urust_fn typed_self_primitive
-  \<open> fn TypedSelfPrimitive(self: u64) -> u64 { self } \<close>
+urust_fn \<open> fn TypedSelfPrimitive(self: u64) -> u64 { self } \<close>
 
-urust_fn typed_self_value_primitive
-  \<open> fn TypedSelfValuePrimitive(self_value: u64) -> u64 { self_value } \<close>
+urust_fn \<open> fn TypedSelfValuePrimitive(self_value: u64) -> u64 { self_value } \<close>
 
-urust_fn typed_mut_self
-  \<open> fn TypedMutSelf(mut self: u64) -> u64 { self } \<close>
+urust_fn \<open> fn TypedMutSelf(mut self: u64) -> u64 { self } \<close>
 
 lemma typed_self_primitive_equivalent:
   \<open>typed_self_primitive = typed_self_value_primitive\<close>
@@ -1452,11 +1325,9 @@ lemma typed_mut_self_equivalent:
 
 type_synonym widget_ref = \<open>(nat, unit, 8 word) Global_Store.ref\<close>
 
-urust_fn typed_self_hol_ref
-  \<open> fn TypedSelfHOLRef(self: \<tau>\<open>widget_ref\<close>) -> \<tau>\<open>widget_ref\<close> { self } \<close>
+urust_fn \<open> fn TypedSelfHOLRef(self: \<tau>\<open>widget_ref\<close>) -> \<tau>\<open>widget_ref\<close> { self } \<close>
 
-urust_fn typed_self_value_hol_ref
-  \<open> fn TypedSelfValueHOLRef(self_value: \<tau>\<open>widget_ref\<close>) -> \<tau>\<open>widget_ref\<close> { self_value } \<close>
+urust_fn \<open> fn TypedSelfValueHOLRef(self_value: \<tau>\<open>widget_ref\<close>) -> \<tau>\<open>widget_ref\<close> { self_value } \<close>
 
 lemma typed_self_hol_ref_equivalent:
   \<open>typed_self_hol_ref = typed_self_value_hol_ref\<close>
@@ -1464,11 +1335,9 @@ lemma typed_self_hol_ref_equivalent:
 
 urust_type "ReceiverWidget" = \<open> fun_field_record \<close>
 
-urust_fn typed_self_field
-  \<open> fn TypedSelfField(self: ReceiverWidget) -> \<tau>\<open>nat\<close> { self.funFieldCollision } \<close>
+urust_fn \<open> fn TypedSelfField(self: ReceiverWidget) -> \<tau>\<open>nat\<close> { self.funFieldCollision } \<close>
 
-urust_fn typed_self_value_field
-  \<open> fn TypedSelfValueField(self_value: ReceiverWidget) -> \<tau>\<open>nat\<close> { self_value.funFieldCollision } \<close>
+urust_fn \<open> fn TypedSelfValueField(self_value: ReceiverWidget) -> \<tau>\<open>nat\<close> { self_value.funFieldCollision } \<close>
 
 lemma typed_self_field_equivalent:
   \<open>typed_self_field = typed_self_value_field\<close>
@@ -1476,17 +1345,13 @@ lemma typed_self_field_equivalent:
 
 section\<open> HOL value and expression escapes \<close>
 
-urust_fn typed_self_hol_value
-  \<open> fn TypedSelfHOLValue(self: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { \<llangle>self + 1\<rrangle> } \<close>
+urust_fn \<open> fn TypedSelfHOLValue(self: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { \<llangle>self + 1\<rrangle> } \<close>
 
-urust_fn typed_self_value_hol_value
-  \<open> fn TypedSelfValueHOLValue(self_value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { \<llangle>self_value + 1\<rrangle> } \<close>
+urust_fn \<open> fn TypedSelfValueHOLValue(self_value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { \<llangle>self_value + 1\<rrangle> } \<close>
 
-urust_fn typed_self_hol_expression
-  \<open> fn TypedSelfHOLExpression(self: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { \<epsilon>\<open>literal (self + 1)\<close> } \<close>
+urust_fn \<open> fn TypedSelfHOLExpression(self: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { \<epsilon>\<open>literal (self + 1)\<close> } \<close>
 
-urust_fn typed_self_value_hol_expression
-  \<open> fn TypedSelfValueHOLExpression(self_value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { \<epsilon>\<open>literal (self_value + 1)\<close> } \<close>
+urust_fn \<open> fn TypedSelfValueHOLExpression(self_value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { \<epsilon>\<open>literal (self_value + 1)\<close> } \<close>
 
 lemma typed_self_hol_value_equivalent:
   \<open>typed_self_hol_value = typed_self_value_hol_value\<close>
@@ -1517,36 +1382,31 @@ urust_fn [state = \<open>unit\<close>, abort = \<open>unit\<close>, input = \<op
 
 urust_notation (call) typed_self_add ("receiver_add")
 
-urust_fn typed_self_method
-  \<open>
+urust_fn \<open>
     fn TypedSelfMethod(self: \<tau>\<open>nat\<close>, delta: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       self.receiver_add(delta)
     }
   \<close>
 
-urust_fn typed_self_value_method
-  \<open>
+urust_fn \<open>
     fn TypedSelfValueMethod(self_value: \<tau>\<open>nat\<close>, delta: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       self_value.receiver_add(delta)
     }
   \<close>
 
-urust_fn typed_self_direct
-  \<open>
+urust_fn \<open>
     fn TypedSelfDirect(self: \<tau>\<open>nat\<close>, delta: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       ReceiverAdd(self, delta)
     }
   \<close>
 
-urust_fn typed_self_field_method
-  \<open>
+urust_fn \<open>
     fn TypedSelfFieldMethod(self: ReceiverWidget, delta: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       self.funFieldCollision.receiver_add(delta)
     }
   \<close>
 
-urust_fn typed_self_value_field_method
-  \<open>
+urust_fn \<open>
     fn TypedSelfValueFieldMethod(self_value: ReceiverWidget, delta: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       self_value.funFieldCollision.receiver_add(delta)
     }
@@ -1833,28 +1693,24 @@ urust_datatype [word_width = 8, plugins = (plugins only: word_conversion urust_c
 \<close>
 
 urust_fn [state = \<open>unit\<close>, abort = \<open>bool\<close>,
-  input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>]
-  composition_read \<open>
+  input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>] \<open>
   fn CompositionRead(self: CompositionAlias<u8, 4>) -> [u8; 4] { self.compositionValues }
 \<close>
 
 urust_fn [state = \<open>unit\<close>, abort = \<open>bool\<close>,
-  input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>]
-  composition_read_control \<open>
+  input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>] \<open>
   fn CompositionReadControl(value: CompositionBuffer<u8, 4>) -> [u8; 4] {
     value.compositionValues
   }
 \<close>
 
 urust_fn [state = \<open>unit\<close>, abort = \<open>bool\<close>,
-  input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>]
-  composition_call \<open>
+  input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>] \<open>
   fn CompositionCall(self: CompositionAlias<u8, 4>) -> [u8; 4] { CompositionRead(self) }
 \<close>
 
 urust_fn [state = \<open>unit\<close>, abort = \<open>bool\<close>,
-  input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>]
-  composition_method \<open>
+  input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>] \<open>
   fn CompositionMethod(self: CompositionAlias<u8, 4>) -> [u8; 4] { self.CompositionRead() }
 \<close>
 
@@ -1884,7 +1740,7 @@ payload would type-check as a leading argument; explicit call notations keep the
 payloads.
 \<close>
 
-urust_fn turbofish_pair \<open> fn TurbofishPair(first: u8, second: u8) -> u8 { second } \<close>
+urust_fn \<open> fn TurbofishPair(first: u8, second: u8) -> u8 { second } \<close>
 
 urust_expr_rejects \<open> TurbofishPair::<1>(2u8) \<close> \<open>generic arguments are not supported on generated Rust function paths\<close>
 
@@ -1893,8 +1749,7 @@ When an explicit call notation shares the name, a turbofish call dispatches amon
 backends only, while a call without generic arguments still reaches the generated function.
 \<close>
 
-urust_fn [register_notation = false] turbofish_pair_wide
-  \<open> fn TurbofishPairWide(first: u64, second: u64) -> u64 { second } \<close>
+urust_fn [register_notation = false] \<open> fn TurbofishPairWide(first: u64, second: u64) -> u64 { second } \<close>
 
 micro_rust_notation (call) turbofish_pair_wide ("TurbofishPair")
 micro_rust_notation (call) turbofish_pair_wide ("TurbofishPairWideOnly")
@@ -1918,24 +1773,21 @@ lemma \<open>turbofish_mixed_plain = turbofish_generated_control\<close>
   unfolding turbofish_mixed_plain_def turbofish_generated_control_def by (rule refl)
 
 urust_fn [state = \<open>unit\<close>, abort = \<open>bool\<close>,
-  input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>]
-  composition_custom_wrap \<open>
+  input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>] \<open>
   fn CompositionCustomWrap(self: CompositionAlias<u8, 4>) -> CompositionCustom<u8, u16, 4> {
     CompositionCustom::<u8, u16, 4>::CompositionStored(self)
   }
 \<close>
 
 urust_fn [state = \<open>unit\<close>, abort = \<open>bool\<close>,
-  input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>]
-  composition_native_wrap \<open>
+  input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>] \<open>
   fn CompositionNativeWrap(self: CompositionAlias<u8, 4>) -> CompositionNative<u8, u16, 4> {
     CompositionNative::<u8, u16, 4>::NativeStored { payload: self }
   }
 \<close>
 
 urust_fn [state = \<open>unit\<close>, abort = \<open>bool\<close>,
-  input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>]
-  composition_word_read \<open>
+  input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>] \<open>
   fn CompositionWordRead(self: CompositionWord<u16, 0>) -> u8 { CompositionWord::to_u8(self) }
 \<close>
 

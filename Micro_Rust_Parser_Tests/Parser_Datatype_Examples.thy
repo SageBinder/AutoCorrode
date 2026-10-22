@@ -118,7 +118,7 @@ simple_word_enum (8) clause_kind urust_name: "ClauseKind" =
     CLK_First = 1
   | CLK_Second = 2
 
-urust_fn clause_kind_first \<open> fn ClauseKindFirst() { let first = ClauseKind::CLK_First; () } \<close>
+urust_fn \<open> fn ClauseKindFirst() { let first = ClauseKind::CLK_First; () } \<close>
 
 chapter\<open> Rust datatypes \<close>
 

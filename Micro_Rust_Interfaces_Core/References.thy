@@ -75,8 +75,7 @@ definition dereference_raw_contract
 
 text\<open>Lifting the raw reference operations to typed ones using foci:\<close>
 
-urust_fn [attrs = [all_reference_defs'], register_notation = false] reference_fun
-  \<open>
+urust_fn [attrs = [all_reference_defs'], register_notation = false] \<open>
   fn reference_fun(p: \<tau>\<open>('b, 'v) prism\<close>, e: \<tau>\<open>'v\<close>) -> \<tau>\<open>('a, 'b, 'v) Global_Store.ref\<close> {
     let r = reference_raw_fun (\<llangle>prism_embed p e\<rrangle>);
     \<llangle>make_ref_typed_from_untyped\<rrangle>\<^sub>2(r, \<llangle>prism_to_focus p\<rrangle>)
@@ -89,26 +88,22 @@ for valid \<^verbatim>\<open>p\<close> have to be wrapped as definitions and giv
 during code generation if \<^verbatim>\<open>reference_fun\<close> is inlined -- thus the need for \<^verbatim>\<open>code_unfold\<close>.\<close>
 declare reference_fun_def[code_unfold]
 
-urust_fn [attrs = [all_reference_defs'], register_notation = false] modify_raw_fun
-  \<open>
+urust_fn [attrs = [all_reference_defs'], register_notation = false] \<open>
   fn modify_raw_fun(r: \<tau>\<open>('a, 'b) gref\<close>, f: \<tau>\<open>('b \<Rightarrow> 'b)\<close>) -> () {
     let g = dereference_raw_fun(r);
     update_raw_fun(r, \<llangle>f\<rrangle>\<^sub>1(g))
   }
   \<close>
 
-urust_fn [attrs = [all_reference_defs'], register_notation = false] modify_fun
-  \<open>
+urust_fn [attrs = [all_reference_defs'], register_notation = false] \<open>
   fn modify_fun(ref_value: \<tau>\<open>('a, 'b, 'v) Global_Store.ref\<close>, f: \<tau>\<open>('v \<Rightarrow> 'v)\<close>) -> () {
     modify_raw_fun (\<llangle>untype_ref\<rrangle>\<^sub>1(ref_value), \<llangle>focus_modify (get_focus ref_value) f\<rrangle>)
   }
   \<close>
 
-urust_fn [attrs = [all_reference_defs'], register_notation = false] update_fun
-  \<open> fn update_fun(ref_value: \<tau>\<open>('a, 'b, 'v) Global_Store.ref\<close>, v: \<tau>\<open>'v\<close>) -> () { modify_fun(ref_value, \<llangle>\<lambda>_. v\<rrangle>) } \<close>
+urust_fn [attrs = [all_reference_defs'], register_notation = false] \<open> fn update_fun(ref_value: \<tau>\<open>('a, 'b, 'v) Global_Store.ref\<close>, v: \<tau>\<open>'v\<close>) -> () { modify_fun(ref_value, \<llangle>\<lambda>_. v\<rrangle>) } \<close>
 
-urust_fn [attrs = [all_reference_defs'], register_notation = false] dereference_fun
-  \<open>
+urust_fn [attrs = [all_reference_defs'], register_notation = false] \<open>
   fn dereference_fun(ref_value: \<tau>\<open>('a, 'b, 'v) Global_Store.ref\<close>) -> \<tau>\<open>'v\<close> {
     let b = dereference_raw_fun(\<llangle>untype_ref\<rrangle>\<^sub>1(ref_value));
     match (\<llangle>focus_view (\<integral> ref_value) b\<rrangle>) {
@@ -118,8 +113,7 @@ urust_fn [attrs = [all_reference_defs'], register_notation = false] dereference_
   }
   \<close>
 
-urust_fn [attrs = [all_reference_defs'], register_notation = false] ro_dereference_fun
-  \<open> fn ro_dereference_fun(r: \<tau>\<open>('a, 'b, 'v) ro_ref\<close>) -> \<tau>\<open>'v\<close> { dereference_fun(\<llangle>unsafe_ref_from_ro_ref\<rrangle>\<^sub>1(r)) } \<close>
+urust_fn [attrs = [all_reference_defs'], register_notation = false] \<open> fn ro_dereference_fun(r: \<tau>\<open>('a, 'b, 'v) ro_ref\<close>) -> \<tau>\<open>'v\<close> { dereference_fun(\<llangle>unsafe_ref_from_ro_ref\<rrangle>\<^sub>1(r)) } \<close>
 
 \<comment>\<open>Generic compound-assignment helper backing the \<^verbatim>\<open>+=\<close> surface syntax.
    Uses the checked uRust addition (\<^const>\<open>word_add_no_wrap\<close>), so it panics on
@@ -127,8 +121,7 @@ urust_fn [attrs = [all_reference_defs'], register_notation = false] ro_dereferen
    helper it replaces. Calls \<^const>\<open>update_fun\<close> / \<^const>\<open>dereference_fun\<close> directly rather
    than the surface \<^verbatim>\<open>=\<close>/\<^verbatim>\<open>*\<close>, whose store overloads are not in scope in this locale.
    Overload \<^const>\<open>assign_add_const\<close> onto this where \<^verbatim>\<open>+=\<close> is used.\<close>
-urust_fn [register_notation = false] assign_add_ref
-  \<open>
+urust_fn [register_notation = false] \<open>
   fn assign_add_ref(ref_value: \<tau>\<open>('a, 'b, 'l::{len} word) ref\<close>, addend: \<tau>\<open>'l word\<close>) -> () {
     let current = dereference_fun(ref_value);
     update_fun(ref_value, current + addend)

@@ -41,8 +41,7 @@ urust_expr _
 
 text\<open>A function definition, then used in a Micro Rust expression:\<close>
 
-urust_fn some_function
-  \<open>
+urust_fn \<open>
   fn some_function(a: u64, b: u64) -> u64 {
      return a + b;
   }
@@ -388,8 +387,7 @@ context reference
 begin
 
 (* The experiment below combines reference instances with different fixed operations. *)
-urust_fn [register_notation = false] add_one_to_ref
-  \<open>
+urust_fn [register_notation = false] \<open>
   fn add_one_to_ref(ptr: \<tau>\<open>(_, _, 64 word) Global_Store.ref\<close>) -> () {
      let val = *ptr; \<comment>\<open>Reading requires explicit dereferencing\<close>
      let new_val = val + 1;

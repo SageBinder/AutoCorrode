@@ -4714,17 +4714,17 @@ urust_expr word_shape_match \<open>
   }
 \<close>
 
-urust_fn tagged_field \<open> fn tagged_field(x: TaggedAddress<u8>) -> u64 { x.address } \<close>
+urust_fn \<open> fn tagged_field(x: TaggedAddress<u8>) -> u64 { x.address } \<close>
 
-urust_fn buffer_identity \<open> fn buffer_identity(x: Buffer<u8, 4>) -> Buffer<u8, 4> { x } \<close>
+urust_fn \<open> fn buffer_identity(x: Buffer<u8, 4>) -> Buffer<u8, 4> { x } \<close>
 
-urust_fn buffer_field \<open> fn buffer_field(x: Buffer<u8, 4>) -> [u8; 4] { x.values } \<close>
+urust_fn \<open> fn buffer_field(x: Buffer<u8, 4>) -> [u8; 4] { x.values } \<close>
 
-urust_fn forwarded_signature \<open>
+urust_fn \<open>
   fn forwarded_signature(x: ForwardBuffer<u8, 0x10>) -> Buffer<u8, 16> { x }
 \<close>
 
-urust_fn unused_const_alias \<open>
+urust_fn \<open>
   fn unused_const_alias(x: UnusedWidth<0>) -> UnusedWidth<16> { x }
 \<close>
 
@@ -4750,11 +4750,11 @@ urust_datatype \<open>
 
 urust_datatype \<open> enum PointerPayload<T, P> { Raw(*const T), PointerEmpty } \<close>
 
-urust_fn generic_pointer_identity \<open>
+urust_fn \<open>
   fn generic_pointer_identity(x: GenericPointer<u8, u16, 4>) -> GenericPointer<u8, u16, 4> { x }
 \<close>
 
-urust_fn pointer_payload \<open>
+urust_fn \<open>
   fn pointer_payload(pointer: *const u8) -> PointerPayload<u8, u16> { PointerPayload::<u8, u16>::Raw(pointer) }
 \<close>
 
@@ -5101,9 +5101,9 @@ urust_expr_rejects \<open>
   ManualCarrier::<u8> { value: 5u8, token: PhantomData, token: PhantomData }
 \<close> \<open>duplicate struct initializer\<close>
 
-urust_fn manual_token \<open> fn manual_token(x: ManualCarrier<u8>) -> PhantomData<u8> { x.token } \<close>
+urust_fn \<open> fn manual_token(x: ManualCarrier<u8>) -> PhantomData<u8> { x.token } \<close>
 
-urust_fn manual_pattern \<open>
+urust_fn \<open>
   fn manual_pattern(x: ManualCarrier<u8>) -> PhantomData<u8> { match x { ManualCarrier { value: _, token } => token } }
 \<close>
 
@@ -5190,7 +5190,7 @@ urust_datatype [word_width = 8] \<open> enum LocalWord<T> { LocalOff, LocalOn = 
 urust_datatype \<open> struct LocalTagged<T> { value: u8 } \<close>
 urust_expr local_choice \<open> LocalChoice::<u8, u16>::LocalValue(4u8) \<close>
 urust_expr local_word \<open> LocalWord::<u16>::LocalOn \<close>
-urust_fn local_field \<open> fn local_field(x: LocalTagged<u8>) -> u8 { x.value } \<close>
+urust_fn \<open> fn local_field(x: LocalTagged<u8>) -> u8 { x.value } \<close>
 end
 
 section\<open> Native parameter parity \<close>

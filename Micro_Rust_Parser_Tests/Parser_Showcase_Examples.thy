@@ -131,7 +131,7 @@ urust_expr showoff_generic_match \<open>
   }
 \<close>
 
-urust_fn showoff_const_signature \<open>
+urust_fn \<open>
   fn showoff_const_signature(buffer: FixedBuffer<u8, 4>) -> FixedBuffer<u8, 4> { buffer }
 \<close>
 
@@ -211,8 +211,7 @@ An explicitly typed \<open>self\<close> uses the signature's receiver type and t
 parameter binding, including inside HOL escapes.
 \<close>
 
-urust_fn self_packet_length
-  \<open> fn SelfPacketLength(self: u64) -> u64 { self + 1_u64 } \<close>
+urust_fn \<open> fn SelfPacketLength(self: u64) -> u64 { self + 1_u64 } \<close>
 
 lemma self_packet_length_equivalent:
   \<open>self_packet_length packet = packet_length packet\<close>
@@ -661,25 +660,21 @@ urust_expr showoff_logging_yield
 subsection\<open> Calls, methods, and propagation \<close>
 
 urust_fn
-  [attrs = [micro_rust_simps]]
-  showoff_inline_disabled
-  \<open> fn showoff_inline_disabled() -> u64 { 3u64 } \<close>
+  [attrs = [micro_rust_simps]] \<open> fn showoff_inline_disabled() -> u64 { 3u64 } \<close>
 
 text\<open>
 The optional \<open>application_def\<close> shape keeps the explicit source parameters on the generated
 definition theorem's left-hand side without changing the curried function value.
 \<close>
 
-urust_fn [application_def, verbosity = 2] showoff_declared_mix
-  \<open> fn showoff_declared_mix(left: u64, right: u64) -> u64 { left * 3u64 + right } \<close>
+urust_fn [application_def, verbosity = 2] \<open> fn showoff_declared_mix(left: u64, right: u64) -> u64 { left * 3u64 + right } \<close>
 
 text\<open>
 Bare declaration wildcards keep their typed argument slots and source order but introduce no
 lexical name. They may be repeated or mixed with named parameters in either command.
 \<close>
 
-urust_fn [application_def] showoff_wildcard_function
-  \<open> fn showoff_wildcard_function(_: (), kept: u64, _: bool) -> u64 { kept + 1_u64 } \<close>
+urust_fn [application_def] \<open> fn showoff_wildcard_function(_: (), kept: u64, _: bool) -> u64 { kept + 1_u64 } \<close>
 
 urust_expr [abbrev] showoff_wildcard_expression ::
   \<open>unit \<Rightarrow> 64 word \<Rightarrow>
@@ -687,8 +682,7 @@ urust_expr [abbrev] showoff_wildcard_expression ::
   (_, kept)
   \<open> kept \<close>
 
-urust_fn [abbrev, verbosity = 2] showoff_abbreviated_function
-  \<open> fn showoff_abbreviated_function(item: u64) -> u64 { item + 1_u64 } \<close>
+urust_fn [abbrev, verbosity = 2] \<open> fn showoff_abbreviated_function(item: u64) -> u64 { item + 1_u64 } \<close>
 
 urust_expr [verbosity = 2] showoff_typed_common ::
   \<open>64 word \<Rightarrow> 64 word \<Rightarrow>
@@ -1055,8 +1049,7 @@ Features: receiver-prepended iterator methods, chained \<open>into_iter\<close>
 conversion, shortest-input truncation, and pair-valued iterator elements.
 \<close>
 
-urust_fn showoff_iterator_zip
-  \<open>
+urust_fn \<open>
   fn showoff_iterator_zip() -> \<tau>\<open>(unit, 32 word \<times> bool \<times> tnil, unit, unit, unit) iterator\<close> {
     [1_u32, 2_u32].into_iter().zip([True, False].into_iter())
   }
@@ -1290,7 +1283,7 @@ urust_fn showcase_echo_word \<open> fn showcaseEcho(value: u8) -> u8 { value } \
 urust_fn showcase_echo_flag \<open> fn showcaseEcho(value: bool) -> bool { value } \<close>
 micro_rust_notation (call) showcase_echo_word ("showcaseEcho")
 
-urust_fn showcase_echo_pair \<open>
+urust_fn \<open>
   fn showcaseEchoPair(value: u8, flag: bool) -> (u8, bool) {
     (value.showcaseEcho(), showcaseEcho(flag))
   }

@@ -124,8 +124,7 @@ term \<open>chunk_identity\<close>
 
 text\<open> The same declarations through the single-item commands, under distinct names. \<close>
 
-urust_fn [application_def] control_packet_value
-  \<open> fn ControlPacketValue(packet: ChunkPacket) -> u32 { packet.sampleValue } \<close>
+urust_fn [application_def] \<open> fn ControlPacketValue(packet: ChunkPacket) -> u32 { packet.sampleValue } \<close>
 
 urust_fn [abbrev, register_notation = false]
   \<open> fn ControlIdentity(value: u32) -> u32 { value } \<close>
@@ -212,8 +211,7 @@ urust [register_notation = false, verbosity = 1] \<open>
   struct ChunkAliased { value: u32 }
 \<close>
 
-urust_fn chunk_calls_registered
-  \<open> fn ChunkCallsRegistered(value: u32) -> u32 { ChunkRegistered(value) } \<close>
+urust_fn \<open> fn ChunkCallsRegistered(value: u32) -> u32 { ChunkRegistered(value) } \<close>
 
 section\<open> Every option kind \<close>
 
@@ -495,8 +493,7 @@ urust \<open>
   fn use_signature(x: Word32, y: Short, z: Cell<u8>, w: Wrapper<u8>, p: Pointer<u8>) -> Short { y }
 \<close>
 
-urust_fn use_signature_qualified
-  \<open>
+urust_fn \<open>
     fn use_signature_qualified(
       x: demo::Width, y: demo::Short, z: demo::Cell<u8>, w: UseWrapper<u8>, p: demo::Pointer<u8>
     ) -> demo::Short { y }
@@ -753,9 +750,9 @@ urust_expr use_implicit_body_plain \<open> let first = demo::increment(1); demo:
 lemma \<open> use_implicit_body = use_implicit_body_plain \<close>
   unfolding use_implicit_body_def use_implicit_body_plain_def by (rule refl)
 
-urust_fn use_function_body \<open> fn use_function_body(x: u32) -> u32 { use demo::increment as step; step(x) } \<close>
+urust_fn \<open> fn use_function_body(x: u32) -> u32 { use demo::increment as step; step(x) } \<close>
 
-urust_fn use_function_body_plain \<open> fn use_function_body_plain(x: u32) -> u32 { demo::increment(x) } \<close>
+urust_fn \<open> fn use_function_body_plain(x: u32) -> u32 { demo::increment(x) } \<close>
 
 lemma \<open> use_function_body = use_function_body_plain \<close>
   unfolding use_function_body_def use_function_body_plain_def by (rule refl)
@@ -840,11 +837,9 @@ urust_expr use_shadow_arguments_plain (step, w) \<open> (demo::increment(1), dem
 lemma \<open> use_shadow_arguments = use_shadow_arguments_plain \<close>
   unfolding use_shadow_arguments_def use_shadow_arguments_plain_def by (rule refl)
 
-urust_fn use_shadow_parameter
-  \<open> fn use_shadow_parameter(step: u32) -> u32 { use demo::increment as step; step(1) } \<close>
+urust_fn \<open> fn use_shadow_parameter(step: u32) -> u32 { use demo::increment as step; step(1) } \<close>
 
-urust_fn use_shadow_parameter_plain
-  \<open> fn use_shadow_parameter_plain(step: u32) -> u32 { demo::increment(1) } \<close>
+urust_fn \<open> fn use_shadow_parameter_plain(step: u32) -> u32 { demo::increment(1) } \<close>
 
 lemma \<open> use_shadow_parameter = use_shadow_parameter_plain \<close>
   unfolding use_shadow_parameter_def use_shadow_parameter_plain_def by (rule refl)
@@ -989,10 +984,8 @@ locale use_shadow_locale =
   fixes use_shadow_fixed :: \<open> 32 word \<close>
 begin
 
-urust_fn use_shadow_locale_fn
-  \<open> fn use_shadow_locale_fn(x: u32) -> u32 { let y = x; { use demo::WIDTH as y; y } } \<close>
-urust_fn use_shadow_locale_fn_plain
-  \<open> fn use_shadow_locale_fn_plain(x: u32) -> u32 { let y = x; { demo::WIDTH } } \<close>
+urust_fn \<open> fn use_shadow_locale_fn(x: u32) -> u32 { let y = x; { use demo::WIDTH as y; y } } \<close>
+urust_fn \<open> fn use_shadow_locale_fn_plain(x: u32) -> u32 { let y = x; { demo::WIDTH } } \<close>
 lemma \<open> use_shadow_locale_fn = use_shadow_locale_fn_plain \<close>
   unfolding use_shadow_locale_fn_def use_shadow_locale_fn_plain_def by (rule refl)
 

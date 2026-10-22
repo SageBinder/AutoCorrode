@@ -10,8 +10,7 @@ begin
 \<comment>\<open>Force one-by-one unrolling of loops\<close>
 declare raw_for_loop_unroll_once_cong[crush_cong]
 
-urust_fn find
-  \<open>
+urust_fn \<open>
   fn find(self_value: \<tau>\<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) iterator\<close>, predicate: \<tau>\<open>('v \<Rightarrow> ('s, bool, 'abort, 'i prompt, 'o prompt_output) function_body)\<close>) -> \<tau>\<open>'v option\<close> {
     for x in self_value {
       if predicate(x) { return Some(x); }
@@ -20,8 +19,7 @@ urust_fn find
   }
   \<close>
 
-urust_fn [abbrev] enumerate_fn1
-  \<open>
+urust_fn [abbrev] \<open>
   fn enumerate_fn1(i: \<tau>\<open>nat\<close>, f: \<tau>\<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) function_body\<close>) -> \<tau>\<open>64 word \<times> 'v \<times> tnil\<close> {
     let feval = f();
     (\<llangle>word_of_nat i\<rrangle>, feval)
@@ -33,8 +31,7 @@ definition enumerate :: \<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) ite
   \<open>enumerate self \<equiv> FunctionBody (literal (make_iterator
     (mapi enumerate_fn1 (iterator_thunks self))))\<close>
 
-urust_fn any
-  \<open>
+urust_fn \<open>
   fn any(self_value: \<tau>\<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) iterator\<close>, predicate: \<tau>\<open>('v \<Rightarrow> ('s, bool, 'abort, 'i prompt, 'o prompt_output) function_body)\<close>) -> bool {
      match self_value.find(predicate) {
        Some(_) \<Rightarrow> True,
@@ -43,8 +40,7 @@ urust_fn any
   }
   \<close>
 
-urust_fn count
-  \<open>
+urust_fn \<open>
   fn count(self_value: \<tau>\<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) iterator\<close>) -> u64 {
     \<llangle>of_nat \<circ> length \<circ> iterator_thunks\<rrangle>\<^sub>1(self_value)
   }
@@ -53,8 +49,7 @@ urust_fn count
 context reference
 begin
 
-urust_fn [register_notation = false] iter_mut
-  \<open>
+urust_fn [register_notation = false] \<open>
   fn iter_mut(ref_value: \<tau>\<open>('a, 'b, 'v list) Global_Store.ref\<close>) -> \<tau>\<open>('s, ('a, 'b, 'v) Global_Store.ref, 'abort, 'i prompt, 'o prompt_output) iterator\<close> {
     let xs = *ref_value;
     \<llangle>make_iterator_from_list (List.map (\<lambda>i. (focus_nth i ref_value)) [0 ..< length xs])\<rrangle>

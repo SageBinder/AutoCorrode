@@ -6867,9 +6867,7 @@ urust_expr [pretty, verbosity = 1]
     (((let value = 1 + 2 * 3; value)))
   \<close>
 
-urust_fn [pretty, verbosity = 1]
-  printer_human_function
-  \<open>
+urust_fn [pretty, verbosity = 1] \<open>
   fn printer_human_function(item: u64) -> u64 {
     let value = (((item)));
     (value + 1u64) * 2u64
@@ -6893,9 +6891,7 @@ side. The printer keeps the source-level function body while laying out each blo
 independently.
 \<close>
 
-urust_fn [pretty, verbosity = 1]
-  printer_human_accumulate
-  \<open>
+urust_fn [pretty, verbosity = 1] \<open>
   fn printer_human_accumulate(seed: u32, limit: u32) -> u32 {
     let mut total = seed;
     for value in [1_u32, 2_u32, 3_u32] {
@@ -6915,9 +6911,7 @@ result, so the InfoView output must put code after an opening brace on a new lin
 blocks by two spaces, and retain \<open>} else {\<close> on one line.
 \<close>
 
-urust_fn [pretty, verbosity = 1]
-  printer_human_line_breaks
-  \<open>
+urust_fn [pretty, verbosity = 1] \<open>
   fn printer_human_line_breaks(number: u32) -> u32 {
     if number > 10_u32 {
       let reduced = number / 2_u32;

@@ -43,8 +43,7 @@ lemma array_index_spec [crush_specs]:
 
 context reference begin
 
-urust_fn [register_notation = false] slice_index
-  \<open>
+urust_fn [register_notation = false] \<open>
   fn slice_index(r: \<tau>\<open>('a, 'b, 'v list) Global_Store.ref\<close>, i: \<tau>\<open>'w::{len} word\<close>) -> \<tau>\<open>('a, 'b, 'v) Global_Store.ref\<close> {
      let ls = *r;
      if \<llangle>unat i\<rrangle> < \<llangle>length\<rrangle>\<^sub>1(ls) {
@@ -90,8 +89,7 @@ lemma slice_index_array_spec [crush_specs]:
   apply crush_base
   done
 
-urust_fn [register_notation = false] slice_index_vector
-  \<open>
+urust_fn [register_notation = false] \<open>
   fn slice_index_vector(r: \<tau>\<open>('a, 'b, ('v, 'l::{len}) vector) Global_Store.ref\<close>, idx: \<tau>\<open>'w::{len} word\<close>) -> \<tau>\<open>('a, 'b, 'v) Global_Store.ref\<close> {
      let v = *r;
      if \<llangle>unat idx\<rrangle> < \<llangle>vector_len v\<rrangle> {

@@ -3318,8 +3318,7 @@ urust_expr isabelle_comment_document_antiquotations
     ()
   \<close>
 
-urust_fn isabelle_comment_function
-  \<open>
+urust_fn \<open>
   fn isabelle_comment_function(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
     \<comment> \<open>Function-body comment with \<^term>\<open>item\<close> treated as document text.\<close>
     item \<comment> \<open>Inline function-body comment.\<close>

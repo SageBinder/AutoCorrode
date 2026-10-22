@@ -3479,37 +3479,31 @@ declare [[urust_pretty = true, urust_verbosity = 2]]
 
 micro_rust_notation (literal) \<open>True\<close> ("self")
 
-urust_fn typed_self_literal_shadow
-  \<open> fn TypedSelfLiteralShadow(self: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { self } \<close>
+urust_fn \<open> fn TypedSelfLiteralShadow(self: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { self } \<close>
 
-urust_fn typed_self_value_literal_shadow
-  \<open> fn TypedSelfValueLiteralShadow(self_value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { self_value } \<close>
+urust_fn \<open> fn TypedSelfValueLiteralShadow(self_value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { self_value } \<close>
 
-urust_fn typed_self_name_collision
-  \<open>
+urust_fn \<open>
     fn TypedSelfNameCollision(self: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       let self_value = true;
       self
     }
   \<close>
 
-urust_fn typed_self_value_name_collision
-  \<open>
+urust_fn \<open>
     fn TypedSelfValueNameCollision(self_value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       let other_value = true;
       self_value
     }
   \<close>
 
-urust_fn typed_self_closure
-  \<open>
+urust_fn \<open>
     fn TypedSelfClosure(self: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close> {
       |self_value| \<llangle>self + self_value\<rrangle>
     }
   \<close>
 
-urust_fn typed_self_value_closure
-  \<open>
+urust_fn \<open>
     fn TypedSelfValueClosure(self_value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close> {
       |other_value| \<llangle>self_value + other_value\<rrangle>
     }
@@ -3519,11 +3513,9 @@ context
   fixes self :: bool
 begin
 
-urust_fn typed_self_context_shadow
-  \<open> fn TypedSelfContextShadow(self: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { \<llangle>self + 1\<rrangle> } \<close>
+urust_fn \<open> fn TypedSelfContextShadow(self: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { \<llangle>self + 1\<rrangle> } \<close>
 
-urust_fn typed_self_value_context_shadow
-  \<open> fn TypedSelfValueContextShadow(self_value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { \<llangle>self_value + 1\<rrangle> } \<close>
+urust_fn \<open> fn TypedSelfValueContextShadow(self_value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { \<llangle>self_value + 1\<rrangle> } \<close>
 
 end
 
