@@ -4,6 +4,19 @@ theory Parser_Utils
     "Shallow_Micro_Rust.Semantic_Navigation"
 begin
 
+ML\<open>
+structure URust_Parser_Config =
+struct
+  val (verbosity, setup_verbosity) =
+    Attrib.config_int \<^binding>\<open>urust_verbosity\<close> (K 0)
+  val _ = Theory.setup (fn thy =>
+    let val naming = Sign.naming_of thy in
+      thy |> Sign.root_path |> Sign.add_path "Parser_Impl_Command" |> setup_verbosity
+      |> Sign.map_naming (K naming)
+    end)
+end
+\<close>
+
 section\<open> Report transactions \<close>
 
 text\<open>
