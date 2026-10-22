@@ -17,6 +17,7 @@ structure Parser_Trait_Test =
 struct
   structure Traits = URust_Trait_Mappings
   structure Navigation = Micro_Rust_Semantic_Navigation
+  structure Reports = URust_Report_Transaction
 
   fun require message condition =
     if condition then () else error ("trait mapping regression: " ^ message)
@@ -37,17 +38,47 @@ struct
   fun mapping ctxt name = the (Traits.lookup ctxt name)
   fun term ctxt entry name = #term (the (Traits.associated_constant ctxt entry name))
 
+  fun neighboring_snapshot (bindings: URust_Import_Scope.binding list) ctxt =
+    (URust_Type_Mappings.dump ctxt |> map (fn (key, entry) =>
+       (key, URust_Type_Mappings.entry_template entry,
+        URust_Type_Mappings.entry_arities entry,
+        URust_Type_Mappings.entry_parameter_sorts entry,
+        URust_Type_Mappings.entry_backend_parameter_sorts entry,
+        URust_Type_Mappings.entry_declaration_position entry,
+        URust_Type_Mappings.entry_origin entry,
+        URust_Type_Mappings.entry_identity entry)),
+     URust_Item_Scope.dump_types ctxt |> map (fn entry =>
+       (URust_Item_Scope.type_rust_name entry, URust_Item_Scope.type_position entry,
+        URust_Item_Scope.type_hol_name entry)),
+     URust_Item_Scope.dump_constructors ctxt |> map (fn entry =>
+       (URust_Item_Scope.constructor_rust_type entry,
+        URust_Item_Scope.constructor_rust_path entry,
+        URust_Item_Scope.constructor_position entry,
+        URust_Item_Scope.constructor_hol_type entry,
+        URust_Item_Scope.constructor_term entry,
+        URust_Item_Scope.constructor_scheme entry,
+        URust_Item_Scope.constructor_origin entry,
+        URust_Item_Scope.constructor_shape entry,
+        URust_Item_Scope.constructor_fields entry)),
+     Micro_Rust_Names.dump ctxt,
+     Symtab.dest (Micro_Rust_Names.Declaration_Owners.get (Context.Proof ctxt)),
+     Inttab.dest (Micro_Rust_Names.Automatic_Registrations.get (Context.Proof ctxt)),
+     (URust_Import_Scope.frame_depth ctxt,
+      map (fn binding =>
+        (URust_Import_Scope.lookup_scoped ctxt (#namespace binding) (#alias binding),
+         URust_Import_Scope.pending_roles ctxt binding)) bindings))
+
   fun capture action =
     let
       val reports = Synchronized.var "trait_test_reports" ([]: string list)
       val output = Synchronized.var "trait_test_output" ([]: string list)
-      fun collect target chunks = Synchronized.change target (append chunks)
+      fun collect target chunks = Synchronized.change target (fn previous => previous @ chunks)
       val result = Parser_Test_Report_Lock.run (fn () =>
         Unsynchronized.setmp Private_Output.report_fn (collect reports) (fn () =>
           Unsynchronized.setmp Private_Output.writeln_fn (collect output) (fn () =>
             Print_Mode.with_modes [Print_Mode.PIDE] (fn () => Exn.capture action ()) ()) ()) ())
       val chunks = Synchronized.value reports
-      val markup = fold Parser_Test_Reports.collect_markup (maps YXML.parse_body chunks) []
+      val markup = rev (fold Parser_Test_Reports.collect_markup (maps YXML.parse_body chunks) [])
       fun plain chunks = XML.content_of (maps YXML.parse_body chunks)
         |> Symbol.explode |> filter_out Symbol.is_control |> implode
     in {result = result, markup = markup, reports = plain chunks,
@@ -218,6 +249,7 @@ local
     ["BadSort", "BadShape", "ConcreteWitness", "DependentResult", "WeakScale",
      "DuplicateConstant", "Scale", "bad:::Trait", "LateFailure"]
   val original_entries = map (fn key => (key, Traits.lookup (context base) key)) candidate_keys
+  val original_neighbors = neighboring_snapshot [] (context base)
   val cases =
     [("unreadable-sort", "missing_trait_sort",
        declaration "BadSort" "missing_trait_sort" [], ("missing_trait_sort", 0)),
@@ -250,10 +282,8 @@ local
       val message = error_message label expected (#result observed)
       val _ = require (label ^ ": diagnostic lost the offending source")
         (positioned_message (range_nth occurrence label text token) message)
-      val _ = require (label ^ ": failure emitted trait definition reports")
-        (not (exists (fn (name, props) => name = Markup.entityN andalso
-          Properties.get props Markup.kindN = SOME "urust_trait" andalso
-          is_some (Properties.get props Markup.defN)) (#markup observed)))
+      val _ = require (label ^ ": failure emitted native or semantic reports")
+        (null (#markup observed) andalso #reports observed = "")
       val _ = require (label ^ ": failure printed successful output") (#output observed = "")
       val _ = require (label ^ ": original theory changed")
         (Context.eq_thy (thy, Toplevel.theory_of base))
@@ -262,6 +292,8 @@ local
         (#sort original = #sort after andalso #constants original = #constants after)
       val _ = require (label ^ ": failing declaration changed its registry")
         (forall (fn (key, entry) => Traits.lookup (context base) key = entry) original_entries)
+      val _ = require (label ^ ": failing declaration changed a neighboring registry")
+        (neighboring_snapshot [] (context base) = original_neighbors)
     in () end
   val _ = List.app check cases
 
@@ -281,6 +313,184 @@ local
   val recovered = run_from base "trait-recovery" (declaration "RecoveredMarker" "type" [])
   val _ = require "declaration recovery failed"
     (is_some (Traits.lookup (context recovered) "RecoveredMarker"))
+in
+  val _ = ()
+end
+\<close>
+
+section\<open> Full failure reports and registry preservation \<close>
+
+ML_val\<open>
+local
+  open Parser_Trait_Test
+  val thy = \<^theory>
+  val loud = run thy "trait-atomic-verbosity" "declare [[urust_verbosity = 2]]"
+  val loud_neighbors = neighboring_snapshot [] (context loud)
+  val failed = capture (fn () => run_from loud "trait-atomic-loud-failure"
+    (declaration "AtomicOutputFailure" "trait_scale"
+      [("GOOD", "trait_ceiling"), ("BAD", "(4 :: nat)")]))
+  val _ = error_message "loud late failure" "must have type" (#result failed)
+  val _ = require "loud failure emitted native/semantic reports or successful output"
+    (null (#markup failed) andalso #reports failed = "" andalso #output failed = "")
+  val command_recovery = capture (fn () => run_from loud "trait-atomic-loud-recovery"
+    (declaration "AtomicOutputRecovery" "trait_scale" [("CAP", "trait_ceiling")]))
+  val recovered_state = Exn.release (#result command_recovery)
+  val _ = require "command recovery lost its successful reports or output"
+    (length (entities Markup.defN "AtomicOutputRecovery" (#markup command_recovery)) = 1 andalso
+      String.isSubstring "trait AtomicOutputRecovery" (#output command_recovery))
+  val _ = require "command failure/recovery changed a neighboring registry"
+    (neighboring_snapshot [] (context recovered_state) = loud_neighbors)
+  val _ = require "command recovery retained the failed declaration"
+    (is_none (Traits.lookup (context recovered_state) "AtomicOutputFailure"))
+
+  val import_pos = start "trait-retained-import"
+  val import_layout = URust_AST.make_source_layout import_pos []
+  val import_item = URust_AST.Use_Item
+    (URust_AST.Use_Path ([("U8Alias", import_pos)],
+      SOME ("RetainedTraitType", import_pos), import_layout), import_layout)
+  val framed = Named_Target.theory_init thy
+    |> (fn ctxt => URust_Imports.prepare_batch_unreported URust_Imports.Require_Targets ctxt
+      (URust_Imports.validate_batch [import_item]))
+  val retained = the (URust_Import_Scope.lookup framed
+    URust_Import_Scope.Type_Namespace "RetainedTraitType")
+  val local_base = framed
+    |> URust_Import_Scope.add_pending_roles [(retained, [URust_Import_Scope.Generated_Enum])]
+  val previous = neighboring_snapshot [retained] local_base
+  val previous_theory = Proof_Context.theory_of local_base
+  val local_failure =
+    {path = ("AtomicRegistryFailure", start "trait-registry-failure-key"),
+     sort = source "trait-registry-failure-sort" "trait_scale",
+     constants =
+       [(("GOOD", start "trait-registry-good-name"),
+          source "trait-registry-good-term" "trait_ceiling"),
+        (("BAD", start "trait-registry-bad-name"),
+          source "trait-registry-bad-term" "(4 :: nat)")]}
+  val failed_api = capture (fn () => Traits.declare local_failure local_base)
+  val _ = error_message "local registry failure" "must have type" (#result failed_api)
+  val _ = require "local registry failure emitted native/semantic reports or output"
+    (null (#markup failed_api) andalso #reports failed_api = "" andalso #output failed_api = "")
+  val _ = require "local registry failure changed neighboring data or its theory"
+    (neighboring_snapshot [retained] local_base = previous andalso
+      Context.eq_thy (Proof_Context.theory_of local_base, previous_theory))
+  val recovery = capture (fn () => Traits.declare
+    {path = ("AtomicRegistryRecovery", start "trait-registry-recovery-key"),
+     sort = source "trait-registry-recovery-sort" "trait_scale",
+     constants = [(("CAP", start "trait-registry-recovery-name"),
+       source "trait-registry-recovery-term" "trait_ceiling")]} local_base)
+  val recovered = Exn.release (#result recovery)
+  val _ = require "local recovery did not release its successful native and trait reports"
+    (length (entities Markup.defN "AtomicRegistryRecovery" (#markup recovery)) = 1 andalso
+      exists (fn (name, props) => name = Markup.entityN andalso
+        Properties.get props Markup.kindN = SOME Markup.constantN) (#markup recovery))
+  val _ = require "local API failure/recovery changed a neighboring registry or import frame"
+    (neighboring_snapshot [retained] recovered = previous)
+  val _ = require "local recovery retained the failed trait or lost the new trait"
+    (is_none (Traits.lookup recovered "AtomicRegistryFailure") andalso
+      is_some (Traits.lookup recovered "AtomicRegistryRecovery"))
+  val _ = require "local recovery changed verbosity"
+    (Config.get recovered URust_Parser_Config.verbosity = 0)
+in
+  val _ = ()
+end
+\<close>
+
+section\<open> Nested report transactions and recovery \<close>
+
+ML_val\<open>
+local
+  open Parser_Trait_Test
+  val lthy = Named_Target.theory_init \<^theory>
+  val previous = neighboring_snapshot [] lthy
+
+  fun event label marker = Reports.report_text lthy (start label) Markup.typing marker
+  fun native label marker = Reports.native lthy (fn ctxt =>
+    Context_Position.report_text ctxt (start label) Markup.typing marker)
+  fun forwarded label marker =
+    Reports.output_reporter Output.report
+      [YXML.string_of_body [XML.Elem
+        ((Markup.typingN, Position.properties_of (start label)), [XML.Text marker])]]
+  fun navigation label marker = Navigation.defer_report_text lthy (start label) Markup.typing marker
+  fun events prefix suffix =
+    (event (prefix ^ "-report") ("REPORT_" ^ suffix);
+     native (prefix ^ "-read") ("READ_" ^ suffix);
+     forwarded (prefix ^ "-forward") ("FORWARD_" ^ suffix);
+     navigation (prefix ^ "-navigation") ("NAVIGATION_" ^ suffix))
+  val payload =
+    {path = ("NestedAtomicFailure", start "trait-nested-failure-key"),
+     sort = source "trait-nested-failure-sort" "trait_scale",
+     constants =
+       [(("GOOD", start "trait-nested-good-name"),
+          source "trait-nested-good-term" "trait_ceiling"),
+        (("BAD", start "trait-nested-bad-name"),
+          source "trait-nested-bad-term" "(4 :: nat)")]}
+
+  fun check capture_reports label =
+    let
+      val observed = capture (fn () => capture_reports (fn () =>
+        let
+          val _ = events (label ^ "-before") "BEFORE"
+          val rejected = Exn.capture (fn () => Reports.capture (fn () =>
+            (events (label ^ "-failed") "FAILED";
+             error "expected nested report failure"))) ()
+          val _ = error_message "nested report failure" "expected nested report failure" rejected
+          val failed = Exn.capture (Traits.declare payload) lthy
+          val _ = error_message "nested trait failure" "must have type" failed
+          val (_, successful) = Reports.capture (fn () => events (label ^ "-success") "SUCCESS")
+          val _ = Reports.replay lthy successful
+          val _ = events (label ^ "-after") "AFTER"
+        in () end))
+      val (_, pending) = Exn.release (#result observed)
+      val _ = require (label ^ ": nested work emitted before parent replay")
+        (null (#markup observed) andalso #reports observed = "" andalso #output observed = "")
+      val replayed = capture (fn () => Reports.replay lthy pending)
+      val _ = Exn.release (#result replayed)
+      val expected =
+        ["REPORT_BEFORE", "READ_BEFORE", "FORWARD_BEFORE",
+         "REPORT_SUCCESS", "READ_SUCCESS", "FORWARD_SUCCESS",
+         "REPORT_AFTER", "READ_AFTER", "FORWARD_AFTER",
+         "NAVIGATION_BEFORE", "NAVIGATION_SUCCESS", "NAVIGATION_AFTER"]
+      val _ = require (label ^ ": failed events leaked or successful event order changed")
+        (#reports replayed = implode expected andalso length (#markup replayed) = length expected)
+      val _ = require (label ^ ": replay printed successful output")
+        (#output replayed = "")
+      val _ = require (label ^ ": caught failure changed registries or installed its trait")
+        (neighboring_snapshot [] lthy = previous andalso
+          is_none (Traits.lookup lthy "NestedAtomicFailure"))
+    in () end
+  val _ = check Reports.capture "trait-nested-capture"
+  val _ = check Reports.capture_members "trait-nested-members"
+in
+  val _ = ()
+end
+\<close>
+
+ML_val\<open>
+local
+  open Parser_Trait_Test
+  val ctxt = \<^context>
+  fun event label marker = Navigation.defer_report_text ctxt (start label) Markup.typing marker
+  val observed = capture (fn () => Navigation.capture (fn () =>
+    let
+      val _ = event "trait-navigation-before" "PARENT_BEFORE"
+      val failed = Exn.capture (fn () => Navigation.capture (fn () =>
+        (event "trait-navigation-failed" "FAILED_INNER";
+         error "expected nested navigation failure"))) ()
+      val _ = error_message "nested navigation failure" "expected nested navigation failure" failed
+      val (_, successful) = Navigation.capture (fn () =>
+        event "trait-navigation-success" "SUCCESSFUL_INNER")
+      val _ = Navigation.replay ctxt successful
+      val _ = event "trait-navigation-after" "PARENT_AFTER"
+    in () end))
+  val (_, pending) = Exn.release (#result observed)
+  val _ = require "navigation nesting emitted before parent replay"
+    (null (#markup observed) andalso #reports observed = "" andalso #output observed = "")
+  val replayed = capture (fn () => Navigation.replay ctxt pending)
+  val _ = Exn.release (#result replayed)
+  val _ = require "navigation rollback lost successful events or retained its failed event"
+    (#reports replayed = "PARENT_BEFORESUCCESSFUL_INNERPARENT_AFTER" andalso
+      map (fn (_, props) => Properties.get props Markup.fileN) (#markup replayed) =
+        map SOME ["trait-navigation-before", "trait-navigation-success", "trait-navigation-after"])
+  val _ = require "navigation replay printed output" (#output replayed = "")
 in
   val _ = ()
 end

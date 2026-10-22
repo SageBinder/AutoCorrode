@@ -73,9 +73,12 @@ struct
   (* A nested capture joins the outermost transaction of the thread. *)
   fun gen_capture buffer_checks action =
     (case Thread_Data.get active of
-       SOME _ =>
-         let val (result, navigation) = Navigation.capture action
-         in (result, ([], navigation)) end
+       SOME {events, ...} =>
+         let val mark = !events in
+           (case Exn.capture Navigation.capture action of
+              Exn.Res (result, navigation) => (result, ([], navigation))
+            | Exn.Exn exn => (events := mark; Exn.reraise exn))
+         end
      | NONE =>
          let
            val events = Unsynchronized.ref ([]: event list)
