@@ -50,6 +50,25 @@ urust_trait "SlotOne" = \<open> type \<close>
 urust_trait "SlotTwo" = \<open> type \<close>
   urust_consts "SLOT" = \<open> \<lambda>(_ :: 'a itself). (4 :: nat) \<close>
 
+text\<open>
+Independent result types are polymorphic. Repeating the literal declaration or renaming its
+type variables retains the same typed template.
+\<close>
+
+urust_trait "PolymorphicEmpty" = \<open> type \<close>
+  urust_consts "POLY_EMPTY" = \<open> \<lambda>(_ :: 'a itself). ([] :: 'b list) \<close>
+
+urust_trait "PolymorphicEmpty" = \<open> type \<close>
+  urust_consts "POLY_EMPTY" = \<open> \<lambda>(_ :: 'a itself). ([] :: 'b list) \<close>
+
+urust_trait "PolymorphicEmpty" = \<open> type \<close>
+  urust_consts "POLY_EMPTY" = \<open> \<lambda>(_ :: 'x itself). ([] :: 'y list) \<close>
+
+consts trait_fresh_pair :: \<open>'a itself \<Rightarrow> 'b::ord list \<times> 'b list\<close>
+
+urust_trait "FreshPair" = \<open> type \<close>
+  urust_consts "POLY_PAIR" = \<open> trait_fresh_pair \<close>
+
 locale trait_offset =
   fixes offset :: nat
 begin

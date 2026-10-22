@@ -208,6 +208,124 @@ in
 end
 \<close>
 
+section\<open> Complete typed polymorphic schemes \<close>
+
+text\<open>
+The following audits distinguish alpha-equivalent polymorphic schemes from different result
+types, class constraints and variable sharing. Fixed context types remain rigid.
+\<close>
+
+ML_val\<open>
+local
+  open Parser_Trait_Test
+  val ctxt = \<^context>
+  val empty = mapping ctxt "PolymorphicEmpty"
+  val template = term ctxt empty "POLY_EMPTY"
+  val _ = require "independent result template retained a free type"
+    (null (Term.add_tfrees template []) andalso length (Term.add_tvars template []) = 2)
+  val repeated_text = declaration "RepeatedEmpty" "type"
+    [("EMPTY_REPEAT", "(\<lambda>(_ :: 'a itself). ([] :: 'b list))")]
+  val first = run \<^theory> "trait-polymorphic-first" repeated_text
+  val original = mapping (context first) "RepeatedEmpty"
+  val second = run_from first "trait-polymorphic-repeat" repeated_text
+  val renamed = run_from second "trait-polymorphic-alpha"
+    (declaration "RepeatedEmpty" "type"
+      [("EMPTY_REPEAT", "(\<lambda>(_ :: 'x itself). ([] :: 'y list))")])
+  val _ = List.app (fn state =>
+    require "polymorphic redeclaration replaced its original entry or source positions"
+      (mapping (context state) "RepeatedEmpty" = original)) [second, renamed]
+
+  val conflicts =
+    [("result-type", "undefined :: nat", "undefined :: bool"),
+     ("result-constructor", "undefined :: 'b list", "undefined :: 'c option"),
+     ("result-sort", "[] :: 'b::ord list", "[] :: 'c list"),
+     ("result-sharing", "(([] :: 'b list), ([] :: 'b list))",
+       "(([] :: 'c list), ([] :: 'd list))")]
+  fun rhs result = "(\<lambda>(_ :: 'a itself). (" ^ result ^ "))"
+  fun reject (label, left, right) =
+    let
+      val original_text = declaration "SchemeConflict" "type" [("VALUE", rhs left)]
+      val state = run \<^theory> ("trait-scheme-first-" ^ label) original_text
+      val original_entry = mapping (context state) "SchemeConflict"
+      val neighbors = neighboring_snapshot [] (context state)
+      val attempted = declaration "SchemeConflict" "type" [("VALUE", rhs right)]
+      val failed = capture (fn () => run_from state ("trait-scheme-second-" ^ label) attempted)
+      val message = error_message label "conflicting mappings" (#result failed)
+      val _ = require (label ^ ": conflict lost either source")
+        (positioned_message (range ("trait-scheme-first-" ^ label) original_text
+           "SchemeConflict") message andalso
+         positioned_message (range ("trait-scheme-second-" ^ label) attempted
+           "SchemeConflict") message)
+      val _ = require (label ^ ": conflict emitted reports or output")
+        (null (#markup failed) andalso #reports failed = "" andalso #output failed = "")
+      val _ = require (label ^ ": conflict changed its entry or neighboring data")
+        (mapping (context state) "SchemeConflict" = original_entry andalso
+         neighboring_snapshot [] (context state) = neighbors)
+    in () end
+  val _ = List.app reject conflicts
+
+  val fixed = run \<^theory> "trait-fixed-results"
+    ("locale trait_fixed_results = fixes left :: " ^ cartouche "'b itself" ^
+      " and right :: " ^ cartouche "'c itself" ^ "\nbegin\n")
+  val fixed_text = declaration "FixedResult" "type" [("FIXED", rhs "[] :: 'b list")]
+  val fixed_first = run_from fixed "trait-fixed-result-first" fixed_text
+  val fixed_entry = mapping (context fixed_first) "FixedResult"
+  val fixed_repeat = run_from fixed_first "trait-fixed-result-repeat" fixed_text
+  val _ = require "identical fixed-result declaration changed its entry"
+    (mapping (context fixed_repeat) "FixedResult" = fixed_entry)
+  val _ = require "fixed ambient result type was generalized"
+    (Term.add_tfrees (term (context fixed_first) fixed_entry "FIXED") [] =
+      [("'b", \<^sort>\<open>type\<close>)])
+  val fixed_failure = capture (fn () => run_from fixed_first "trait-fixed-result-conflict"
+    (declaration "FixedResult" "type" [("FIXED", rhs "[] :: 'c list")]))
+  val _ = error_message "fixed result conflict" "conflicting mappings" (#result fixed_failure)
+  val _ = require "fixed-result failure emitted reports or output"
+    (null (#markup fixed_failure) andalso #reports fixed_failure = "" andalso
+      #output fixed_failure = "")
+  val _ = require "fixed-result conflict changed the original entry"
+    (mapping (context fixed_first) "FixedResult" = fixed_entry)
+in
+  val _ = ()
+end
+\<close>
+
+ML_val\<open>
+local
+  open Parser_Trait_Test
+  val ctxt = Proof_Context.set_mode Proof_Context.mode_schematic \<^context>
+    |> Variable.declare_term (Var (("retained_scheme_index", 37), \<^typ>\<open>nat\<close>))
+  val entry = mapping ctxt "FreshPair"
+  val template = term ctxt entry "POLY_PAIR"
+  val Type (_, [_, Type (_, [Type (_, [result_variable]), _])]) = fastype_of template
+  val target = Proof_Context.cert_typ ctxt result_variable
+  val native = Syntax.check_term ctxt
+    (Const (\<^const_name>\<open>trait_fresh_pair\<close>, dummyT) $ Logic.mk_type target)
+  val native_target = Logic.dest_type (the_single (#2 (Term.strip_comb native)))
+  val observed = capture (fn () => Traits.traits_with_constant ctxt target "POLY_PAIR")
+  val [(selected, actual)] = Exn.release (#result observed)
+  val actual_target = Logic.dest_type (the_single (#2 (Term.strip_comb actual)))
+  val Type (_, [Type (_, [actual_left]), Type (_, [actual_right])]) = fastype_of actual
+  val _ = require "native or associated application changed the supplied witness"
+    (native_target = target andalso actual_target = target andalso #path selected = "FreshPair")
+  val _ = require "native application captured the independent result"
+    (not (Term.exists_subtype (fn T => T = target) (fastype_of native)))
+  val _ = require "associated application captured the independent result"
+    (not (Term.exists_subtype (fn T => T = target) (fastype_of actual)))
+  val _ = require "fresh associated result lost sharing or its class sort"
+    (actual_left = actual_right andalso Type.sort_of_atyp actual_left = \<^sort>\<open>ord\<close>)
+  val _ = require "associated result was not fresh relative to the context"
+    (case actual_left of TVar ((_, index), _) => index > Variable.maxidx_of ctxt | _ => false)
+  val native_scheme = singleton (Variable.polymorphic ctxt) native
+  val _ = require "native and associated applications have different typed result schemes"
+    (can (Pattern.match \<^theory> (actual, native_scheme)) (Vartab.empty, Vartab.empty) andalso
+      can (Pattern.match \<^theory> (native_scheme, actual)) (Vartab.empty, Vartab.empty))
+  val _ = require "polymorphic associated lookup emitted reports or output"
+    (null (#markup observed) andalso #reports observed = "" andalso #output observed = "")
+in
+  val _ = ()
+end
+\<close>
+
 section\<open> Locale transport \<close>
 
 ML_val\<open>
@@ -539,6 +657,68 @@ local
   val _ = List.app reject_merge
     [("Trait_Conflict_Forward", [conflicting_left, conflicting_right]),
      ("Trait_Conflict_Backward", [conflicting_right, conflicting_left])]
+
+  val polymorphic_forward = mapping forward "merge::Polymorphic"
+  val polymorphic_backward = mapping backward "merge::Polymorphic"
+  val _ = require "alpha-equivalent merge selected different navigation origins"
+    (#pos polymorphic_forward = #pos polymorphic_backward)
+  val _ = List.app (fn name =>
+    require ("alpha-equivalent merge changed typed template " ^ name)
+      (term forward polymorphic_forward name aconv term backward polymorphic_backward name))
+    ["MERGE_EMPTY", "MERGE_PAIR"]
+  val _ = List.app (fn ctxt =>
+    let
+      val (empty_entry, empty_value) =
+        the_single (Traits.traits_with_constant ctxt \<^typ>\<open>nat\<close> "MERGE_EMPTY")
+      val (pair_entry, pair_value) =
+        the_single (Traits.traits_with_constant ctxt \<^typ>\<open>bool\<close> "MERGE_PAIR")
+      val empty_type =
+        (case fastype_of empty_value of
+           Type (\<^type_name>\<open>list\<close>, [T]) => T
+         | _ => error "merged empty result is not a list")
+      val (left_type, right_type) =
+        (case fastype_of pair_value of
+           Type (\<^type_name>\<open>prod\<close>,
+             [Type (\<^type_name>\<open>list\<close>, [T]), Type (\<^type_name>\<open>list\<close>, [U])]) => (T, U)
+         | _ => error "merged pair result is not a pair of lists")
+      val _ = require "merged result lost its independent class-constrained type"
+        (#path empty_entry = "merge::Polymorphic" andalso
+          Type.sort_of_atyp empty_type = \<^sort>\<open>ord\<close>)
+      val _ = require "merged result lost its independent variable sharing"
+        (#path pair_entry = "merge::Polymorphic" andalso left_type = right_type)
+    in () end) [forward, backward]
+
+  val scheme_conflicts =
+    [("Types", "undefined :: nat", "undefined :: bool"),
+     ("Constructors", "undefined :: 'b list", "undefined :: 'c option"),
+     ("Sorts", "[] :: 'b::ord list", "[] :: 'c list"),
+     ("Sharing", "(([] :: 'b list), ([] :: 'b list))",
+       "(([] :: 'c list), ([] :: 'd list))")]
+  fun reject_scheme_merge (kind, first, second) =
+    let
+      fun scheme_branch side result =
+        let val label = "Trait_Scheme_" ^ kind ^ "_" ^ side in
+          merge label [\<^theory>]
+          |> (fn thy => run thy label (declaration "MergeSchemeConflict" "type"
+            [("VALUE", "(\<lambda>(_ :: 'a itself). (" ^ result ^ "))")]))
+          |> Toplevel.theory_of |> Theory.end_theory
+        end
+      val first_parent = scheme_branch "Left" first
+      val second_parent = scheme_branch "Right" second
+      fun reject parents =
+        let
+          val failed = capture (fn () =>
+            merge ("Trait_Scheme_Conflict_" ^ kind) parents)
+          val message = error_message kind
+            "conflicting mappings for \"MergeSchemeConflict\"" (#result failed)
+          val _ = require (kind ^ ": scheme merge lost both conflict sources")
+            (String.isSubstring ("Trait_Scheme_" ^ kind ^ "_Left") message andalso
+              String.isSubstring ("Trait_Scheme_" ^ kind ^ "_Right") message)
+          val _ = require (kind ^ ": failed scheme merge emitted reports or output")
+            (null (#markup failed) andalso #reports failed = "" andalso #output failed = "")
+        in () end
+    in List.app reject [[first_parent, second_parent], [second_parent, first_parent]] end
+  val _ = List.app reject_scheme_merge scheme_conflicts
 in
   val _ = ()
 end

@@ -74,6 +74,18 @@ struct
     then ()
     else fail ("malformed Rust trait path " ^ quote path) pos
 
+  (* Typed alpha-normalization preserves fixed frees, sorts and variable sharing. *)
+  fun normalize_template term =
+    let
+      val instT = TVars.build (rev (Term.add_tvars term []) |> fold_index
+        (fn (index, variable as (_, sort)) =>
+          TVars.add (variable, TVar (("_urust_trait", index), sort))))
+      val typed = Term_Subst.instantiate (instT, Vars.empty) term
+      val inst = Vars.build (rev (Term.add_vars typed []) |> fold_index
+        (fn (index, variable as (_, T)) =>
+          Vars.add (variable, Var (("_urust_trait_value", index), T))))
+    in Term_Subst.instantiate (TVars.empty, inst) typed end
+
   fun same_entry (left: trait_entry, right: trait_entry) =
     #sort left = #sort right andalso
     eq_list
@@ -110,7 +122,7 @@ struct
   fun morph phi ({entry = {path, pos, sort, constants}, identity}: registered) =
     {entry = {path = path, pos = pos, sort = sort,
       constants = map (apsnd (fn {term, pos} =>
-        {term = Morphism.term phi term, pos = pos})) constants},
+        {term = Morphism.term phi term |> normalize_template, pos = pos})) constants},
      identity = identity}: registered
 
   fun associated_constant _ (entry: trait_entry) name =
@@ -123,8 +135,12 @@ struct
      | _ => NONE)
 
   fun instantiate ctxt T term =
-    let val (parameter, _) = the (domain term) in
-      Term.map_types (Term.typ_subst_atomic [(parameter, T)]) term $
+    let
+      val increment = Int.max (Variable.maxidx_of ctxt, Term.maxidx_of_typ T) + 1
+      val fresh = Logic.incr_indexes ([], increment) term
+      val (parameter, _) = the (domain fresh)
+    in
+      Term.map_types (Term.typ_subst_atomic [(parameter, T)]) fresh $
         Logic.mk_type T
       |> Proof_Context.cert_term ctxt
     end
@@ -193,7 +209,8 @@ struct
       val canonical = TVar (("_urust_trait", Term.maxidx_of_term term + 1), trait_sort)
       val normalized =
         Term.map_types (Term.typ_subst_atomic [(parameter, canonical)]) term
-        |> Term_Subst.zero_var_indexes
+        |> singleton (Variable.polymorphic ctxt)
+        |> normalize_template
     in (name, {term = normalized, pos = pos}) end
 
   fun prepare {path = path as (name, pos), sort = sort_source, constants} ctxt =

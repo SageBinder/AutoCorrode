@@ -74,4 +74,8 @@ urust_trait "merge::SharedMarker" = \<open> type \<close>
 
 urust_trait "merge::LeftMarker" = \<open> type \<close>
 
+urust_trait "merge::Polymorphic" = \<open> type \<close>
+  urust_consts "MERGE_EMPTY" = \<open> \<lambda>(_ :: 'a itself). ([] :: 'b::ord list) \<close>
+    and "MERGE_PAIR" = \<open> \<lambda>(_ :: 'a itself). (([] :: 'b list), ([] :: 'b list)) \<close>
+
 end
