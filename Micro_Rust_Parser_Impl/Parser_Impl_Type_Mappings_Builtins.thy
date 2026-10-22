@@ -22,4 +22,12 @@ urust_type "i64" = \<open>64 word\<close>
 urust_type "bool" = \<open>bool\<close>
 urust_type "()" = \<open>unit\<close>
 
+text\<open>
+The prelude types \<^verbatim>\<open>Option<T>\<close> and \<^verbatim>\<open>Result<T, E>\<close> are generic registry
+entries over the existing HOL models.
+\<close>
+
+urust_type "Option<'a>" = \<open>'a option\<close>
+urust_type "Result<'a, 'e>" = \<open>('a, 'e) result\<close>
+
 end

@@ -103,6 +103,43 @@ lemma div_ceil_spec [crush_specs]:
   shows \<open>\<Gamma> ; div_ceil x y \<Turnstile>\<^sub>F div_ceil_contract x y\<close>
 by (crush_boot f: div_ceil_def contract: div_ceil_contract_def) (crush_base simp add: div_ceil_pure_def)
 
+section\<open>Primitive integer bounds\<close>
+
+text\<open>The associated constants \<^verbatim>\<open>MIN\<close> and \<^verbatim>\<open>MAX\<close> of the primitive integer types that the
+uRust type registry maps by default, written with Rust's primitive path heads, for example
+\<^verbatim>\<open>u64::MAX\<close>. Signed types share the word type of the unsigned type of the same width, so
+their bounds are two's-complement bit patterns.\<close>
+
+definition u8_min :: \<open>8 word\<close> where \<open>u8_min \<equiv> 0\<close>
+definition u8_max :: \<open>8 word\<close> where \<open>u8_max \<equiv> - 1\<close>
+definition u16_min :: \<open>16 word\<close> where \<open>u16_min \<equiv> 0\<close>
+definition u16_max :: \<open>16 word\<close> where \<open>u16_max \<equiv> - 1\<close>
+definition u32_min :: \<open>32 word\<close> where \<open>u32_min \<equiv> 0\<close>
+definition u32_max :: \<open>32 word\<close> where \<open>u32_max \<equiv> - 1\<close>
+definition u64_min :: \<open>64 word\<close> where \<open>u64_min \<equiv> 0\<close>
+definition u64_max :: \<open>64 word\<close> where \<open>u64_max \<equiv> - 1\<close>
+definition usize_min :: \<open>64 word\<close> where \<open>usize_min \<equiv> 0\<close>
+definition usize_max :: \<open>64 word\<close> where \<open>usize_max \<equiv> - 1\<close>
+definition i32_min :: \<open>32 word\<close> where \<open>i32_min \<equiv> 0x80000000\<close>
+definition i32_max :: \<open>32 word\<close> where \<open>i32_max \<equiv> 0x7FFFFFFF\<close>
+definition i64_min :: \<open>64 word\<close> where \<open>i64_min \<equiv> 0x8000000000000000\<close>
+definition i64_max :: \<open>64 word\<close> where \<open>i64_max \<equiv> 0x7FFFFFFFFFFFFFFF\<close>
+
+urust_notation (literal) u8_min ("u8::MIN")
+urust_notation (literal) u8_max ("u8::MAX")
+urust_notation (literal) u16_min ("u16::MIN")
+urust_notation (literal) u16_max ("u16::MAX")
+urust_notation (literal) u32_min ("u32::MIN")
+urust_notation (literal) u32_max ("u32::MAX")
+urust_notation (literal) u64_min ("u64::MIN")
+urust_notation (literal) u64_max ("u64::MAX")
+urust_notation (literal) usize_min ("usize::MIN")
+urust_notation (literal) usize_max ("usize::MAX")
+urust_notation (literal) i32_min ("i32::MIN")
+urust_notation (literal) i32_max ("i32::MAX")
+urust_notation (literal) i64_min ("i64::MIN")
+urust_notation (literal) i64_max ("i64::MAX")
+
 section\<open>\<^verbatim>\<open>NonZeroU64\<close>\<close>
 
 typedef nonzero_u64 = \<open>{ w::64 word. w \<noteq> 0 }\<close>
@@ -113,6 +150,8 @@ proof -
   from this show ?thesis
     by blast
 qed
+
+urust_type "NonZeroU64" = \<open>nonzero_u64\<close>
 
 setup_lifting type_definition_nonzero_u64
 

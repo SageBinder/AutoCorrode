@@ -943,6 +943,82 @@ urust_fn \<open>
   }
 \<close>
 
+section\<open> Built-in prelude mappings \<close>
+
+text\<open>
+\<^verbatim>\<open>Option<T>\<close> and \<^verbatim>\<open>Result<T, E>\<close> are built-in generic mappings. Each mapped
+signature is identical to the same function written with HOL type escapes.
+\<close>
+
+urust_fn \<open>
+  fn SignaturePreludeOption(value: Option<u8>) -> Option<u8> { value }
+\<close>
+
+urust_fn \<open>
+  fn SignaturePreludeOptionEscaped(value: \<tau>\<open>8 word option\<close>) -> \<tau>\<open>8 word option\<close> {
+    value
+  }
+\<close>
+
+lemma signature_prelude_option_same:
+  \<open> signature_prelude_option = signature_prelude_option_escaped \<close>
+  unfolding signature_prelude_option_def signature_prelude_option_escaped_def
+  by (rule refl)
+
+urust_fn \<open>
+  fn SignaturePreludeResult(value: Result<u32, bool>) -> Result<u32, bool> { value }
+\<close>
+
+urust_fn \<open>
+  fn SignaturePreludeResultEscaped(value: \<tau>\<open>(32 word, bool) result\<close>)
+    -> \<tau>\<open>(32 word, bool) result\<close> { value }
+\<close>
+
+lemma signature_prelude_result_same:
+  \<open> signature_prelude_result = signature_prelude_result_escaped \<close>
+  unfolding signature_prelude_result_def signature_prelude_result_escaped_def
+  by (rule refl)
+
+urust_fn \<open>
+  fn SignaturePreludeNested(
+    value: Option<Result<(Option<u16>, ()), SignatureCount>>,
+  ) -> Option<Result<(Option<u16>, ()), SignatureCount>> { value }
+\<close>
+
+urust_fn \<open>
+  fn SignaturePreludeNestedEscaped(
+    value: \<tau>\<open>((16 word option \<times> unit \<times> tnil), nat) result option\<close>,
+  ) -> \<tau>\<open>((16 word option \<times> unit \<times> tnil), nat) result option\<close> { value }
+\<close>
+
+lemma signature_prelude_nested_same:
+  \<open> signature_prelude_nested = signature_prelude_nested_escaped \<close>
+  unfolding signature_prelude_nested_def signature_prelude_nested_escaped_def
+  by (rule refl)
+
+urust_fn \<open>
+  fn SignaturePreludeGeneric(value: Result<\<tau>\<open>'a\<close>, \<tau>\<open>'e\<close>>) -> Option<\<tau>\<open>'a\<close>> {
+    match value {
+      Ok(ok) => Some(ok),
+      Err(_) => None,
+    }
+  }
+\<close>
+
+urust_fn \<open>
+  fn SignaturePreludeGenericEscaped(value: \<tau>\<open>('a, 'e) result\<close>) -> \<tau>\<open>'a option\<close> {
+    match value {
+      Ok(ok) => Some(ok),
+      Err(_) => None,
+    }
+  }
+\<close>
+
+lemma signature_prelude_generic_same:
+  \<open> signature_prelude_generic = signature_prelude_generic_escaped \<close>
+  unfolding signature_prelude_generic_def signature_prelude_generic_escaped_def
+  by (rule refl)
+
 chapter\<open> Repeated locale interpretations \<close>
 
 text\<open>

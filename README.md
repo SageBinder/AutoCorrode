@@ -211,7 +211,8 @@ urust_fn identity_helper ‹
 `urust_type` is the sole nominal Rust-to-HOL type translation mechanism. Its context-local keys may
 be qualified and generic; ordered mapping placeholders must correspond exactly to the free type
 variables of the checked HOL template. The initial `u8`, `u16`, `u32`, `u64`, `usize`, `i32`,
-`i64`, `bool`, and `()` spellings are ordinary registry declarations, not resolver cases.
+`i64`, `bool`, and `()` spellings are ordinary registry declarations, not resolver cases, as are
+the prelude types `Option<T>` and `Result<T, E>`. `Micro_Rust_Std_Lib` adds `NonZeroU64`.
 
 `urust_datatype` is the recommended command for non-recursive Rust structs and enums. The HOL type name is
 optional and otherwise inferred with acronym-aware ASCII snake case (`HTTPServer` becomes
@@ -584,7 +585,9 @@ This session provides concrete interpretations for the locales defined in [Micro
 
 ### [Micro_Rust_Std_Lib](https://awslabs.github.io/AutoCorrode/Unsorted/AutoCorrode/Micro_Rust_Std_Lib.Micro_Rust_Std_Lib.html)
 
-Specifications and proofs for common µRust operations.
+Specifications and proofs for common µRust operations. The library also registers the Rust
+type mapping `NonZeroU64` and the primitive bounds `MIN` and `MAX` of `u8`, `u16`, `u32`, `u64`,
+`usize`, `i32` and `i64`, written with primitive path heads such as `u64::MAX`.
 
 ### [Data_Structures](https://awslabs.github.io/AutoCorrode/Unsorted/AutoCorrode/Data_Structures.Data_Structures.html)
 
