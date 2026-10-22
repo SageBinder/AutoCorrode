@@ -18,7 +18,7 @@ The session separates human-readable tests from ML tests. Most topics have two t
 
 | Topic | Examples | ML tests |
 |---|---|---|
-| `urust_fn` syntax, signatures, semantic types, channel defaults, typed receivers, mutable references and lifetimes, datatype composition | `Parser_Function_Examples` | `Parser_Function_ML_Tests` |
+| `urust_fn` syntax, signatures, semantic types, channel defaults, declared HOL types, typed receivers, mutable references and lifetimes, datatype composition | `Parser_Function_Examples` | `Parser_Function_ML_Tests` |
 | Expressions, dereference precedence, block comments, array repeats, human-readable printing | `Parser_Expression_Examples` | `Parser_Expression_ML_Tests` |
 | Accepted-surface improvements, primitive-type path heads, expression declarations, grammar boundaries | `Parser_Syntax_Examples` | `Parser_Syntax_ML_Tests` |
 | Rejected input | `Parser_Rejection_Examples` | `Parser_Syntax_ML_Tests` |
@@ -67,7 +67,7 @@ Function declarations take one complete Rust item:
 
 ```isabelle
 urust_expr [OPTIONS] NAME [:: TYPE] [(ARG, ...)] ‹ body ›
-urust_fn [OPTIONS] [HOL_NAME|_] ‹ fn RustName(PARAMETER: RUST_TYPE, ...) [-> RUST_TYPE] { body } ›
+urust_fn [OPTIONS] [HOL_NAME|_] [:: TYPE] ‹ fn RustName(PARAMETER: RUST_TYPE, ...) [-> RUST_TYPE] { body } ›
 urust [OPTIONS] ‹ [ω‹OPTIONS›] ITEM ... ›
 ```
 
@@ -485,15 +485,17 @@ negative rows preserve these boundaries.
   complete-item syntax, signatures, mappings, options, lexical binding and locale examples,
   iterator semantic regressions, full declaration types and kernel equalities, holes and
   independent call instances, locale fixes, inherited and overridden channel defaults, explicitly
-  typed receivers, HOL escapes and method dispatch, and complete generic and const mappings
-  through aliases, receivers and function channels.
+  typed receivers, HOL escapes and method dispatch, complete generic and const mappings
+  through aliases, receivers and function channels, and declared HOL types that replace ignored
+  Rust signature types.
 - `Parser_Function_ML_Tests.thy`: the internal audits and negative probes for those examples,
   including inference, registration, generated artifacts, ASTs, signature printer roundtrips,
   navigation and recovery; every channel combination, artifacts and positioned failures; channel
   defaults for chunk members, equivalence, precedence, removal and sharing, context scoping,
   locales, interpretation, reports and rollback; receiver name collisions and boundaries;
-  radix discriminants, scoped registration and read-only replay of composed declarations; and
-  the source positions of dispatch-marker and navigation payloads.
+  radix discriminants, scoped registration and read-only replay of composed declarations;
+  the source positions of dispatch-marker and navigation payloads; and declared HOL type schemes,
+  ignored Rust type reports, artifacts and positioned failures.
 - `Parser_Expression_Examples.thy`: positive expression syntax, including direct, method and
   chained iterator calls; Rust dereference and postfix precedence; nested and adjacent block-comment
   layout and positioned rejection; ordinary and inline-const array repeats, restricted length

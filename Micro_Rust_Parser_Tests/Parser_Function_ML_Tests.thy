@@ -2001,7 +2001,7 @@ ML_val \<open>
         (item "[register_notation = false]"
           "fn SignaturePrimitive(value: u8) -> bool { value }")
     val _ =
-      reject "signature-outer-type-rejected" "Outer syntax error"
+      reject "signature-outer-type-terminal" "declared result type must be function_body"
         ("urust_fn signature_failure :: " ^ cartouche "nat" ^ " " ^
           cartouche "fn SignatureFailure(value: u8) -> u8 { value }")
     val _ =
@@ -4458,6 +4458,212 @@ local
         (fn (_, properties) => Properties.get properties Markup.fileN = SOME label)
         positioned)
 in val _ = () end
+\<close>
+
+chapter\<open> Declared HOL types \<close>
+
+section\<open> Complete declared schemes \<close>
+
+ML_val\<open>
+  local
+    open Parser_Function_Regression_Test
+    val ctxt = \<^context>
+    val thy = Proof_Context.theory_of ctxt
+    fun same_type name expected =
+      require (name ^ ": declared type changed")
+        (Sign.typ_equiv thy (declared_type ctxt name, Logic.varifyT_global expected))
+    val _ =
+      same_type "declared_identity"
+        \<^typ>\<open>nat \<Rightarrow>
+          ('s::cancellative_sepalg, nat, bool, nat prompt, unit prompt_output) function_body\<close>
+    val _ =
+      same_type "declared_unsupported_types"
+        \<^typ>\<open>nat \<Rightarrow> nat \<Rightarrow> ('s, nat, 'abort, 'i, 'o) function_body\<close>
+    val _ =
+      same_type "declared_omitted_return" \<^typ>\<open>nat \<Rightarrow> ('s, nat, 'abort, 'i, 'o) function_body\<close>
+    val _ =
+      same_type "declared_ignored_escapes" \<^typ>\<open>nat \<Rightarrow> ('s, nat, 'abort, 'i, 'o) function_body\<close>
+    val _ =
+      same_type "declared_successor"
+        \<^typ>\<open>64 word \<Rightarrow> ('s, 64 word, 'abort, 'i, 'o) function_body\<close>
+    val _ = require "declared type differs from the equal Rust-resolved type"
+      (Sign.typ_equiv thy (declared_type ctxt "declared_successor", declared_type ctxt "rust_successor"))
+    val inferred = declared_type ctxt "declared_inferred_channels"
+    val (state, result, abort, input, output) = channels inferred
+    val _ = require "terminal hole lost the declared parameter or result"
+      (binder_types inferred = [\<^typ>\<open>nat\<close>] andalso result = \<^typ>\<open>nat\<close>)
+    val _ = independent "terminal hole channels became identified" [state, abort, input, output]
+    val (state, _, _, input, output) = channels (declared_type ctxt "declared_caller")
+    val _ = independent "a call fixed the declared function's channels" [state, input, output]
+    val ignoring = declared_type ctxt "declared_ignores_defaults"
+    val (state, _, abort, input, output) = channels ignoring
+    val _ = require "scoped defaults replaced a declared channel" (abort = \<^typ>\<open>unit\<close>)
+    val _ = independent "scoped defaults constrained a declared channel" [state, input, output]
+  in val _ = () end
+\<close>
+
+context semantic_type_locale
+begin
+
+ML_val\<open>
+  local
+    open Parser_Function_Regression_Test
+    val typ =
+      Syntax.read_term \<^context>
+        "declared_locale_identity :: 's \<Rightarrow> ('s, 's, bool, 'i, 'o) function_body"
+      |> fastype_of
+    val (state, result, _, _, _) = channels typ
+    val _ = require "declared locale state became flexible"
+      (state = \<^typ>\<open>'s\<close> andalso result = state andalso binder_types typ = [state])
+  in val _ = () end
+\<close>
+
+end
+
+section\<open> Ignored Rust types and reports \<close>
+
+ML_val\<open>
+  local
+    open Parser_Function_Regression_Test
+    val base = initial \<^theory>
+    (* The Rust types of a declared function report no mapping use; the declared type reports its
+       own native markup in the command. *)
+    fun markup_of label declared =
+      let
+        val text =
+          command "" ("declared_reports" ^ declared)
+            "fn DeclaredReports(value: u64) -> u64 { value }"
+        val (_, markup) = Parser_Test_Reports.markup (fn () => run_from base label text)
+      in (text, markup) end
+    val (resolved_text, resolved) = markup_of "declared-reports-rust" ""
+    val (declared_text, declared) =
+      markup_of "declared-reports-declared"
+        (" :: " ^ cartouche "64 word \<Rightarrow> ('s, 64 word, 'abort, 'i, 'o) function_body")
+    fun rust_types text label =
+      [token_position text (start label) "u64" (find_from text "value:" 0),
+       token_position text (start label) "u64" (find_from text "->" 0)]
+    fun mapping_at markup position =
+      exists (fn (_, properties) => has_position properties position)
+        (entities "micro_rust_type_mapping" markup)
+    val _ = require "the Rust signature control reported no mapping use"
+      (forall (mapping_at resolved) (rust_types resolved_text "declared-reports-rust"))
+    val _ = require "an ignored Rust type reported a mapping use"
+      (null (entities "micro_rust_type_mapping" declared))
+    val word = token_position declared_text (start "declared-reports-declared") "word" 0
+    val _ = require "the declared type lost its native type markup"
+      (exists (fn (_, properties) => has_position properties word)
+        (entities Markup.type_nameN declared))
+  in val _ = () end
+\<close>
+
+section\<open> Artifacts, options, positioned failures and rollback \<close>
+
+ML_val\<open>
+  local
+    open Parser_Function_Regression_Test
+    val base = initial \<^theory>
+    val ctxt = Toplevel.context_of base
+    val declared_text = "nat \<Rightarrow> (unit, nat, bool, nat prompt, unit prompt_output) function_body"
+    val declared = " :: " ^ cartouche declared_text
+    val item = "fn DeclaredArtifact(value: Unregistered) -> Unregistered { value }"
+    fun run options target = run_from base "declared-artifact" (command options target item)
+    val normal = run "" ("declared_artifact" ^ declared) |> Toplevel.context_of
+    val application = run "[application_def]" ("declared_application" ^ declared) |> Toplevel.context_of
+    val abbreviated = run "[abbrev]" ("declared_abbreviated" ^ declared) |> Toplevel.context_of
+    val suppressed =
+      run "[register_notation = false]" ("declared_suppressed" ^ declared) |> Toplevel.context_of
+    val inferred_name = run "" declared |> Toplevel.context_of
+    val _ = require "declared definition changed its type"
+      (Sign.typ_equiv (Proof_Context.theory_of normal)
+        (declared_type normal "declared_artifact", Syntax.read_typ ctxt declared_text))
+    val _ = require "declared application definition lost its source argument"
+      (is_Const (fst (Logic.dest_equals (Thm.prop_of (theorem normal "declared_artifact")))) andalso
+        not (is_Const
+          (fst (Logic.dest_equals (Thm.prop_of (theorem application "declared_application"))))))
+    val _ = require "declared abbreviation installed a definition theorem"
+      (is_none (try (fn () => theorem abbreviated "declared_abbreviated") ()))
+    val _ = require "declared abbreviation changed its type"
+      (Sign.typ_equiv (Proof_Context.theory_of abbreviated)
+        (declared_type abbreviated "declared_abbreviated", Syntax.read_typ ctxt declared_text))
+    val _ = registry_unchanged "suppressed declared function" ctxt suppressed
+    val _ = require "an omitted name with a declared type lost the inferred binding"
+      (Sign.typ_equiv (Proof_Context.theory_of inferred_name)
+        (declared_type inferred_name "declared_artifact", Syntax.read_typ ctxt declared_text))
+    val anonymous = run "" ("_" ^ declared) |> Toplevel.context_of
+    val _ = require "anonymous declared function installed a constant"
+      (constant_snapshot ctxt = constant_snapshot anonymous)
+    val _ = registry_unchanged "anonymous declared function" ctxt anonymous
+
+    fun reject_text label expected text =
+      let
+        val (result, reports) =
+          Parser_Test_Reports.markup (fn () => Exn.capture (run_from base label) text)
+        val diagnostic = message result
+        val _ = require (label ^ ": wrong diagnostic " ^ quote diagnostic)
+          (String.isSubstring expected diagnostic)
+        val _ = require (label ^ ": no source position")
+          (String.isSubstring label diagnostic andalso not (null (diagnostic_ranges diagnostic)))
+        val _ = require (label ^ ": installed declaration markup")
+          (null (declaration_definitions reports))
+        val _ = require (label ^ ": mutated constant table")
+          (constant_snapshot ctxt = constant_snapshot (Toplevel.context_of base))
+        val _ = registry_unchanged label ctxt (Toplevel.context_of base)
+        val _ =
+          ignore (run_from base (label ^ "-recovery")
+            (command "" ("declared_failure" ^ declared) item))
+      in diagnostic end
+    fun reject label expected options typ body =
+      ignore (reject_text label expected
+        (command options ("declared_failure :: " ^ cartouche typ) body))
+    (* A count mismatch is positioned at the first surplus Rust parameter, or else at the
+       declared type that expects the missing ones. *)
+    fun reject_at label expected typ body needle =
+      let
+        val text = command "" ("declared_failure :: " ^ cartouche typ) body
+        val diagnostic = reject_text label expected text
+        val position = token_position text (start label) needle 0
+      in
+        require (label ^ ": wrong diagnostic position")
+          (member (op =) (diagnostic_ranges diagnostic) (range_of position))
+      end
+    val _ =
+      reject_at "declared-surplus-parameter" "declared type expects 1 parameter, but 2 names"
+        "nat \<Rightarrow> _" "fn DeclaredFailure(value: u64, surplus: u64) -> u64 { value }" "surplus"
+    val _ =
+      reject_at "declared-missing-parameter" "declared type expects 2 parameters, but 1 name"
+        "nat \<Rightarrow> nat \<Rightarrow> _" "fn DeclaredFailure(value: u64) -> u64 { value }"
+        (cartouche "nat \<Rightarrow> nat \<Rightarrow> _")
+    val body = "fn DeclaredFailure(value: u64) -> u64 { value }"
+    val _ = reject "declared-terminal" "declared result type must be function_body"
+      "" "nat \<Rightarrow> nat" body
+    val _ = reject "declared-malformed" "Failed to parse type" "" "nat \<Rightarrow>" body
+    val _ = reject "declared-undefined" "Undefined type name" "" "declared_missing_type \<Rightarrow> _" body
+    val _ = reject "declared-body-mismatch" "Type unification failed"
+      "" "nat \<Rightarrow> ('s, bool, _, _, _) function_body" body
+    val _ = reject "declared-rigid-variable" "Type unification failed"
+      "" "'a \<Rightarrow> ('s, nat, _, _, _) function_body" body
+    val _ = reject "declared-abort-mismatch" "Type unification failed"
+      "" "('s, unit, unit, _, _) function_body"
+      "fn DeclaredFailure() { \<epsilon>\<open>abort (CustomAbort True)\<close> }"
+    val _ = reject "declared-undeclared-lifetime" "undeclared lifetime \"'a\""
+      "" "nat \<Rightarrow> _" "fn DeclaredFailure(value: &'a u8) -> u8 { value }"
+    val _ = reject "declared-reserved-lifetime" "cannot be declared as a lifetime parameter"
+      "" "nat \<Rightarrow> _" "fn DeclaredFailure<'static>(value: u8) -> u8 { value }"
+    val _ =
+      List.app (fn name =>
+        reject ("declared-with-" ^ name) ("option " ^ quote name ^ " cannot be combined")
+          ("[" ^ name ^ " = " ^ cartouche "unit" ^ "]") declared_text item)
+        ["state", "abort", "input", "output"]
+    val _ = reject_text "declared-rigid-locale" "Type unification failed"
+      ("context semantic_type_locale begin\n" ^
+        command "[register_notation = false]"
+          ("declared_failure :: " ^ cartouche "('s, unit, _, _, _) function_body")
+          "fn DeclaredFailure() { \<epsilon>\<open>put (\<lambda>_::unit. ())\<close> }")
+    val _ = reject_text "declared-chunk-annotation" "unknown uRust command option \"type\""
+      ("urust " ^
+        cartouche
+          ("\n  \<omega>" ^ cartouche ("type = " ^ cartouche declared_text) ^ "\n  " ^ item ^ "\n"))
+  in val _ = () end
 \<close>
 
 end

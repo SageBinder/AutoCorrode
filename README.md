@@ -133,7 +133,7 @@ The implementation session provides the production `urust_expr`, `urust_fn`, `ur
 
 ```isabelle
 urust_expr [OPTIONS] NAME [:: TYPE] [(ARG|_, ...)] ‹ body ›
-urust_fn [OPTIONS] [HOL_NAME|_] ‹ fn RustName[<'LIFETIME, ...>](PARAMETER: RUST_TYPE, ...) [-> RUST_TYPE] { body } ›
+urust_fn [OPTIONS] [HOL_NAME|_] [:: TYPE] ‹ fn RustName[<'LIFETIME, ...>](PARAMETER: RUST_TYPE, ...) [-> RUST_TYPE] { body } ›
 urust_type "RUST_TYPE['PARAMETER, ...]" = ‹HOL_TYPE›
 urust_type_alias ["QUALIFIED_PATH"] ‹ type RustName<T, ...> = RUST_TYPE; ›
 urust_datatype [OPTIONS] [HOL_NAME] ‹ struct-or-enum ›
@@ -157,6 +157,19 @@ unconstrained channels generalize. Named variables and sorts are shared across t
 and all signature `τ‹…›` escapes; locale type variables remain rigid and `_` holes independent.
 For example, `[state = ‹'s::cancellative_sepalg›, abort = ‹bool›]` retains a state sort and abort
 type while the Rust signature supplies all parameter and returned-value types.
+
+A declared `:: TYPE` instead gives the complete curried HOL type, as for `urust_expr`: one argument
+type per Rust parameter and a terminal `function_body`, or a terminal `_` that infers every channel.
+The Rust parameter and return types are then ignored. They are neither resolved nor checked, so
+they may name unmapped types, shared references or slices, and an omitted return no longer means
+`()`. Only the parameter count and the lifetime scope rules still apply. The declared type supplies
+every channel, so it cannot be combined with the channel options, and scoped channel defaults do
+not apply to it. `urust` chunk members have no declared-type form.
+
+```isabelle
+urust_fn :: ‹nat ⇒ ('s::cancellative_sepalg, nat, bool, nat prompt, unit prompt_output) function_body›
+  ‹ fn DeclaredIdentity(value: &Unmapped) -> Unmapped { value } ›
+```
 
 The scoped attributes `urust_state`, `urust_abort`, `urust_input` and `urust_output` set those
 channel types once for a context:

@@ -22,7 +22,8 @@ Function signatures additionally resolve mutable references \<open>&mut T\<close
 lifetime, to the same \<open>Global_Store.ref\<close> model as raw pointers, sharing the signature's
 address/global backend parameters. Lifetimes are checked against the function's declared lifetime
 parameters and then erased; they never change the resolved type. Shared references \<open>&T\<close>, and
-references in datatype fields, aliases and cast targets, remain rejected.
+references in datatype fields, aliases and cast targets, remain rejected. A function with a
+declared HOL type resolves no signature type and checks only these lifetime scope rules.
 \<close>
 
 ML\<open>
@@ -42,6 +43,7 @@ sig
   val resolve_function_signature:
     Proof.context -> function_channels -> URust_AST.rust_lifetime list ->
       URust_AST.rust_type list -> URust_AST.rust_type -> typ
+  val check_lifetimes: URust_AST.rust_lifetime list -> URust_AST.rust_type list -> unit
   val resolve_fields:
     Proof.context -> URust_AST.rust_type list ->
       {types: typ list, backend_parameters: (string * sort) list}

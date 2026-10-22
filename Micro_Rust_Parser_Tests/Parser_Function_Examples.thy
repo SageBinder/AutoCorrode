@@ -194,6 +194,37 @@ urust_fn [state = \<open>_\<close>] \<open> fn ScopedAnyStateIdentity(value: \<t
 
 end
 
+section\<open> Declared HOL types \<close>
+
+text\<open>
+An optional \<open>:: TYPE\<close> after the HOL name declares the complete curried HOL type, exactly as
+for \<open>urust_expr\<close>. The Rust parameter and return types are then ignored: they are neither
+resolved nor checked, so here \<open>u64\<close> stands for \<open>nat\<close>, and types without a mapping, shared
+references and slices are accepted. The declared type also fixes every channel.
+\<close>
+
+urust_fn declared_identity
+  :: \<open>nat \<Rightarrow> ('s::cancellative_sepalg, nat, bool, nat prompt, unit prompt_output) function_body\<close>
+  \<open> fn DeclaredIdentity(value: u64) -> u64 { value } \<close>
+
+urust_fn :: \<open>nat \<Rightarrow> nat \<Rightarrow> ('s, nat, 'abort, 'i, 'o) function_body\<close> \<open>
+    fn DeclaredUnsupportedTypes(value: &Unregistered, rest: &[u8]) -> Unregistered {
+      value
+    }
+  \<close>
+
+text\<open>
+An omitted Rust return no longer means unit, and an exact terminal \<open>_\<close> infers every channel.
+Calls to a declared function resolve like any other registered function.
+\<close>
+
+urust_fn :: \<open>nat \<Rightarrow> ('s, nat, 'abort, 'i, 'o) function_body\<close>
+  \<open> fn DeclaredOmittedReturn(value: u64) { value } \<close>
+
+urust_fn :: \<open>nat \<Rightarrow> _\<close> \<open> fn DeclaredInferredChannels(value: u64) -> u64 { value } \<close>
+
+urust_fn \<open> fn DeclaredCaller(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { DeclaredInferredChannels(value) } \<close>
+
 section\<open> Abbreviations and application definitions \<close>
 
 urust_fn [abbrev] abbreviated_hol_name
@@ -1876,5 +1907,71 @@ lemma composition_word_plugin_identity:
   \<open>composition_word_read =
     (\<lambda>value. FunctionBody (funcall1 composition_word_to_u8 (literal value)))\<close>
   unfolding composition_word_read_def by (rule refl)
+
+chapter\<open> Declared HOL types \<close>
+
+section\<open> Declared and Rust-resolved types \<close>
+
+declare [[urust_pretty = true, urust_verbosity = 2]]
+
+text\<open>
+A declared type that equals the resolved Rust signature produces the same definition. A declared
+type that differs from the Rust signature, including its HOL escapes, replaces it entirely.
+\<close>
+
+urust_fn declared_successor :: \<open>64 word \<Rightarrow> ('s, 64 word, 'abort, 'i, 'o) function_body\<close>
+  \<open> fn DeclaredSuccessor(value: u64) -> u64 { value + 1 } \<close>
+
+urust_fn \<open> fn RustSuccessor(value: u64) -> u64 { value + 1 } \<close>
+
+lemma declared_successor_equivalent:
+  \<open>declared_successor = rust_successor\<close>
+  unfolding declared_successor_def rust_successor_def by (rule refl)
+
+urust_fn :: \<open>nat \<Rightarrow> ('s, nat, 'abort, 'i, 'o) function_body\<close>
+  \<open> fn DeclaredIgnoredEscapes(value: \<tau>\<open>bool\<close>) -> \<tau>\<open>bool\<close> { value } \<close>
+
+lemma declared_identity_equivalent:
+  \<open>declared_identity = semantic_identity\<close>
+  unfolding declared_identity_def semantic_identity_def by (rule refl)
+
+lemma declared_unsupported_types_shape:
+  \<open>declared_unsupported_types = (\<lambda>value _. FunctionBody (literal value))\<close>
+  unfolding declared_unsupported_types_def by (rule refl)
+
+lemma declared_identity_contract:
+  fixes \<Gamma> :: \<open>('s::cancellative_sepalg, bool, nat, unit) striple_context\<close>
+  shows \<open>\<Gamma>; declared_identity value \<Turnstile>\<^sub>F lift_pure_to_contract value\<close>
+  by (crush_boot f: declared_identity_def contract: lift_pure_to_contract_def; crush_base)
+
+section\<open> Declared channels, defaults and locale fixes \<close>
+
+text\<open>
+The declared type supplies every channel, so scoped channel defaults do not apply to it. Locale
+type variables in a declared type remain fixed.
+\<close>
+
+context
+  notes [[urust_state = \<open>unit\<close>, urust_abort = \<open>bool\<close>]]
+begin
+
+urust_fn :: \<open>nat \<Rightarrow> ('s, nat, unit, 'i, 'o) function_body\<close>
+  \<open> fn DeclaredIgnoresDefaults(value: u64) -> u64 { value } \<close>
+
+end
+
+context semantic_type_locale
+begin
+
+urust_fn [register_notation = false]
+  :: \<open>'s \<Rightarrow> ('s, 's, bool, 'i, 'o) function_body\<close>
+  \<open> fn DeclaredLocaleIdentity(value: LocaleState) -> LocaleState { value } \<close>
+
+end
+
+lemma declared_interpreted_identity:
+  \<open>function_body (semantic_unit.declared_locale_identity ()) =
+    (literal () :: (unit, unit, unit, bool, nat prompt, unit prompt_output) expression)\<close>
+  unfolding semantic_unit.declared_locale_identity_def by simp
 
 end

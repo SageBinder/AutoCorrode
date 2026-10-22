@@ -207,6 +207,19 @@ lemma scoped_packet_length_equivalent:
   unfolding scoped_packet_length_def stable_packet_length_def by (rule refl)
 
 text\<open>
+A declared \<open>:: TYPE\<close> states the complete HOL type instead. The Rust signature's types are then
+ignored, so they may use Rust types without a mapping, such as the shared reference here.
+\<close>
+
+urust_fn [application_def]
+  :: \<open>64 word \<Rightarrow> ('s::cancellative_sepalg, 64 word, bool, nat prompt, unit prompt_output) function_body\<close>
+  \<open> fn DeclaredPacketLength(packet: &Packet) -> u64 { PacketLength(packet) } \<close>
+
+lemma declared_packet_length_equivalent:
+  \<open>declared_packet_length packet = stable_packet_length packet\<close>
+  unfolding declared_packet_length_def stable_packet_length_def by (rule refl)
+
+text\<open>
 An explicitly typed \<open>self\<close> uses the signature's receiver type and the ordinary
 parameter binding, including inside HOL escapes.
 \<close>

@@ -23,11 +23,18 @@ It infers an untyped expression or accepts a complete declaration type. A termin
 \<open>function_body\<close> type wraps the body once in \<open>FunctionBody\<close>.
 
 The function surface is
-\<open>urust_fn [OPTIONS] [HOL_NAME|_] src\<close>, where the cartouche contains one complete
+\<open>urust_fn [OPTIONS] [HOL_NAME|_] [:: TYPE] src\<close>, where the cartouche contains one complete
 \<open>fn RustName[<'lifetime, ...>](parameter: RustType, ...) [-> RustType] { body }\<close> item.
-Its Rust signature is authoritative: parameter and explicit result types resolve through
-\<open>urust_type\<close>, including qualified and generic mappings and structural tuples.
-The shared type grammar permits \<open>\<tau>\<open>HOL type\<close>\<close> anywhere a type occurs.
+A declared \<open>TYPE\<close> is the complete curried HOL declaration type, with one argument type per
+Rust parameter and a terminal \<open>function_body\<close>, or an exact terminal \<open>_\<close> that infers every
+channel. It replaces the Rust signature's types, which are then neither resolved nor checked;
+only the parameter count and the lifetime scope rules below still apply. Named variables, sorts,
+locale variables and \<open>_\<close> holes follow ordinary HOL type reading, as for \<open>urust_expr\<close>. The
+declared type also supplies every channel: it cannot be combined with the channel options below,
+and scoped channel defaults do not apply to it.
+Without a declared type, the Rust signature is authoritative: parameter and explicit result
+types resolve through \<open>urust_type\<close>, including qualified and generic mappings and structural
+tuples. The shared type grammar permits \<open>\<tau>\<open>HOL type\<close>\<close> anywhere a type occurs.
 Function escapes support polymorphic variables, shared sort constraints, higher-order types and
 independent inference holes. Raw pointers and mutable references \<open>&mut T\<close> resolve to the same
 \<open>Global_Store.ref\<close> model and share implicit address/global backend parameters across the
@@ -35,8 +42,8 @@ complete signature, constrained by its body and expected types. Datatype fields 
 backend parameters for raw pointers while continuing to reject unrelated free type variables.
 The optional generic list declares only lifetimes. Reference lifetimes, such as \<open>&'a mut T\<close>,
 must be declared there unless they are \<open>'static\<close> or \<open>'_\<close>; lifetimes are then erased and
-never change the definition. Shared references \<open>&T\<close>, type generics, lifetime bounds and
-lifetime generic arguments are rejected. An omitted return
+never change the definition. Type generics, lifetime bounds and lifetime generic arguments are
+rejected, as are shared references \<open>&T\<close> without a declared type. An omitted return
 means Rust unit, just like explicit \<open>-> ()\<close>. Non-unit results require a return annotation.
 The independently optional inline \<open>state\<close>, \<open>abort\<close>, \<open>input\<close> and
 \<open>output\<close> options take positioned HOL types and constrain the actual constant's channels.
@@ -233,7 +240,8 @@ Boolean options, omitting \<open>= true\<close> enables the option, so both comm
 value. Function declarations additionally accept Boolean \<open>register_notation\<close>,
 including its bare enabling spelling, and the HOL type options \<open>state\<close>, \<open>abort\<close>,
 \<open>input\<close> and \<open>output\<close>, which override the scoped defaults \<open>urust_state\<close>,
-\<open>urust_abort\<close>, \<open>urust_input\<close> and \<open>urust_output\<close>.
+\<open>urust_abort\<close>, \<open>urust_input\<close> and \<open>urust_output\<close>. A declared \<open>:: TYPE\<close> is a
+command argument rather than an option, so \<open>urust\<close> chunk members cannot declare one.
 
 An argument-taking abbreviation declaration exposes a parser expression or function body as a HOL
 helper. At HOL use sites, write \<open>(helper args)\<close> when surrounding syntax would otherwise group the
@@ -1309,44 +1317,75 @@ fun function_pretty_body function =
        error
          "urust_fn: internal Rust-shaped function body is not a block")
 
-(* Resolve the optional channels and every Rust signature type together. Shared names retain
-   their sorts and relationships; independent inference holes stay distinct. The constructed complete
-   type supplies the lexical parameter slots and the sole body-checking pipeline. *)
-fun prepare_function_signature lthy channels function =
-  let
-    val arguments = function_arguments function
-    val parameter_types =
-      map (fn URust_AST.Function_Parameter (_, _, typ, _) => typ)
-        (URust_AST.function_parameters function)
-    val return_type =
-      the_default
-        (URust_AST.Primitive_Type
-          (URust_AST.DPT_Unit, URust_AST.function_item_position function))
-        (URust_AST.function_return_type function)
-    val complete_type =
-      URust_Type_Mappings.resolve_function_signature lthy channels
-        (URust_AST.function_lifetime_parameters function)
-        parameter_types return_type
-    (* An inherited default belongs to an earlier command; only authored channels position the
-       declaration type. *)
-    fun authored (SOME (URust_Type_Mappings.Authored_Channel source)) = SOME (Input.pos_of source)
-      | authored _ = NONE
-    val type_pos =
-      (case map_filter authored
-          [#state channels, #abort channels, #input channels, #output channels] of
-         pos :: _ => pos
-       | [] => URust_AST.rust_type_position return_type)
-  in
-    (SOME (complete_type, type_pos),
-     typed_arguments arguments (binder_types complete_type))
-  end
+(* The source of a function's declaration type: a declared HOL type, or the Rust signature with
+   its optional channels. *)
+datatype function_signature =
+    Declared_Signature of string * Position.T
+  | Rust_Signature of URust_Type_Mappings.function_channels
 
-fun elaborate_function_item pp_test lthy channels source function =
+fun function_parameter_types function =
+  map (fn URust_AST.Function_Parameter (_, _, typ, _) => typ)
+    (URust_AST.function_parameters function)
+
+(* A declared type is read like a urust_expr declaration type and alone supplies the parameter
+   slots: the Rust parameter and return types are never resolved, so they neither constrain it nor
+   fail. Lifetime scope remains a Rust rule of the item.
+
+   Otherwise resolve the optional channels and every Rust signature type together. Shared names
+   retain their sorts and relationships; independent inference holes stay distinct. The constructed
+   complete type supplies the lexical parameter slots and the sole body-checking pipeline. *)
+fun prepare_function_signature lthy (Declared_Signature declared) function =
+      let
+        val arguments = function_arguments function
+        val _ =
+          URust_Type_Mappings.check_lifetimes
+            (URust_AST.function_lifetime_parameters function)
+            (function_parameter_types function @
+              the_list (URust_AST.function_return_type function))
+        val (complete_type, type_pos) =
+          URust_Report_Transaction.native lthy (fn read_ctxt =>
+            read_declared_type read_ctxt Function declared)
+        val _ = terminal_value_type Function type_pos complete_type
+        val _ =
+          validate_argument_count Function type_pos arguments (binder_types complete_type)
+      in
+        (SOME (complete_type, type_pos),
+         typed_arguments arguments (binder_types complete_type))
+      end
+  | prepare_function_signature lthy (Rust_Signature channels) function =
+      let
+        val arguments = function_arguments function
+        val parameter_types = function_parameter_types function
+        val return_type =
+          the_default
+            (URust_AST.Primitive_Type
+              (URust_AST.DPT_Unit, URust_AST.function_item_position function))
+            (URust_AST.function_return_type function)
+        val complete_type =
+          URust_Type_Mappings.resolve_function_signature lthy channels
+            (URust_AST.function_lifetime_parameters function)
+            parameter_types return_type
+        (* An inherited default belongs to an earlier command; only authored channels position the
+           declaration type. *)
+        fun authored (SOME (URust_Type_Mappings.Authored_Channel source)) =
+              SOME (Input.pos_of source)
+          | authored _ = NONE
+        val type_pos =
+          (case map_filter authored
+              [#state channels, #abort channels, #input channels, #output channels] of
+             pos :: _ => pos
+           | [] => URust_AST.rust_type_position return_type)
+      in
+        (SOME (complete_type, type_pos),
+         typed_arguments arguments (binder_types complete_type))
+      end
+
+fun elaborate_function_item pp_test lthy signature_source source function =
   let
     val arguments = function_arguments function
     val body_source = function_body_source source function
     val (declared_type, arguments_with_types) =
-      prepare_function_signature lthy channels function
+      prepare_function_signature lthy signature_source function
     val _ =
       if pp_test
       then function_pretty_roundtrip lthy source function
@@ -1402,10 +1441,10 @@ fun register_function_result target (rust_name, rust_pos) declaration lthy =
 
 fun declare_urust_function_result pp_test render_pretty
     abbreviation application_definition attributes binding
-    target register_notation channels source function lthy =
+    target register_notation signature_source source function lthy =
   let
     val {term, arguments, declared_type, arguments_with_types} =
-      elaborate_function_item pp_test lthy channels source function
+      elaborate_function_item pp_test lthy signature_source source function
     val pretty_body =
       if render_pretty then
         let
@@ -1743,10 +1782,30 @@ datatype prepared_function =
     {interactive: bool, pp_test: bool, verbosity: int, pretty: bool, render_pretty: bool,
      abbreviation: bool, application_definition: bool, attributes: Token.src list,
      binding: binding, target: declaration_target, register_notation: bool,
-     channels: URust_Type_Mappings.function_channels,
+     signature_source: function_signature,
      source: Input.source, function: URust_AST.urust_function, warnings: unit -> unit}
 
-fun prepare_function lthy {interactive, roundtrip, options, target, source, function} =
+(* A declared type supplies every channel, so an authored channel option beside it is rejected
+   and scoped channel defaults are not consulted. *)
+fun configured_signature lthy function options NONE =
+      let fun channel name scoped = configured_channel lthy function options name scoped in
+        Rust_Signature
+          {state = channel state_option urust_state, abort = channel abort_option urust_abort,
+           input = channel input_option urust_input, output = channel output_option urust_output}
+      end
+  | configured_signature _ _ options (SOME declared) =
+      (case
+          map_filter (fn name => Option.map (pair name o #2) (Symtab.lookup options name))
+            [state_option, abort_option, input_option, output_option] of
+         [] => Declared_Signature declared
+       | (name, pos) :: _ =>
+           error
+             ("urust_fn: option " ^ quote name ^
+               " cannot be combined with a declared type, which supplies every channel" ^
+               Position.here pos))
+
+fun prepare_function lthy
+    {interactive, roundtrip, options, target, declared_type, source, function} =
   let
     val register_notation =
       configured_flag lthy options register_notation_option urust_register_notation
@@ -1769,7 +1828,6 @@ fun prepare_function lthy {interactive, roundtrip, options, target, source, func
         "urust_fn" abbreviation application_definition
     val attributes =
       declaration_attributes lthy "urust_fn" target abbreviation options
-    fun channel name scoped = configured_channel lthy function options name scoped
   in
     Prepared_Function
       {interactive = interactive, pp_test = pp_test, verbosity = verbosity, pretty = pretty,
@@ -1777,9 +1835,7 @@ fun prepare_function lthy {interactive, roundtrip, options, target, source, func
        application_definition = application_definition, attributes = attributes,
        binding = target_binding Function target, target = target,
        register_notation = register_notation,
-       channels =
-         {state = channel state_option urust_state, abort = channel abort_option urust_abort,
-          input = channel input_option urust_input, output = channel output_option urust_output},
+       signature_source = configured_signature lthy function options declared_type,
        source = source, function = function, warnings = warnings}
   end
 
@@ -1790,7 +1846,7 @@ fun prepare_function lthy {interactive, roundtrip, options, target, source, func
 fun declare_prepared_function
     (Prepared_Function
       {interactive, pp_test, verbosity, pretty, render_pretty, abbreviation,
-       application_definition, attributes, binding, target, register_notation, channels,
+       application_definition, attributes, binding, target, register_notation, signature_source,
        source, function, warnings}) lthy =
   let
     val (rust_name, rust_pos) =
@@ -1805,7 +1861,7 @@ fun declare_prepared_function
     val (result, lthy') =
       declare_urust_function_result pp_test render_pretty
         abbreviation application_definition attributes binding
-        target register_notation channels source function lthy
+        target register_notation signature_source source function lthy
   in
     (fn () => (warnings (); print_declaration interactive verbosity pretty lthy' result), lthy')
   end
@@ -1833,7 +1889,7 @@ fun run_declaration declaration lthy =
   in completed end
 
 fun define_urust_fn
-    (options, (target_option, source))
+    (options, ((target_option, declared_type), source))
     interactive lthy =
   let
     val function =
@@ -1849,7 +1905,7 @@ fun define_urust_fn
         (prepare_function lthy
           {interactive = interactive, roundtrip = true, options = options,
            target = the_default (default_function_target function) target_option,
-           source = source, function = function}))
+           declared_type = declared_type, source = source, function = function}))
       lthy
   end
 
@@ -1949,7 +2005,8 @@ fun prepare_function_item lthy {interactive, roundtrip, options, source, functio
   prepare_function lthy
     {interactive = interactive, roundtrip = roundtrip,
      options = Symtab.delete_safe name_option options,
-     target = option_function_target options function, source = source, function = function}
+     target = option_function_target options function, declared_type = NONE,
+     source = source, function = function}
 
 fun prepare_datatype_item lthy {interactive, roundtrip, options, source, item} =
   prepare_datatype lthy
@@ -2154,6 +2211,7 @@ fun parse_urust_declaration option_configs =
 fun parse_urust_fn_declaration option_configs =
   parse_command_options option_configs --
     (Scan.option parse_declaration_target --
+      parse_declared_type --
       (Parse.token Parse.cartouche >>
         Parser_Lex_Util.cartouche_source))
 
@@ -2165,7 +2223,7 @@ val _ =
 
 val _ =
   Outer_Syntax.local_theory' \<^command_keyword>\<open>urust_fn\<close>
-    "Declare a uRust function with an authoritative Rust signature"
+    "Declare a uRust function from a Rust item, optionally with a declared HOL type"
     (parse_urust_fn_declaration function_option_configs >>
       define_urust_fn)
 
