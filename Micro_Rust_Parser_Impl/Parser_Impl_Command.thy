@@ -40,10 +40,14 @@ independent inference holes. Raw pointers and mutable references \<open>&mut T\<
 \<open>Global_Store.ref\<close> model and share implicit address/global backend parameters across the
 complete signature, constrained by its body and expected types. Datatype fields introduce those
 backend parameters for raw pointers while continuing to reject unrelated free type variables.
-The optional generic list declares only lifetimes. Reference lifetimes, such as \<open>&'a mut T\<close>,
+The optional generic list declares only lifetimes. Reference and generic-argument lifetimes,
+such as \<open>&'a mut T\<close> and \<open>Cursor<'a, T>\<close>,
 must be declared there unless they are \<open>'static\<close> or \<open>'_\<close>; lifetimes are then erased and
-never change the definition. Type generics, lifetime bounds and lifetime generic arguments are
-rejected, as are shared references \<open>&T\<close> without a declared type. An omitted return
+never change the definition. Type generics and lifetime bounds are rejected. Literal function-pointer
+types, \<open>impl Trait\<close>, lifetime generic arguments, associated type bindings, const-expression
+generic arguments, and unexpanded macro type variables are parsed as unresolved syntax. They
+require a declared HOL type; the type resolver supplies no interpretation for them.
+Shared references \<open>&T\<close> are also rejected without a declared type. An omitted return
 means Rust unit, just like explicit \<open>-> ()\<close>. Non-unit results require a return annotation.
 The independently optional inline \<open>state\<close>, \<open>abort\<close>, \<open>input\<close> and
 \<open>output\<close> options take positioned HOL types and constrain the actual constant's channels.

@@ -334,6 +334,9 @@ fun recursive_type_position rust_name datatype_type =
     fun argument
         (URust_AST.Rust_Type_Argument typ) = typ_position typ
       | argument (URust_AST.Rust_Numeric_Argument _) = NONE
+      | argument (URust_AST.Rust_Lifetime_Argument _) = NONE
+      | argument (URust_AST.Rust_Associated_Type_Argument (_, _, typ)) = typ_position typ
+      | argument (URust_AST.Rust_Const_Expression_Argument _) = NONE
     and typ_position
         (URust_AST.Primitive_Type _) = NONE
       | typ_position (URust_AST.Path_Type (segments, layout)) =
@@ -362,6 +365,10 @@ fun recursive_type_position rust_name datatype_type =
       | typ_position (URust_AST.Array_Type (typ, _, _)) =
           typ_position typ
       | typ_position (URust_AST.Const_Array_Type (typ, _, _)) = typ_position typ
+      | typ_position (URust_AST.Function_Type (parameters, result, _)) =
+          get_first typ_position (parameters @ the_list result)
+      | typ_position (URust_AST.Impl_Trait_Type (typ, _)) = typ_position typ
+      | typ_position (URust_AST.Macro_Type _) = NONE
       | typ_position (URust_AST.HOL_Type_Source _) = NONE
   in typ_position datatype_type end
 

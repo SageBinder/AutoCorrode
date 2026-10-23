@@ -220,6 +220,24 @@ lemma declared_packet_length_equivalent:
   unfolding declared_packet_length_def stable_packet_length_def by (rule refl)
 
 text\<open>
+The same declared type also permits literal iterator lifetimes and function-pointer types,
+even when the Rust types have no HOL mapping.
+\<close>
+
+urust_fn
+  :: \<open>64 word \<Rightarrow> ('s, 64 word, 'abort, 'i, 'o) function_body\<close>
+  \<open>
+    fn DeclaredLiteralSignature(value: slice::Iter<'_, fn(&Packet) -> bool>)
+      -> impl Iterator<Item = Packet> {
+      value
+    }
+  \<close>
+
+lemma declared_literal_signature_shape:
+  \<open>declared_literal_signature = (\<lambda>value. FunctionBody (literal value))\<close>
+  unfolding declared_literal_signature_def by (rule refl)
+
+text\<open>
 An explicitly typed \<open>self\<close> uses the signature's receiver type and the ordinary
 parameter binding, including inside HOL escapes.
 \<close>

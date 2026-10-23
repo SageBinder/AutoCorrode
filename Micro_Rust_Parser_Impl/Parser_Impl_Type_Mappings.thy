@@ -996,7 +996,13 @@ struct
                       end
                   | (Rust_Numeric_Argument integer, Type_Parameter) =>
                       unsupported kind "numeric generic arguments for type parameters"
-                        (numeric_argument_position integer))
+                        (numeric_argument_position integer)
+                  | (Rust_Lifetime_Argument (Rust_Lifetime (_, pos)), _) =>
+                      unsupported kind "lifetime generic arguments" pos
+                  | (Rust_Associated_Type_Argument (_, pos, _), _) =>
+                      unsupported kind "associated type bindings" pos
+                  | (Rust_Const_Expression_Argument source, _) =>
+                      unsupported kind "const expression generic arguments" (Input.pos_of source))
                val resolved_arguments = map resolve_argument (arguments ~~ #parameter_kinds entry)
                val parameter_sorts = #parameter_sorts entry
                val backend_sorts = #backend_parameter_sorts entry
@@ -1051,6 +1057,14 @@ struct
               val rows = path_rows segments
               val {base, positions, arities, arguments} = row_information rows
               val pos = source_span layout
+              val _ = List.app
+                (fn Rust_Lifetime_Argument (Rust_Lifetime (_, pos)) =>
+                      unsupported kind "lifetime generic arguments" pos
+                  | Rust_Associated_Type_Argument (_, pos, _) =>
+                      unsupported kind "associated type bindings" pos
+                  | Rust_Const_Expression_Argument source =>
+                      unsupported kind "const expression generic arguments" (Input.pos_of source)
+                  | _ => ()) arguments
             in
               (case parameter base arities pos of
                  SOME value => value
@@ -1106,6 +1120,12 @@ struct
             resolve_array element (length_literal ctxt integer) (source_span layout)
         | resolve_type (Const_Array_Type (element, length, layout)) =
             resolve_array element (#typ (resolve_type length)) (source_span layout)
+        | resolve_type (Function_Type (_, _, layout)) =
+            unsupported kind "Rust function pointer types" (source_span layout)
+        | resolve_type (Impl_Trait_Type (_, layout)) =
+            unsupported kind "Rust impl Trait types" (source_span layout)
+        | resolve_type (Macro_Type (_, pos)) =
+            unsupported kind "unexpanded Rust macro types" pos
         | resolve_type (HOL_Type_Source source) =
             let val typ = read_escape source in
               {typ = typ, meaning = Meaning_HOL typ}
@@ -1242,6 +1262,9 @@ struct
         let
           fun argument (Rust_Type_Argument typ) = SOME typ
             | argument (Rust_Numeric_Argument _) = NONE
+            | argument (Rust_Lifetime_Argument _) = NONE
+            | argument (Rust_Associated_Type_Argument (_, _, typ)) = SOME typ
+            | argument (Rust_Const_Expression_Argument _) = NONE
           fun segment (Rust_Type_Path_Segment (_, _, arguments, _)) =
             map_filter argument (the_default [] arguments)
         in maps segment segments end
@@ -1252,6 +1275,10 @@ struct
     | rust_type_operands (Slice_Type (typ, _)) = [typ]
     | rust_type_operands (Array_Type (typ, _, _)) = [typ]
     | rust_type_operands (Const_Array_Type (typ, length, _)) = [typ, length]
+    | rust_type_operands (Function_Type (parameters, result, _)) =
+        parameters @ the_list result
+    | rust_type_operands (Impl_Trait_Type (typ, _)) = [typ]
+    | rust_type_operands (Macro_Type _) = []
     | rust_type_operands (Primitive_Type _) = []
     | rust_type_operands (HOL_Type_Source _) = []
 
@@ -1259,6 +1286,15 @@ struct
     | hol_sources typ = maps hol_sources (rust_type_operands typ)
 
   fun lifetime_uses (Reference_Type (_, SOME lifetime, typ, _)) = lifetime :: lifetime_uses typ
+    | lifetime_uses (Path_Type (segments, _)) =
+        let
+          fun argument (Rust_Lifetime_Argument lifetime) = [lifetime]
+            | argument (Rust_Type_Argument typ) = lifetime_uses typ
+            | argument (Rust_Associated_Type_Argument (_, _, typ)) = lifetime_uses typ
+            | argument _ = []
+          fun segment (Rust_Type_Path_Segment (_, _, arguments, _)) =
+            maps argument (the_default [] arguments)
+        in maps segment segments end
     | lifetime_uses typ = maps lifetime_uses (rust_type_operands typ)
 
   fun reserved_lifetime name = name = "'static" orelse name = "'_"

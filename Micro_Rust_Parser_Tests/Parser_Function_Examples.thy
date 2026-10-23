@@ -1947,6 +1947,55 @@ lemma declared_identity_contract:
 section\<open> Declared channels, defaults and locale fixes \<close>
 
 text\<open>
+Rust source types may be retained literally even when they have no HOL interpretation.
+These declarations exercise function pointers, iterator lifetime arguments, associated types,
+const expressions, and types from an unexpanded Rust macro. Their complete HOL types alone
+determine the resulting functions.
+\<close>
+
+urust_fn declared_native_function_pointer
+  :: \<open>nat \<Rightarrow> ('s, nat, 'abort, 'i, 'o) function_body\<close>
+  \<open> fn DeclaredNativeFunctionPointer(value: fn(&Element) -> bool) -> bool { value } \<close>
+
+urust_fn declared_native_iterator
+  :: \<open>nat \<Rightarrow> ('s, nat, 'abort, 'i, 'o) function_body\<close>
+  \<open>
+    fn DeclaredNativeIterator<'a>(value: slice::IterMut<'a, Element>)
+      -> impl Iterator<Item = (&'a Element, u64)> {
+      value
+    }
+  \<close>
+
+urust_fn declared_native_const_expression
+  :: \<open>nat \<Rightarrow> ('s, nat, 'abort, 'i, 'o) function_body\<close>
+  \<open>
+    fn DeclaredNativeConstExpression(value: Buffer<{ Flavor::Small as usize }>)
+      -> Buffer<{ Flavor::Large as usize }> {
+      value
+    }
+  \<close>
+
+urust_fn declared_native_macro_type
+  :: \<open>nat \<Rightarrow> ('s, nat, 'abort, 'i, 'o) function_body\<close>
+  \<open> fn DeclaredNativeMacroType(value: $Scalar) -> FieldValue<$Scalar, Register> { value } \<close>
+
+lemma declared_native_function_pointer_shape:
+  \<open>declared_native_function_pointer = (\<lambda>value. FunctionBody (literal value))\<close>
+  unfolding declared_native_function_pointer_def by (rule refl)
+
+lemma declared_native_iterator_shape:
+  \<open>declared_native_iterator = (\<lambda>value. FunctionBody (literal value))\<close>
+  unfolding declared_native_iterator_def by (rule refl)
+
+lemma declared_native_const_expression_shape:
+  \<open>declared_native_const_expression = (\<lambda>value. FunctionBody (literal value))\<close>
+  unfolding declared_native_const_expression_def by (rule refl)
+
+lemma declared_native_macro_type_shape:
+  \<open>declared_native_macro_type = (\<lambda>value. FunctionBody (literal value))\<close>
+  unfolding declared_native_macro_type_def by (rule refl)
+
+text\<open>
 The declared type supplies every channel, so scoped channel defaults do not apply to it. Locale
 type variables in a declared type remain fixed.
 \<close>

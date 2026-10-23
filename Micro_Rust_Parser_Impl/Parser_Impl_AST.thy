@@ -112,10 +112,16 @@ sig
     | Slice_Type of rust_type * source_layout
     | Array_Type of rust_type * integer_literal * source_layout
     | Const_Array_Type of rust_type * rust_type * source_layout
+    | Function_Type of rust_type list * rust_type option * source_layout
+    | Impl_Trait_Type of rust_type * source_layout
+    | Macro_Type of string * Position.T
     | HOL_Type_Source of Input.source
   and rust_generic_argument =
       Rust_Type_Argument of rust_type
     | Rust_Numeric_Argument of integer_literal
+    | Rust_Lifetime_Argument of rust_lifetime
+    | Rust_Associated_Type_Argument of string * Position.T * rust_type
+    | Rust_Const_Expression_Argument of Input.source
   and rust_type_path_segment =
     Rust_Type_Path_Segment of
       string * Position.T * rust_generic_argument list option * source_layout
@@ -704,10 +710,16 @@ struct
     | Slice_Type of rust_type * source_layout
     | Array_Type of rust_type * integer_literal * source_layout
     | Const_Array_Type of rust_type * rust_type * source_layout
+    | Function_Type of rust_type list * rust_type option * source_layout
+    | Impl_Trait_Type of rust_type * source_layout
+    | Macro_Type of string * Position.T
     | HOL_Type_Source of Input.source
   and rust_generic_argument =
       Rust_Type_Argument of rust_type
     | Rust_Numeric_Argument of integer_literal
+    | Rust_Lifetime_Argument of rust_lifetime
+    | Rust_Associated_Type_Argument of string * Position.T * rust_type
+    | Rust_Const_Expression_Argument of Input.source
   and rust_type_path_segment =
     Rust_Type_Path_Segment of
       string * Position.T * rust_generic_argument list option * source_layout
@@ -821,6 +833,9 @@ struct
     | rust_type_position (Slice_Type (_, layout)) = source_span layout
     | rust_type_position (Array_Type (_, _, layout)) = source_span layout
     | rust_type_position (Const_Array_Type (_, _, layout)) = source_span layout
+    | rust_type_position (Function_Type (_, _, layout)) = source_span layout
+    | rust_type_position (Impl_Trait_Type (_, layout)) = source_span layout
+    | rust_type_position (Macro_Type (_, pos)) = pos
     | rust_type_position (HOL_Type_Source source) = Input.pos_of source
 
   val datatype_type_position = rust_type_position

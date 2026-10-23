@@ -476,7 +476,14 @@ fun rust_type_document rust_type =
       (case argument of
          Rust_Type_Argument typ => rust_type_document typ
        | Rust_Numeric_Argument integer =>
-           numeral (integer_literal_lexeme integer))
+           numeral (integer_literal_lexeme integer)
+       | Rust_Lifetime_Argument lifetime =>
+           lifetime_document "Rust generic argument" lifetime
+       | Rust_Associated_Type_Argument (name, _, typ) =>
+           identifier (require_identifier "associated type binding" name) @
+           space @ delimiter "=" @ space @ rust_type_document typ
+       | Rust_Const_Expression_Argument source =>
+           embedded (Input.string_of source))
     fun segment_document
         (Rust_Type_Path_Segment (name, _, arguments, _)) =
       identifier (require_identifier "Rust type path segment" name) @
@@ -538,6 +545,14 @@ fun rust_type_document rust_type =
           numeral (integer_literal_lexeme integer))
    | Const_Array_Type (typ, length, _) =>
        bracketed (rust_type_document typ @ delimiter ";" @ space @ rust_type_document length)
+   | Function_Type (parameters, result, _) =>
+       keyword "fn" @ parenthesized (comma_documents (map rust_type_document parameters)) @
+       (case result of NONE => []
+        | SOME typ => space @ delimiter "->" @ space @ rust_type_document typ)
+   | Impl_Trait_Type (typ, _) =>
+       keyword "impl" @ space @ rust_type_document typ
+   | Macro_Type (name, _) =>
+       delimiter "$" @ identifier (require_identifier "macro type variable" name)
    | HOL_Type_Source source =>
        let
          val body = Input.string_of source

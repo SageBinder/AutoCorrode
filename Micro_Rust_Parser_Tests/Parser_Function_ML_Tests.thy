@@ -722,11 +722,11 @@ local
          "fn Malformed(x: &mut) -> u64 { x }"),
        ("rust-function-lifetime", "undeclared lifetime \"'a\"",
          "fn Lifetime(x: &'a mut u64) -> u64 { 0 }"),
-       ("rust-function-function-pointer", "syntax error",
+       ("rust-function-function-pointer", "Rust function pointer types",
          "fn Pointer(x: fn(u64) -> u64) -> u64 { x }"),
-       ("rust-function-associated-binding", "syntax error",
+       ("rust-function-associated-binding", "associated type bindings",
          "fn Associated(x: Iterator<Item = u8>) -> u64 { 0 }"),
-       ("rust-function-impl-type", "syntax error",
+       ("rust-function-impl-type", "Rust impl Trait types",
          "fn ImplType(x: impl Iterator) -> u64 { 0 }"),
        ("rust-function-dyn-type", "syntax error",
          "fn DynType(x: dyn Iterator) -> u64 { 0 }")]
@@ -3818,10 +3818,7 @@ ML_val\<open>
       List.app parser_failure
         [("lifetime-position-bound",
           "fn Bound<'a, /* \<alpha> */ 'b: 'a>(value: &'b mut u8) { () }", ":",
-          "lifetime bounds are not supported"),
-         ("lifetime-position-argument",
-          "fn Argument(/* \<alpha> */ value: RefOption<'a>) { () }", "'a",
-          "lifetime generic arguments are not supported")]
+          "lifetime bounds are not supported")]
   in val _ = () end
 \<close>
 
@@ -3915,7 +3912,7 @@ ML_val\<open>
         "fn BadReference<'_>(value: u8) -> u8 { 0 }"),
        ("reference-lifetime-bound", "lifetime bounds are not supported",
         "fn BadReference<'a, 'b: 'a>(value: &'b mut u8) -> u8 { 0 }"),
-       ("reference-lifetime-argument", "lifetime generic arguments are not supported",
+       ("reference-lifetime-argument", "undeclared lifetime",
         "fn BadReference(value: RefOption<'a>) -> u8 { 0 }"),
        ("reference-mixed-generics", "syntax error",
         "fn BadReference<'a, T>(value: &'a mut u8) -> u8 { 0 }"),
@@ -4461,6 +4458,78 @@ in val _ = () end
 \<close>
 
 chapter\<open> Declared HOL types \<close>
+
+section\<open> Literal Rust type surface \<close>
+
+ML_val\<open>
+  local
+    open Parser_Function_Regression_Test
+    val ctxt = \<^context>
+    val declared_text = "nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body"
+    val expected_type = \<^typ>\<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
+    val expected_body = \<^term>\<open>\<lambda>x::nat. FunctionBody (literal x)
+      :: (unit, nat, unit, unit, unit) function_body\<close>
+    val base = initial \<^theory>
+    fun check (label, item) =
+      let
+        val function = parse ctxt label item
+        val printed = URust_Printer.string_of_function URust_Printer.serialized_options function
+        val reparsed = parse ctxt (label ^ "-printed") printed
+        val _ = require (label ^ ": native type printer added a HOL escape")
+          (not (String.isSubstring "\<tau>" printed))
+        val _ = require (label ^ ": type syntax did not round-trip")
+          (URust_Printer.tokens_of_function URust_Printer.serialized_options function =
+            URust_Printer.tokens_of_function URust_Printer.serialized_options reparsed)
+        val result = run_from base label
+          (command "[pp_test]" ("native_surface :: " ^ cartouche declared_text) item)
+          |> Toplevel.context_of
+        val _ = require (label ^ ": Rust surface constrained the declared HOL type")
+          (declared_type result "native_surface" = expected_type)
+        val _ = require (label ^ ": Rust surface changed the function body")
+          (Term.aconv_untyped (rhs result "native_surface", expected_body))
+      in () end
+    val _ = List.app check
+      [("native-function-pointer", "fn NativeSurface(value: fn(&Element) -> bool) -> bool { value }"),
+       ("native-function-pointer-unit", "fn NativeSurface(value: fn()) { value }"),
+       ("native-function-pointer-trailing-comma",
+        "fn NativeSurface(value: fn(u8, bool,) -> fn() -> u64) { value }"),
+       ("native-lifetime-argument",
+        "fn NativeSurface<'a, 'b>(value: Cursor<'a, Inner<'b, Element>>) \
+        \-> Cursor<'static, Inner<'_, Element>> { value }"),
+       ("native-associated-type",
+        "fn NativeSurface(value: Iterator<Item = (Element, &Unknown)>) { value }"),
+       ("native-impl-trait",
+        "fn NativeSurface(value: Element) -> impl Iterator<Item = (Element, u64)> { value }"),
+       ("native-const-parameter",
+        "fn NativeSurface(value: Buffer<{ Flavor::Small as usize }>) { value }"),
+       ("native-const-result",
+        "fn NativeSurface(value: Element) -> Buffer<{ (Flavor::Small as usize) + 1 }> { value }"),
+       ("native-const-nested-block",
+        "fn NativeSurface(value: Buffer<{ { let size = 1; /* \<alpha> */ size + 1 } }>) { value }"),
+       ("native-macro-type",
+        "fn NativeSurface(value: $Scalar) -> FieldValue<$Scalar, Register> { value }")]
+
+    fun reject (label, expected, item) =
+      let
+        val result = Exn.capture (run_from base label)
+          (command "" ("native_surface :: " ^ cartouche declared_text) item)
+        val diagnostic = message result
+        val _ = require (label ^ ": wrong native syntax diagnostic")
+          (String.isSubstring expected diagnostic)
+        val _ = require (label ^ ": missing native source position")
+          (not (null (diagnostic_ranges diagnostic)))
+      in () end
+    val _ = List.app reject
+      [("native-undeclared-lifetime", "undeclared lifetime \"'a\"",
+        "fn NativeSurface(value: Cursor<'a, Element>) { value }"),
+       ("native-associated-type-missing", "syntax error",
+        "fn NativeSurface(value: Iterator<Item = >) { value }"),
+       ("native-function-pointer-missing", "syntax error",
+        "fn NativeSurface(value: fn(&)) { value }"),
+       ("native-const-unclosed", "syntax error",
+        "fn NativeSurface(value: Buffer<{ 1 >) { value }")]
+  in val _ = () end
+\<close>
 
 section\<open> Complete declared schemes \<close>
 

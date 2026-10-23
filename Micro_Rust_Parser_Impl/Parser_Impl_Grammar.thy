@@ -279,6 +279,9 @@ val annotation_depth = ref 0
 val signature_paren_depth = ref 0
 val signature_brace_depth = ref 0
 val signature_bracket_depth = ref 0
+val signature_angle_depth = ref 0
+(* Const arguments reuse the ordinary expression lexer until their balanced closing brace. *)
+val const_expression_depth = ref 0
 
 datatype signature_context =
     Function_Signature
@@ -414,7 +417,8 @@ fun reset_state () =
    reset_cast_type (); reset_annotation (); annotations_enabled := false;
    annotation_source_starts_line := true;
    pending_signature_tokens := []; signature_paren_depth := 0;
-   signature_brace_depth := 0; signature_bracket_depth := 0;
+   signature_brace_depth := 0; signature_bracket_depth := 0; signature_angle_depth := 0;
+   const_expression_depth := 0;
    signature_context := Function_Signature)
 fun start_aq kind open_pos open_text body_pos =
   (aq_kind := kind; aq_buf := []; aq_start := body_pos; aq_open := open_pos;
@@ -436,7 +440,8 @@ fun start_signature context =
   (signature_context := context;
    signature_paren_depth := 0;
    signature_brace_depth := 0;
-   signature_bracket_depth := 0)
+   signature_bracket_depth := 0;
+   signature_angle_depth := 0)
 
 (* A suffixed integer literal is deliberately NOT interpreted here: the lexer captures the raw lexeme and
    the elaboration term layer reads it against the single suffix table, so an unknown suffix is a
@@ -664,7 +669,8 @@ fun split_type_right second_role (yypos, yytext) =
   in first end
 
 fun split_signature_right args =
-  split_type_right (fn () => Markup.delimiter) args
+  (signature_angle_depth := Int.max (0, !signature_angle_depth - 2);
+   split_type_right (fn () => Markup.delimiter) args)
 
 fun cast_has_type_arguments () =
   !cast_type_active andalso
@@ -1165,8 +1171,17 @@ lex_rules\<open>
 <INITIAL>"#"      => (tokF (yypos, yytext, Markup.delimiter, "THASH", Tokens.THASH));
 <INITIAL>"["      => (tokF (yypos, yytext, Markup.delimiter, "TLBRACK", Tokens.TLBRACK));
 <INITIAL>"]"      => (tokF (yypos, yytext, Markup.delimiter, "TRBRACK", Tokens.TRBRACK));
-<INITIAL>"{"      => (tokF (yypos, yytext, Markup.delimiter, "TLBRACE", Tokens.TLBRACE));
-<INITIAL>"}"      => (tokF (yypos, yytext, Markup.delimiter, "TRBRACE", Tokens.TRBRACE));
+<INITIAL>"{"      =>
+    (if !const_expression_depth > 0
+     then const_expression_depth := !const_expression_depth + 1 else ();
+     tokF (yypos, yytext, Markup.delimiter, "TLBRACE", Tokens.TLBRACE));
+<INITIAL>"}"      =>
+    (if !const_expression_depth > 0
+     then
+       (const_expression_depth := !const_expression_depth - 1;
+        if !const_expression_depth = 0 then YYBEGIN FNSIG else ())
+     else ();
+     tokF (yypos, yytext, Markup.delimiter, "TRBRACE", Tokens.TRBRACE));
 <INITIAL>\\"<llangle>"          => (report_text (yypos, yytext, Markup.delimiter, "VALAQ"); start_aq Value_AQ yypos yytext (yypos + size yytext); YYBEGIN VAQ; lex());
 <INITIAL>\\"<epsilon>"\\"<open>" => (report_text (yypos, hd (Symbol.explode yytext), Markup.literal, "EXPRAQ"); start_aq Expr_AQ yypos yytext (yypos + size yytext); YYBEGIN EAQ; lex());
 <INITIAL>\\"<Rightarrow>" => (tokF (yypos, yytext, Markup.delimiter, "TARROW", Tokens.TARROW));
@@ -1291,6 +1306,7 @@ lex_rules\<open>
 <FNSIG>"char"   => (tok_rust_type DPT_Char (yypos, yytext));
 <FNSIG>"str"    => (tok_rust_type DPT_Str (yypos, yytext));
 <FNSIG>"fn"     => (tokF (yypos, yytext, Markup.keyword1, "TFN", Tokens.TFN));
+<FNSIG>"impl"   => (tokF (yypos, yytext, Markup.keyword1, "TIMPL", Tokens.TIMPL));
 <FNSIG>"mut"    => (tokF (yypos, yytext, Markup.keyword1, "TMUT", Tokens.TMUT));
 <FNSIG>"const"  => (tokF (yypos, yytext, Markup.keyword1, "TCONST", Tokens.TCONST));
 <FNSIG>"->"     => (tokF (yypos, yytext, Markup.delimiter, "TTHINARROW", Tokens.TTHINARROW));
@@ -1299,13 +1315,18 @@ lex_rules\<open>
 <FNSIG>"..="    => (tokF (yypos, yytext, Markup.operator, "TDOTDOTEQ", Tokens.TDOTDOTEQ));
 <FNSIG>".."     => (tokF (yypos, yytext, Markup.operator, "TDOTDOT", Tokens.TDOTDOT));
 <FNSIG>">>"     => (split_signature_right (yypos, yytext));
-<FNSIG>"<"      => (tokF (yypos, yytext, Markup.delimiter, "TLT", Tokens.TLT));
-<FNSIG>">"      => (tokF (yypos, yytext, Markup.delimiter, "TGT", Tokens.TGT));
+<FNSIG>"<"      =>
+    (signature_angle_depth := !signature_angle_depth + 1;
+     tokF (yypos, yytext, Markup.delimiter, "TLT", Tokens.TLT));
+<FNSIG>">"      =>
+    (signature_angle_depth := Int.max (0, !signature_angle_depth - 1);
+     tokF (yypos, yytext, Markup.delimiter, "TGT", Tokens.TGT));
 <FNSIG>"&"      => (tokF (yypos, yytext, Markup.operator, "TAMP", Tokens.TAMP));
 <FNSIG>"*"      => (tokF (yypos, yytext, Markup.operator, "TSTAR", Tokens.TSTAR));
 <FNSIG>"|"      => (tokF (yypos, yytext, Markup.operator, "TBAR", Tokens.TBAR));
 <FNSIG>"@"      => (tokF (yypos, yytext, Markup.operator, "TAT", Tokens.TAT));
 <FNSIG>"!"      => (tokF (yypos, yytext, Markup.delimiter, "TBANG", Tokens.TBANG));
+<FNSIG>"$"      => (tokF (yypos, yytext, Markup.delimiter, "TDOLLAR", Tokens.TDOLLAR));
 <FNSIG>"\""([^\"\\\n]|\\.)*"\"" =>
     (tok_valF (yypos, yytext, Markup.inner_string, "STRING", Tokens.STRING, yytext));
 <FNSIG>"\""     => (URust_Grammar.string_error (fixed_pos yypos));
@@ -1336,17 +1357,25 @@ lex_rules\<open>
      tokF (yypos, yytext, Markup.delimiter, "TSEMI", Tokens.TSEMI));
 <FNSIG>":"      => (tokF (yypos, yytext, Markup.delimiter, "TCOLON", Tokens.TCOLON));
 <FNSIG>"{"      =>
-    (if !signature_context = Datatype_Signature
-     then signature_brace_depth := !signature_brace_depth + 1
-     else if !signature_paren_depth = 0 then YYBEGIN INITIAL
-     else ();
-     signature_left_brace (yypos, yytext));
+    (if !signature_angle_depth > 0 then
+       (const_expression_depth := 1;
+        reset_cast_type (); YYBEGIN INITIAL;
+        tok_valF (yypos, yytext, Markup.delimiter, "TCONSTOPEN",
+          Tokens.TCONSTOPEN, !source_layout))
+     else
+       (if !signature_context = Datatype_Signature
+        then signature_brace_depth := !signature_brace_depth + 1
+        else if !signature_paren_depth = 0 then YYBEGIN INITIAL
+        else ();
+        signature_left_brace (yypos, yytext)));
 <FNSIG>"}"      =>
-    (if !signature_context = Datatype_Signature
+    (if !signature_brace_depth > 0
      then
        (signature_brace_depth :=
           Int.max (0, !signature_brace_depth - 1);
-        if !signature_brace_depth = 0 then YYBEGIN INITIAL else ())
+        if !signature_context = Datatype_Signature andalso
+            !signature_brace_depth = 0 andalso !signature_angle_depth = 0
+        then YYBEGIN INITIAL else ())
      else ();
      tokF (yypos, yytext, Markup.delimiter, "TRBRACE", Tokens.TRBRACE));
 <FNSIG>{idstart}{identchar}* => (tok_ident (yypos, yytext));
@@ -1837,6 +1866,9 @@ yacc_definitions\<open>
     | TUSE
     | TPUB
     | TLIFETIME of string
+    | TIMPL
+    | TDOLLAR
+    | TCONSTOPEN of Parser_Lex_Util.source_layout
 %nonterm ustart of URust_AST.parse_result option
        | uitem of URust_AST.urust_item
        | uchunk_items of
@@ -1870,6 +1902,7 @@ yacc_definitions\<open>
        | udatatype_field of URust_AST.datatype_field
        | udatatype_fields of URust_AST.datatype_field list
        | urust_type of URust_AST.rust_type
+       | urust_optional_types of URust_AST.rust_type list
        | urust_type_path of URust_AST.rust_type
        | urust_type_segment of URust_AST.rust_type_path_segment
        | urust_generic_argument of URust_AST.rust_generic_argument
@@ -2161,6 +2194,18 @@ yacc_rules\<open>
         (Primitive_Type (DPT_Never, TBANGleft))
     | urust_type_path
         (urust_type_path)
+    | TFN LPAR urust_optional_types RPAR ufn_return
+        (Function_Type (urust_optional_types, #1 ufn_return,
+          syntax_layout TFNleft
+            (case #1 ufn_return of NONE => RPARright | SOME typ => rust_type_position typ)
+            [(Keyword_Token "fn", TFNleft),
+             (Delimiter_Token "(", LPARleft), (Delimiter_Token ")", RPARleft)]))
+    | TIMPL urust_type_path
+        (Impl_Trait_Type (urust_type_path,
+          syntax_layout TIMPLleft (rust_type_position urust_type_path)
+            [(Keyword_Token "impl", TIMPLleft)]))
+    | TDOLLAR IDENT
+        (Macro_Type (IDENT, spanning_position TDOLLARleft IDENTright))
     | LPAR RPAR
         (Primitive_Type
           (DPT_Unit,
@@ -2258,8 +2303,13 @@ yacc_rules\<open>
     | NUM (Rust_Numeric_Argument NUM)
     | NUMSFX (Rust_Numeric_Argument NUMSFX)
     | TLIFETIME
-        (URust_Grammar.lifetime_error "lifetime generic arguments are not supported"
-          TLIFETIMEleft)
+        (Rust_Lifetime_Argument (Rust_Lifetime (TLIFETIME, TLIFETIMEleft)))
+    | IDENT TEQ urust_type
+        (Rust_Associated_Type_Argument (IDENT, IDENTleft, urust_type))
+    | TCONSTOPEN uexpr TRBRACE
+        (Rust_Const_Expression_Argument
+          (Parser_Lex_Util.range_source TCONSTOPEN
+            (spanning_position TCONSTOPENleft TRBRACEright)))
   urust_generic_arguments :
       urust_generic_argument ([urust_generic_argument])
     | urust_generic_argument COMMA ([urust_generic_argument])
@@ -2270,6 +2320,10 @@ yacc_rules\<open>
     | urust_type COMMA ([urust_type])
     | urust_type COMMA urust_types
         (urust_type :: urust_types)
+  urust_optional_types :
+      ([])
+    | urust_types (urust_types)
+    | urust_types COMMA (urust_types)
   urust_tuple_types :
       urust_type COMMA ([urust_type])
     | urust_type COMMA urust_types
@@ -3129,7 +3183,7 @@ yacc_rules\<open>
     | TYIELD (()) | TLOG (()) | TLOGDATAOPEN (()) | LOGSTRING (()) | LOGIDENT (())
     | TLOGDATACLOSE (()) | TSTRUCT (()) | TENUM (()) | TFN (()) | TTHINARROW (()) | TRUSTTYPE (())
     | HOLTYPE (()) | TTYPE (()) | GLT (()) | GGT (()) | GHOLTYPE (()) | TANNOTATION (()) | TUSE (())
-    | TPUB (()) | TLIFETIME (())
+    | TPUB (()) | TLIFETIME (()) | TIMPL (()) | TDOLLAR (()) | TCONSTOPEN (())
   (* The single pattern grammar, shared by every binding site above (D28). Its own nonterminals, disjoint
      from `uexpr`, so the constructor pattern cannot clash with the call production nor or-`|` with bitwise
      or. It deliberately ACCEPTS more than any one site can lower (a numeral in `let`, a constructor under
@@ -3535,7 +3589,10 @@ struct
      (100, "TANNOTATION", "<\<omega> annotation>"),
      (101, "TUSE", "use"),
      (102, "TPUB", "pub"),
-     (103, "TLIFETIME", "<lifetime>")]
+     (103, "TLIFETIME", "<lifetime>"),
+     (104, "TIMPL", "impl"),
+     (105, "TDOLLAR", "$"),
+     (106, "TCONSTOPEN", "{")]
 
   val terminal_count = length terminal_specs
 
@@ -3619,7 +3676,7 @@ struct
        T.TRUSTTYPE (URust_AST.DPT_U8, pos, pos), T.HOLTYPE (source, pos, pos), T.GLT (0, pos, pos),
        T.GGT (0, pos, pos), T.GHOLTYPE (("", lexer_layout, 0, 0), pos, pos),
        T.TANNOTATION (URust_AST.Item_Annotation (source, layout), pos, pos),
-       T.TLIFETIME ("", pos, pos)]
+       T.TLIFETIME ("", pos, pos), T.TCONSTOPEN (lexer_layout, pos, pos)]
     val valueless_tokens =
       [T.LPAR (pos, pos), T.RPAR (pos, pos), T.TGOPEN (pos, pos), T.TTRUE (pos, pos),
        T.TFALSE (pos, pos), T.TLET (pos, pos), T.TCONST (pos, pos), T.TRETURN (pos, pos),
@@ -3640,7 +3697,8 @@ struct
        T.TAS (pos, pos), T.TYIELD (pos, pos), T.TLOG (pos, pos), T.TLOGDATACLOSE (pos, pos),
        T.TSTRUCT (pos, pos), T.TENUM (pos, pos), T.TFN (pos, pos), T.TTHINARROW (pos, pos),
        T.TEXPRSTART (pos, pos), T.TITEMSTART (pos, pos), T.TTYPE (pos, pos),
-       T.TCHUNKSTART (pos, pos), T.TUSE (pos, pos), T.TPUB (pos, pos)]
+       T.TCHUNKSTART (pos, pos), T.TUSE (pos, pos), T.TPUB (pos, pos),
+       T.TIMPL (pos, pos), T.TDOLLAR (pos, pos)]
   end
 
   fun token_terminal_id (LrParser.Token.TOKEN (term, _)) = terminal_id term
@@ -3726,10 +3784,19 @@ struct
          antiquotes = true,
          delimited = Input.is_delimited source})
 
-  fun parse_source ctxt source =
+  (* Positioned slices also occur in types. Printer replay supplies unpositioned input, so the
+     parser gives it private offsets just as chunk input does, without reporting those positions. *)
+  fun offset_source source =
+    if is_some (Position.offset_of (Input.pos_of source)) then source
+    else
+      Parser_Lex_Util.positioned_content_source (Input.text_of source)
+        (Position.make0 1 1 0 "" "" "")
+
+  fun parse_source ctxt original_source =
     Parser_Lex_Util.with_parser_lock (fn () =>
       let
-        val _ = report_source_language ctxt source
+        val _ = report_source_language ctxt original_source
+        val source = offset_source original_source
       in
         (case parse_layout ctxt
             (Parser_Lex_Util.make_source_layout source) of
@@ -3763,10 +3830,11 @@ struct
          | NONE => NONE)
       end)
 
-  fun parse_item_source ctxt source =
+  fun parse_item_source ctxt original_source =
     Parser_Lex_Util.with_parser_lock (fn () =>
       let
-        val _ = report_source_language ctxt source
+        val _ = report_source_language ctxt original_source
+        val source = offset_source original_source
       in
         (case parse_item_layout ctxt
             (Parser_Lex_Util.make_source_layout source) of
@@ -3798,12 +3866,6 @@ struct
           "uRust chunk parser: trailing input after complete chunk"
           layout
     end
-
-  fun offset_source source =
-    if is_some (Position.offset_of (Input.pos_of source)) then source
-    else
-      Parser_Lex_Util.positioned_content_source (Input.text_of source)
-        (Position.make0 1 1 0 "" "" "")
 
   fun parse_chunk_source ctxt original_source =
     Parser_Lex_Util.with_parser_lock (fn () =>
