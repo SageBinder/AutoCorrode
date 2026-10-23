@@ -1303,6 +1303,52 @@ urust_expr lexical_showcase_scope_control
 lemma \<open>lexical_showcase_scope = lexical_showcase_scope_control\<close>
   unfolding lexical_showcase_scope_def lexical_showcase_scope_control_def by (rule refl)
 
+subsection\<open> Inherent impl blocks \<close>
+
+text\<open>
+An inherent \<open>impl\<close> block is a chunk member. Each member is an ordinary \<open>urust_fn\<close>
+declaration, named \<open>showcase_odometer_<member>\<close> unless an \<open>\<omega>\<close> \<open>name\<close>
+annotation chooses another name, and registers its associated path
+\<open>ShowcaseOdometer::f\<close>. A member whose first parameter is a \<open>self\<close> receiver also registers a
+method entry, so it is called as \<open>x.f(..)\<close> or \<open>ShowcaseOdometer::f(x, ..)\<close>; an
+associated function such as \<open>zeroed\<close> is called only through its path. \<open>Self\<close> names the
+implementing type in signatures, struct expressions, patterns and paths, and \<open>Self::f(..)\<close>
+calls this impl's own member. At verbosity 1 each member prints its registration manifest.
+\<close>
+
+urust [verbosity = 1] \<open>
+  struct ShowcaseOdometer { distance: u32 }
+
+  impl ShowcaseOdometer {
+    fn zeroed() -> Self { Self { distance: 0_u32 } }
+
+    fn reading(self) -> u32 { self.distance }
+
+    \<omega>\<open>name = "showcase_odometer_store"\<close>
+    fn set_distance(&mut self, distance: u32) { self.distance = distance; }
+
+    fn doubled(self) -> u32 { Self::reading(self) + self.reading() }
+  }
+
+  fn ShowcaseOdometerTotal(odometer: ShowcaseOdometer) -> u32 {
+    let fresh = ShowcaseOdometer::zeroed();
+    odometer.reading() + ShowcaseOdometer::reading(fresh) + odometer.doubled()
+  }
+
+  fn ShowcaseOdometerReset(odometer: &mut ShowcaseOdometer) {
+    odometer.set_distance(1_u32);
+    ShowcaseOdometer::set_distance(odometer, 0_u32);
+  }
+\<close>
+
+urust_fn [register_notation = false] showcase_odometer_reading_control
+  \<open> fn reading(self: ShowcaseOdometer) -> u32 { self.distance } \<close>
+
+lemma showcase_odometer_reading_is_typed_member:
+  \<open> showcase_odometer_reading = showcase_odometer_reading_control \<close>
+  unfolding showcase_odometer_reading_def showcase_odometer_reading_control_def
+  by (rule refl)
+
 section\<open> Type-directed automatic call notation \<close>
 
 text\<open>

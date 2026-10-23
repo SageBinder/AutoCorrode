@@ -73,7 +73,22 @@ fun urust_name_of (info: Simple_Word_Enum.enum_info) =
   case #urust_name info of
     NONE => NONE
   | SOME name =>
-      if Micro_Rust_Notation_Cmd.is_identifier_path name then SOME name
+      if Micro_Rust_Notation_Cmd.is_identifier_path name then
+        let
+          (* The registry's shared key check, for the name and every variant key the plugins
+             derive from it (conversion keys add fixed segments only). *)
+          fun check key pos =
+            (case Micro_Rust_Names.reserved_key_segment {bare_self = false} key of
+               SOME segment =>
+                 error ("simple_word_enum " ^ #type_name info ^ ": urust name key " ^ quote key ^
+                   ": " ^ Micro_Rust_Names.reserved_key_message segment ^ Position.here pos)
+             | NONE => ())
+          val _ = check name (Position.thread_data ())
+          val _ =
+            List.app
+              (fn binding => check (name ^ "::" ^ Binding.name_of binding) (Binding.pos_of binding))
+              (#variant_bindings info)
+        in SOME name end
       else error ("simple_word_enum " ^ #type_name info ^ ": urust name " ^ quote name ^
         " is not an identifier or ::-separated identifier path")
 

@@ -25,6 +25,7 @@ The session separates human-readable tests from ML tests. Most topics have two t
 | Pattern matching, slice patterns, frozen matcher expectations, name resolution, semantic navigation | `Parser_Pattern_Examples` | `Parser_Pattern_ML_Tests` |
 | `urust_datatype`, simple word enums, cast-target and type aliases, raw pointers, generic datatypes, Rust type mappings | `Parser_Datatype_Examples` | `Parser_Datatype_ML_Tests` |
 | Source-ordered `urust` chunks and Rust `use` imports in chunks and blocks | `Parser_Chunk_Use_Examples` | `Parser_Chunk_Use_ML_Tests` |
+| Inherent `impl` blocks: syntax, member declarations and registrations, `Self`, receivers, path selection, type heads, direct calls and imports | `Parser_Impl_Examples` | `Parser_Impl_ML_Tests` |
 | Combined showcase | `Parser_Showcase_Examples` | |
 
 Four theories provide shared support. `Parser_Test_Utils.thy` holds the shared ML support
@@ -32,7 +33,9 @@ and the test-only `urust_expr_rejects` command. `Parser_Test_Fixtures.thy` holds
 fixtures for iterators, registered constructors and cast-target aliases.
 `Parser_Test_Fixtures_Left.thy` and `Parser_Test_Fixtures_Right.thy` are the two branches of a
 merge diamond: their constructor and struct basenames become ambiguous only in a theory that
-imports both, so they remain separate theories. The use-import targets, which need the chunk
+imports both, so they remain separate theories. Each also holds one impl-member registration
+(the same keys at different Self types) for the registry merge tests of
+`Parser_Function_ML_Tests`, which imports both. The use-import targets, which need the chunk
 command, open `Parser_Chunk_Use_Examples.thy`.
 
 The theory boundaries follow the contexts that the tests need:
@@ -72,7 +75,7 @@ urust [OPTIONS] ‹ [ω‹OPTIONS›] ITEM ... ›
 ```
 
 The plain `urust` command declares a nonempty source-ordered chunk of complete `fn`, `struct`,
-`enum` and `use` items. It is registered by the opt-in theory `Micro_Rust_Parser_Impl.Parser_Impl_Chunk`.
+`enum`, `impl` and `use` items. It is registered by the opt-in theory `Micro_Rust_Parser_Impl.Parser_Impl_Chunk`.
 The `simple_word_enum … urust_name: "Name"` clause does not collide with the `urust` command
 keyword, with or without the chunk theory (`Parser_Datatype_Examples.thy` with
 `Parser_Datatype_ML_Tests.thy`, and `Parser_Chunk_Use_ML_Tests.thy`).
@@ -89,6 +92,17 @@ fields, unresolved names) run when the member is declared. Members use the same 
 operations as `urust_fn` and `urust_datatype`, each in the context the next single-item command
 would receive, so earlier items are available to later ones and forward references are not
 resolved. Type alias items are rejected as chunk members.
+
+An inherent `impl PATH { fn … }` member declares each member function in source order, through the
+same prepared-function operation, with the default HOL name `<target>_<member>` from the final
+written target segment. Its annotation supplies defaults for its members (member, impl, outer,
+configuration); `name` is rejected on the impl and `pp_test` on members. Every member registers
+its associated path `T::f` as an associated-function owner of the impl's Self type; a first
+`self` receiver adds the method-only entry `f`. `impl` is a reserved word, as in Rust: a
+use path, a `let` binding, a function name or a field named `impl` is a syntax error. Header
+forms other than an inherent path target (`impl<…>`, traits,
+`where`, `unsafe`, negative impls), non-`fn` members and misplaced receivers are positioned
+rejections.
 
 A `use` member is a complete Rust use item and takes no options, so an annotation before it is
 rejected at the annotation. The imports of one chunk form one batch, validated (duplicates and
@@ -178,9 +192,11 @@ The typed receiver tests in `Parser_Function_Examples` and `Parser_Function_ML_T
 complete declaration schemes and kernel equivalence
 with `self_value` versions for primitive/mapped types, a HOL reference escape, fields,
 direct/method calls, HOL value/expression escapes, closures and name collisions. Boundary
-and recovery probes retain rejection of shorthand/untyped receivers, borrowed patterns,
-implicit `Self`, unsupported shared references, duplicate names and incompatible bodies.
-No `impl` support or receiver-specific lowering is introduced.
+and recovery probes cover the free-function rejections of shorthand receivers (`receiver shorthand
+is only allowed in impl members`) and untyped parameters, borrowed patterns, `Self` outside an
+impl member, unsupported shared references, duplicate names and incompatible bodies. Receiver
+shorthands and `Self` inside impl members are covered by `Parser_Impl_Examples` and
+`Parser_Impl_ML_Tests`.
 
 `Parser_Function_Examples` and `Parser_Function_ML_Tests` cover mutable references `&mut T` and
 erased lifetimes in function signatures: complete schemes shared with raw pointers, kernel equality
@@ -494,8 +510,11 @@ negative rows preserve these boundaries.
   defaults for chunk members, equivalence, precedence, removal and sharing, context scoping,
   locales, interpretation, reports and rollback; receiver name collisions and boundaries;
   radix discriminants, scoped registration and read-only replay of composed declarations;
-  the source positions of dispatch-marker and navigation payloads; and declared HOL type schemes,
-  ignored Rust type reports, artifacts and positioned failures.
+  the source positions of dispatch-marker and navigation payloads; declared HOL type schemes,
+  ignored Rust type reports, artifacts and positioned failures; and the registry mechanisms of
+  impl members: method-only marks, backend filters and dispatch payloads, explicit registrations
+  replacing covering automatic entries with an order-independent view, associated-function owners
+  (insertion, theory merge, locales) and the listing tags.
 - `Parser_Expression_Examples.thy`: positive expression syntax, including direct, method and
   chained iterator calls; Rust dereference and postfix precedence; nested and adjacent block-comment
   layout and positioned rejection; ordinary and inline-const array repeats, restricted length
@@ -566,5 +585,31 @@ negative rows preserve these boundaries.
   the chunk import audits: alias absence after the command, later and never-declared targets,
   namespace-precise forward targets, import/item collisions, atomicity, navigation, roundtrips and
   complete input.
+- `Parser_Impl_Examples.thy`: impl blocks: rejection outside chunks; members and their typed
+  `urust_fn` equivalents, receivers, calls (path, method, function-style, closures, maximum arity),
+  receiver dispatch, mapped, generated, escaped-argument, instance and alias targets, and locale
+  impls; and resolution: `Self` paths in every role, total `Self`, alias and turbofish patterns
+  at case sites (`if let`, `while let`, `let … else`), path selection across
+  instantiations, type heads through aliases and imports with their generic arguments, exact keys
+  under alias heads, and direct calls beside methods, each `refl`-equal to a control.
+- `Parser_Impl_ML_Tests.thy`: impl syntax (headers, rejections, members, annotations, receivers,
+  roundtrips, markup); declaration audits: registrations, target and receiver rejections, `Self`
+  outside impls, ownership conflicts and merges, option precedence, explicit registrations,
+  dispatch, atomicity, markup, navigation and output; resolution audits: path selection,
+  generic arguments of type heads, direct calls of methods, `Self` heads and patterns, imports of
+  impl members, locals and heads, and markup of `Self` and type heads; and the "Integration
+  review rows" chapter: default-name clashes and duplicate members, the placement rule for impl
+  headers (chunk top level, impl braces, bodies, item and expression input), receiver binding
+  markup, `Self` patterns, overlap of unregistered and checked-only members, `Self` in
+  registration keys, and `impl` as a reserved word (`let impl`, `fn impl` and a field `impl`
+  are syntax errors); "Mutable Self patterns and items named Self" (the keyword-name rule for
+  both spellings, and imports of unregistered and checked-only members); "Keyword segments in
+  paths and generated keys" (the start-position rule, `simple_word_enum` names and variants, and
+  a bare `self` call key); and "Macro paths and while let on sole constructors" (the
+  start-position rule, `Self` heads, bare `Self!` and `Self` markup in macro paths against
+  ML-registered keys, and the case compilation of `while let` and of total `Self` patterns);
+  "Closure formals, prelude targets and datatype name options" (pattern-formal `Self`, prelude
+  impl targets and HOL naming boundaries); and "Declared signatures retain Rust keyword rules"
+  (positioned checks through retained type forms, with unresolved-name acceptance controls).
 - `Parser_Showcase_Examples.thy`: combined command, chunk, grammar, matching, array-repeat, import,
-  and iterator examples.
+  impl and iterator examples.

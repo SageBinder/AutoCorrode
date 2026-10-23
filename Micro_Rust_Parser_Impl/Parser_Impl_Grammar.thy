@@ -41,6 +41,13 @@ sig
   val use_error: string -> Position.T -> 'a
   val lifetime_error: string -> Position.T -> 'a
   val match_arm_separator_error: Position.T -> 'a
+  val impl_item_mode_error: Position.T -> 'a
+  val impl_in_expression_error: Position.T -> 'a
+  val impl_header_error: string -> Position.T -> 'a
+  val impl_member_error: Position.T -> 'a
+  val impl_dangling_annotation_error: Position.T -> 'a
+  val receiver_position_error: Position.T -> 'a
+  val untyped_parameter_error: Position.T -> 'a
 end
 
 (*
@@ -88,6 +95,18 @@ end
       match-arm error productions call it with the span of that `;`. Like generic_integer_error, the
       message keeps the syntax-error category and states Rust's rule that non-block match arms are
       separated by `,`.
+    * impl_item_mode_error pos rejects an impl block given to a single-item parser mode, and
+      impl_in_expression_error pos one inside a body, both at the `impl` keyword; impl blocks are
+      chunk members only.
+    * impl_header_error construct pos rejects an unsupported impl header form (generic parameter
+      lists, trait and negative impls, where clauses, `unsafe impl`) at its own token; construct
+      names the form. The lexer raises it for the forms the grammar cannot parse.
+    * impl_member_error pos rejects an impl member that is not a fn item at its first token, and
+      impl_dangling_annotation_error pos an omega annotation directly before the closing brace of
+      an impl block at the annotation.
+    * receiver_position_error pos rejects a self receiver shorthand after the first parameter,
+      and untyped_parameter_error pos a receiver-shaped parameter that does not bind `self`, at
+      the parameter.
 
   All exported failure functions have result type 'a because they always raise via error. Their
   exact string assembly and use of quote are implementation details, subject to the message and
@@ -184,6 +203,31 @@ struct
       ("uRust match: syntax error: " ^ quote ";" ^
         " cannot follow a match arm; non-block match arms are separated by " ^ quote "," ^
         Position.here pos)
+  fun impl_item_mode_error pos =
+    error
+      ("urust: impl blocks are chunk members; write urust \<open> impl \<dots> \<close>" ^
+        Position.here pos)
+
+  fun impl_in_expression_error pos =
+    item_in_expression_error "impl" "a urust chunk" pos
+
+  fun impl_header_error construct pos =
+    error ("urust: " ^ construct ^ " is not supported in impl headers" ^ Position.here pos)
+
+  fun impl_member_error pos =
+    error ("urust: only fn items are supported in impl blocks" ^ Position.here pos)
+
+  fun impl_dangling_annotation_error pos =
+    annotation_layout_error "must be followed by its declaration, not the end of its impl block"
+      pos
+
+  fun receiver_position_error pos =
+    error ("urust: a self receiver must be the first parameter" ^ Position.here pos)
+
+  fun untyped_parameter_error pos =
+    error
+      ("urust: a function parameter requires a type (`name: Type`); only a self receiver " ^
+        "omits it" ^ Position.here pos)
 end
 \<close>
 SML_import \<open> structure URust_Grammar = URust_Grammar \<close>
@@ -216,7 +260,17 @@ and no-struct expression families. Only token shims remain lexer-local; position
       lexer return TANNOTATION, whose value is the positioned omega payload with the marker and
       cartouche delimiter layout; elsewhere an omega annotation is a positioned lexer rejection.
       The keywords `use` and `pub` lex as the valueless TUSE and TPUB in the initial lexer state;
-      `pub` is parsed only to reject visibility at its token. Rust lifetimes such as `'a`, `'_`
+      `pub` is parsed only to reject visibility at its token. The keyword `impl` lexes as TIMPL in
+      the initial and signature states; its value is the source layout, so the grammar can attach
+      positioned source slices to impl members. In the initial state it starts an impl header,
+      which lexes like a signature until the depth-0 opening brace. The lexer rejects the header
+      forms the grammar does not parse at their own token: `<` or `!` as the first header token,
+      and `for` or `where` at the header's own level, outside the target's generic-argument,
+      parenthesis and bracket groups; nested inside the target they lex as in any signature.
+      A brace inside generic arguments opens a balanced const-expression type argument and reuses
+      the expression lexer; its root and nested braces have matching body-stack entries, and its
+      closing brace resumes signature lexing. Outside such arguments the opening brace starts the
+      impl body, whose stack entry retains the enclosing impl keyword. Rust lifetimes such as `'a`, `'_`
       and `'static` lex as the value-bearing TLIFETIME only in item signatures, with type-variable
       markup; elsewhere a leading apostrophe remains a positioned lexer rejection.
     * URustLrValsFun supplies the generated semantic value/result types, actions, LR table, tokens, and
@@ -283,11 +337,40 @@ val signature_angle_depth = ref 0
 (* Const arguments reuse the ordinary expression lexer until their balanced closing brace. *)
 val const_expression_depth = ref 0
 
+(* An impl header lexes like a function signature up to its depth-0 opening brace, so primitive
+   names and nested generic closers in the target lex as type tokens. *)
 datatype signature_context =
     Function_Signature
   | Datatype_Signature
   | Alias_Signature
+  | Impl_Signature
 val signature_context = ref Function_Signature
+(* True from an impl keyword in the initial state until the next token. *)
+val impl_header_start = ref false
+(* An impl item is legal only at the top level of chunk input: outside every function or block
+   body and every impl's braces, which brace_stack records. Only there do the header rejections
+   apply (`impl<...>`, `impl !`, `unsafe impl`, top-level `for` and `where`). Elsewhere a header
+   form that the lexer meets is rejected by the placement of the impl, before any later token:
+   - in a body: the item-in-expression message at this `impl`;
+   - in the braces of an impl that is itself at item level: the member rejection at this member's
+     first token in chunk input, and otherwise the placement message of the enclosing impl;
+   - at item level of item input: the single-item-mode message; of expression input: the
+     item-in-expression message, both at this `impl`. *)
+datatype input_mode = Chunk_Input | Item_Input | Expression_Input
+val input_mode = ref Expression_Input
+datatype brace = Body_Brace | Impl_Brace of Position.T
+val brace_stack = ref ([]: brace list)
+val last_token = ref ""
+val last_token_args = ref (0, "")
+val impl_keyword = ref Position.none
+val impl_member_start = ref Position.none
+fun set_input_mode mode = input_mode := mode
+fun open_brace brace = brace_stack := brace :: !brace_stack
+fun close_brace () = (case !brace_stack of [] => () | _ :: rest => brace_stack := rest)
+fun inside_body () = List.exists (fn Body_Brace => true | _ => false) (!brace_stack)
+(* The keyword of the outermost impl whose braces enclose the current position. *)
+fun enclosing_impl () =
+  List.foldl (fn (Impl_Brace pos, _) => SOME pos | (_, found) => found) NONE (!brace_stack)
 
 datatype hol_type_context =
     Initial_HOL_Type
@@ -416,7 +499,9 @@ fun reset_state () =
    reset_block_comment (); reset_hol_type (); reset_comment ();
    reset_cast_type (); reset_annotation (); annotations_enabled := false;
    annotation_source_starts_line := true;
-   pending_signature_tokens := []; signature_paren_depth := 0;
+   pending_signature_tokens := []; impl_header_start := false; signature_paren_depth := 0;
+   input_mode := Expression_Input; brace_stack := []; last_token := "";
+   impl_keyword := Position.none; impl_member_start := Position.none; last_token_args := (0, "");
    signature_brace_depth := 0; signature_bracket_depth := 0; signature_angle_depth := 0;
    const_expression_depth := 0;
    signature_context := Function_Signature)
@@ -464,10 +549,16 @@ fun set source ctxt =
   set_layout (Parser_Lex_Util.make_source_layout source) ctxt
 
 fun fixed_pos yypos = Parser_Lex_Util.fixed_pos (!source_layout) yypos
+(* Every token producer notes its token, which ends the first-token position of an impl header.
+   ML-Yacc actions run only after a complete parse, so header forms that the grammar cannot
+   parse are rejected here, before any later syntax error. *)
+fun note_token () = impl_header_start := false
 fun tokF (args as (_, _, _, typ, _)) =
-  (cast_type_token typ; Parser_Lex_Util.tokF (!source_layout) args)
+  (note_token (); last_token := typ; last_token_args := (#1 args, #2 args); cast_type_token typ;
+   Parser_Lex_Util.tokF (!source_layout) args)
 fun tok_valF (args as (_, _, _, typ, _, _)) =
-  (cast_type_token typ; Parser_Lex_Util.tok_valF (!source_layout) args)
+  (note_token (); last_token := typ; last_token_args := (#1 args, #2 args); cast_type_token typ;
+   Parser_Lex_Util.tok_valF (!source_layout) args)
 fun report_text args = Parser_Lex_Util.report_text (!source_layout) args
 fun source_position (yypos, text) =
   Position.range_position
@@ -549,6 +640,7 @@ fun source_integer_parts lexeme =
 
 fun tok_integer typ cons (yypos, yytext) =
   let
+    val _ = note_token ()
     val range as (start, stop) =
       Parser_Lex_Util.text_range (!source_layout) (yypos, yytext)
     val whole_pos = Position.range_position range
@@ -622,16 +714,74 @@ fun finish_formal_comment (close_pos, close_text) =
    | NONE => raise Fail "uRust lexer: missing formal-comment return context")
 fun tok_ident (yypos, yytext) =
   let
+    val _ = note_token ()
     val _ = cast_type_token "IDENT"
     val p = Parser_Lex_Util.ident_pos (!source_layout) (yypos, yytext)
   in Tokens.IDENT (yytext, p, p) end
 
 fun tok_lifetime (yypos, yytext) =
   let
+    val _ = note_token ()
     val _ = cast_type_token "TLIFETIME"
     val _ = report_text (yypos, yytext, Markup.tfree, "TLIFETIME")
     val p = Parser_Lex_Util.ident_pos (!source_layout) (yypos, yytext)
   in Tokens.TLIFETIME (yytext, p, p) end
+
+fun tok_impl (yypos, yytext) =
+  tok_valF (yypos, yytext, Markup.keyword1, "TIMPL", Tokens.TIMPL, !source_layout)
+
+(* The placement rule above, applied before any header rejection. *)
+fun reject_misplaced_impl () =
+  if inside_body () then URust_Grammar.impl_in_expression_error (!impl_keyword)
+  else
+    (case (!input_mode, enclosing_impl ()) of
+       (Chunk_Input, NONE) => ()
+     | (Chunk_Input, SOME _) => URust_Grammar.impl_member_error (!impl_member_start)
+     | (Item_Input, NONE) => URust_Grammar.impl_item_mode_error (!impl_keyword)
+     | (Item_Input, SOME outer) => URust_Grammar.impl_item_mode_error outer
+     | (Expression_Input, NONE) => URust_Grammar.impl_in_expression_error (!impl_keyword)
+     | (Expression_Input, SOME outer) => URust_Grammar.impl_in_expression_error outer)
+
+(* `unsafe impl` is a header form too; the grammar rejects it at chunk top level. *)
+fun start_impl_header args =
+  let
+    val after_unsafe = !last_token = "TUNSAFE"
+    val _ = impl_keyword := source_position args
+    (* A member starts at `unsafe` when the impl follows it. *)
+    val _ =
+      impl_member_start :=
+        (if after_unsafe then source_position (!last_token_args) else source_position args)
+    val _ = if after_unsafe then reject_misplaced_impl () else ()
+    val token = tok_impl args
+  in impl_header_start := true; token end
+
+fun reject_impl_header construct args =
+  (reject_misplaced_impl (); URust_Grammar.impl_header_error construct (source_position args))
+
+(* Generic parameter lists and negative impls begin with the first header token. *)
+fun reject_impl_header_start construct args =
+  if !impl_header_start then reject_impl_header construct args else ()
+
+fun signature_angle_open () = signature_angle_depth := !signature_angle_depth + 1
+fun signature_angle_close count =
+  signature_angle_depth := Int.max (0, !signature_angle_depth - count)
+
+(* The impl header's own level: outside every generic-argument, parenthesis and bracket group
+   of the target. It decides only the for/where rejections; balanced const-argument braces remain
+   in the target, and the body brace outside those groups ends the header. *)
+fun impl_header_top_level () =
+  !signature_context = Impl_Signature andalso
+    !signature_angle_depth = 0 andalso
+    !signature_paren_depth = 0 andalso
+    !signature_bracket_depth = 0
+
+(* A trait impl's `for` and a where clause start at the header's own level. Nested inside the
+   target, and elsewhere in signatures, `for` and `where` remain identifiers, so a nested
+   higher-ranked type gets the ordinary type-position diagnostic. *)
+fun impl_header_keyword construct args =
+  if impl_header_top_level ()
+  then reject_impl_header construct args
+  else tok_ident args
 
 fun tok_rust_type primitive (yypos, yytext) =
   tok_valF
@@ -849,6 +999,7 @@ fun finish_hol_type (close_pos, close_text) =
            report_text
              (close_pos, close_text, Markup.delimiter, "HOLTYPE")
          val _ = reset_hol_type ()
+         val _ = note_token ()
          val _ = cast_type_token "HOLTYPE"
        in Tokens.HOLTYPE (body, token_start, token_stop) end
    | NONE => raise Fail "uRust lexer: missing HOL type opener")
@@ -950,7 +1101,7 @@ fun check_annotation_placement opener open_pos stop =
     else if starts_with after opener
     then reject "must be the only annotation of its declaration"
       (span after (after + size opener))
-    else if List.exists (starts_word after) ["fn", "struct", "enum", "type"] orelse
+    else if List.exists (starts_word after) ["fn", "struct", "enum", "type", "impl"] orelse
         starts_with after "#"
     then reject "must be on the line before its declaration, not on the same line"
       (span after (line_end after))
@@ -1073,6 +1224,9 @@ lex_rules\<open>
 <INITIAL>"type"   => (start_signature Alias_Signature;
                       YYBEGIN FNSIG;
                       tokF (yypos, yytext, Markup.keyword1, "TTYPE", Tokens.TTYPE));
+<INITIAL>"impl"   => (start_signature Impl_Signature;
+                      YYBEGIN FNSIG;
+                      start_impl_header (yypos, yytext));
 <INITIAL>"as"     => (tokF (yypos, yytext, Markup.keyword1, "TAS", Tokens.TAS));
 <INITIAL>"u8"     => (tok_valF (yypos, yytext, Markup.keyword1, "TUINT", Tokens.TUINT, UT_U8));
 <INITIAL>"u16"    => (tok_valF (yypos, yytext, Markup.keyword1, "TUINT", Tokens.TUINT, UT_U16));
@@ -1174,6 +1328,7 @@ lex_rules\<open>
 <INITIAL>"{"      =>
     (if !const_expression_depth > 0
      then const_expression_depth := !const_expression_depth + 1 else ();
+     open_brace Body_Brace;
      tokF (yypos, yytext, Markup.delimiter, "TLBRACE", Tokens.TLBRACE));
 <INITIAL>"}"      =>
     (if !const_expression_depth > 0
@@ -1181,6 +1336,7 @@ lex_rules\<open>
        (const_expression_depth := !const_expression_depth - 1;
         if !const_expression_depth = 0 then YYBEGIN FNSIG else ())
      else ();
+     close_brace ();
      tokF (yypos, yytext, Markup.delimiter, "TRBRACE", Tokens.TRBRACE));
 <INITIAL>\\"<llangle>"          => (report_text (yypos, yytext, Markup.delimiter, "VALAQ"); start_aq Value_AQ yypos yytext (yypos + size yytext); YYBEGIN VAQ; lex());
 <INITIAL>\\"<epsilon>"\\"<open>" => (report_text (yypos, hd (Symbol.explode yytext), Markup.literal, "EXPRAQ"); start_aq Expr_AQ yypos yytext (yypos + size yytext); YYBEGIN EAQ; lex());
@@ -1306,7 +1462,10 @@ lex_rules\<open>
 <FNSIG>"char"   => (tok_rust_type DPT_Char (yypos, yytext));
 <FNSIG>"str"    => (tok_rust_type DPT_Str (yypos, yytext));
 <FNSIG>"fn"     => (tokF (yypos, yytext, Markup.keyword1, "TFN", Tokens.TFN));
-<FNSIG>"impl"   => (tokF (yypos, yytext, Markup.keyword1, "TIMPL", Tokens.TIMPL));
+<FNSIG>"impl"   => (tok_impl (yypos, yytext));
+<FNSIG>"for"    =>
+    (impl_header_keyword "a trait impl (`impl Trait for T`)" (yypos, yytext));
+<FNSIG>"where"  => (impl_header_keyword "a where clause" (yypos, yytext));
 <FNSIG>"mut"    => (tokF (yypos, yytext, Markup.keyword1, "TMUT", Tokens.TMUT));
 <FNSIG>"const"  => (tokF (yypos, yytext, Markup.keyword1, "TCONST", Tokens.TCONST));
 <FNSIG>"->"     => (tokF (yypos, yytext, Markup.delimiter, "TTHINARROW", Tokens.TTHINARROW));
@@ -1316,16 +1475,18 @@ lex_rules\<open>
 <FNSIG>".."     => (tokF (yypos, yytext, Markup.operator, "TDOTDOT", Tokens.TDOTDOT));
 <FNSIG>">>"     => (split_signature_right (yypos, yytext));
 <FNSIG>"<"      =>
-    (signature_angle_depth := !signature_angle_depth + 1;
+    (reject_impl_header_start "a generic parameter list (`impl<T>`)" (yypos, yytext);
+     signature_angle_open ();
      tokF (yypos, yytext, Markup.delimiter, "TLT", Tokens.TLT));
 <FNSIG>">"      =>
-    (signature_angle_depth := Int.max (0, !signature_angle_depth - 1);
-     tokF (yypos, yytext, Markup.delimiter, "TGT", Tokens.TGT));
+    (signature_angle_close 1; tokF (yypos, yytext, Markup.delimiter, "TGT", Tokens.TGT));
 <FNSIG>"&"      => (tokF (yypos, yytext, Markup.operator, "TAMP", Tokens.TAMP));
 <FNSIG>"*"      => (tokF (yypos, yytext, Markup.operator, "TSTAR", Tokens.TSTAR));
 <FNSIG>"|"      => (tokF (yypos, yytext, Markup.operator, "TBAR", Tokens.TBAR));
 <FNSIG>"@"      => (tokF (yypos, yytext, Markup.operator, "TAT", Tokens.TAT));
-<FNSIG>"!"      => (tokF (yypos, yytext, Markup.delimiter, "TBANG", Tokens.TBANG));
+<FNSIG>"!"      =>
+    (reject_impl_header_start "a negative impl (`impl !T`)" (yypos, yytext);
+     tokF (yypos, yytext, Markup.delimiter, "TBANG", Tokens.TBANG));
 <FNSIG>"$"      => (tokF (yypos, yytext, Markup.delimiter, "TDOLLAR", Tokens.TDOLLAR));
 <FNSIG>"\""([^\"\\\n]|\\.)*"\"" =>
     (tok_valF (yypos, yytext, Markup.inner_string, "STRING", Tokens.STRING, yytext));
@@ -1359,13 +1520,15 @@ lex_rules\<open>
 <FNSIG>"{"      =>
     (if !signature_angle_depth > 0 then
        (const_expression_depth := 1;
+        open_brace Body_Brace;
         reset_cast_type (); YYBEGIN INITIAL;
         tok_valF (yypos, yytext, Markup.delimiter, "TCONSTOPEN",
           Tokens.TCONSTOPEN, !source_layout))
      else
        (if !signature_context = Datatype_Signature
         then signature_brace_depth := !signature_brace_depth + 1
-        else if !signature_paren_depth = 0 then YYBEGIN INITIAL
+        else if !signature_context = Impl_Signature then (open_brace (Impl_Brace (!impl_keyword)); YYBEGIN INITIAL)
+        else if !signature_paren_depth = 0 then (open_brace Body_Brace; YYBEGIN INITIAL)
         else ();
         signature_left_brace (yypos, yytext)));
 <FNSIG>"}"      =>
@@ -1759,6 +1922,51 @@ fun rust_type_alias_item
         [(Delimiter_Token "=", equals_pos),
          (Delimiter_Token ";", semicolon_pos)]))
 
+(* A member before the parser attaches its source slice: annotation, function and its span. *)
+type impl_member_syntax = item_annotation option * urust_function * Position.T
+
+(* A parsed impl before its members receive source slices. Only chunk input slices them, from
+   the lexer's source layout carried by the TIMPL token, which is the layout of the chunk
+   envelopes; the item and expression grammars only reject the impl at its keyword. *)
+datatype impl_syntax =
+  Impl_Syntax of
+    {layout: Parser_Lex_Util.source_layout, target: rust_type,
+     members: impl_member_syntax list, source_layout: source_layout}
+
+fun impl_syntax ((layout, impl_pos, target), members, left_brace, right_brace, right_stop) =
+  Impl_Syntax
+    {layout = layout, target = target, members = members,
+     source_layout =
+       syntax_layout impl_pos right_stop
+         [(Keyword_Token "impl", impl_pos),
+          (Delimiter_Token "{", left_brace),
+          (Delimiter_Token "}", right_brace)]}
+
+fun impl_syntax_position (Impl_Syntax {source_layout, ...}) =
+  the_source_token_position source_layout (Keyword_Token "impl")
+
+fun impl_item (Impl_Syntax {layout, target, members, source_layout}) =
+  Impl_Item
+    (target,
+     map (fn (annotation, function, span) =>
+         Impl_Member (annotation, function, Parser_Lex_Util.range_source layout span))
+       members,
+     source_layout)
+
+fun receiver_shorthand form (name, self_pos) start tokens =
+  if name = "self"
+  then Receiver_Parameter (form, self_pos, syntax_layout start self_pos tokens)
+  else URust_Grammar.untyped_parameter_error (spanning_position start self_pos)
+
+fun check_receiver_position parameters =
+  (case parameters of
+     [] => parameters
+   | _ :: later =>
+       (case List.find (Option.isSome o receiver_parameter) later of
+          SOME receiver =>
+            URust_Grammar.receiver_position_error (function_parameter_position receiver)
+        | NONE => parameters))
+
 fun datatype_header parameters repr discriminants item =
   if null parameters andalso not (Option.isSome repr) andalso null discriminants then item
   else Datatype_Header (parameters, repr, discriminants, item)
@@ -1803,6 +2011,8 @@ fun reject_item_in_expression (Datatype_Item item) =
   | reject_item_in_expression (Use_Item_Node item) =
       URust_Grammar.item_in_expression_error
         "use" "a block statement or urust chunk" (use_item_position item)
+  | reject_item_in_expression (Impl_Item_Node impl) =
+      URust_Grammar.impl_in_expression_error (impl_position impl)
 \<close>
 yacc_definitions\<open>
 %name URust
@@ -1866,7 +2076,7 @@ yacc_definitions\<open>
     | TUSE
     | TPUB
     | TLIFETIME of string
-    | TIMPL
+    | TIMPL of Parser_Lex_Util.source_layout
     | TDOLLAR
     | TCONSTOPEN of Parser_Lex_Util.source_layout
 %nonterm ustart of URust_AST.parse_result option
@@ -1886,8 +2096,14 @@ yacc_definitions\<open>
            URust_AST.rust_lifetime list * (URust_AST.source_token * Position.T) list
        | ufn_lifetime_parameters of URust_AST.rust_lifetime list
        | ufn_lifetime_parameter of URust_AST.rust_lifetime
+       | ufn_parameter_list of URust_AST.function_parameter list
        | ufn_parameters of URust_AST.function_parameter list
        | ufn_parameter of URust_AST.function_parameter
+       | uimpl of impl_syntax
+       | uimpl_header of Parser_Lex_Util.source_layout * Position.T * URust_AST.rust_type
+       | uimpl_members of impl_member_syntax list
+       | uimpl_member of impl_member_syntax
+       | uimpl_non_fn of Position.T
        | ufn_return of URust_AST.rust_type option * Position.T option
        | uvariant of URust_AST.datatype_variant
        | uvariants of
@@ -2004,6 +2220,7 @@ yacc_rules\<open>
   ustart : TEXPRSTART ubody (SOME (Parsed_Expression ubody))
          | TEXPRSTART (NONE)
          | TITEMSTART uitem (SOME (Parsed_Item uitem))
+         | TITEMSTART uimpl (URust_Grammar.impl_item_mode_error (impl_syntax_position uimpl))
          | TCHUNKSTART uchunk_items (SOME (Parsed_Chunk (rev uchunk_items)))
          | TCHUNKSTART (NONE)
   uitem : uitem_decl (uitem_decl)
@@ -2015,6 +2232,45 @@ yacc_rules\<open>
   uchunk_item : uitem ((NONE, uitem, spanning_position uitemleft uitemright))
               | TANNOTATION uitem
                   ((SOME TANNOTATION, uitem, spanning_position uitemleft uitemright))
+              | uimpl
+                  ((NONE, Impl_Item_Node (impl_item uimpl),
+                    spanning_position uimplleft uimplright))
+              | TANNOTATION uimpl
+                  ((SOME TANNOTATION, Impl_Item_Node (impl_item uimpl),
+                    spanning_position uimplleft uimplright))
+  (* An inherent impl block is a chunk member only; the item and expression grammars parse it
+     to reject it at its keyword. Its header lexes like a signature. Members are complete fn
+     items, each optionally preceded by one annotation; other complete items are parsed to
+     reject them at their first token. *)
+  uimpl : uimpl_header TLBRACE uimpl_members TRBRACE
+            (impl_syntax
+              (uimpl_header, rev uimpl_members, TLBRACEleft, TRBRACEleft, TRBRACEright))
+        | uimpl_header TLBRACE TRBRACE
+            (impl_syntax (uimpl_header, [], TLBRACEleft, TRBRACEleft, TRBRACEright))
+        | uimpl_header TLBRACE uimpl_members TANNOTATION TRBRACE
+            (URust_Grammar.impl_dangling_annotation_error (annotation_position TANNOTATION))
+        | uimpl_header TLBRACE TANNOTATION TRBRACE
+            (URust_Grammar.impl_dangling_annotation_error (annotation_position TANNOTATION))
+  uimpl_header : TIMPL urust_type ((TIMPL, TIMPLleft, urust_type))
+               | TUNSAFE TIMPL urust_type
+                   (URust_Grammar.impl_header_error "`unsafe impl`" TUNSAFEleft)
+  uimpl_members : uimpl_member ([uimpl_member])
+                | uimpl_members uimpl_member (uimpl_member :: uimpl_members)
+  uimpl_member : ufunction
+                   ((NONE, ufunction, spanning_position ufunctionleft ufunctionright))
+               | TANNOTATION ufunction
+                   ((SOME TANNOTATION, ufunction,
+                     spanning_position ufunctionleft ufunctionright))
+               | uimpl_non_fn (URust_Grammar.impl_member_error uimpl_non_fn)
+               | TANNOTATION uimpl_non_fn (URust_Grammar.impl_member_error uimpl_non_fn)
+  uimpl_non_fn : uvisibility ufunction (uvisibility)
+               | TCONST ufunction (TCONSTleft)
+               | TUNSAFE ufunction (TUNSAFEleft)
+               | TCONST IDENT TCOLON urust_type TEQ uexpr TSEMI (TCONSTleft)
+               | utype_alias (utype_aliasleft)
+               | udatatype (udatatypeleft)
+               | uuse_item (uuse_itemleft)
+               | uimpl (uimplleft)
   (* Visibility is parsed only to be rejected at `pub`, in items and body statements alike. *)
   uvisibility : TPUB (TPUBleft)
               | TPUB LPAR IDENT RPAR (TPUBleft)
@@ -2147,9 +2403,9 @@ yacc_rules\<open>
           (Enum_Item (IDENT, IDENTleft, #1 uvariants,
             Position.range_position (TENUMleft, TRBRACEright))))
   ufunction :
-      TFN IDENT ufn_generics LPAR ufn_parameters RPAR ufn_return ublock
+      TFN IDENT ufn_generics LPAR ufn_parameter_list RPAR ufn_return ublock
         (rust_function_item
-          (IDENT, IDENTleft, ufn_generics, ufn_parameters,
+          (IDENT, IDENTleft, ufn_generics, ufn_parameter_list,
            #1 ufn_return, ublock, TFNleft,
            LPARleft, RPARleft, #2 ufn_return))
   ufn_generics :
@@ -2170,6 +2426,8 @@ yacc_rules\<open>
       (NONE, NONE)
     | TTHINARROW urust_type
         (SOME urust_type, SOME TTHINARROWleft)
+  ufn_parameter_list :
+      ufn_parameters (check_receiver_position ufn_parameters)
   ufn_parameters :
       ([])
     | ufn_parameter ([ufn_parameter])
@@ -2181,6 +2439,31 @@ yacc_rules\<open>
     | TMUT upat TCOLON urust_type
         (rust_type_parameter
           (SOME TMUTleft) upat urust_type TCOLONleft)
+    (* Receiver shorthands: the grammar admits them in any function, and elaboration decides
+       where they are valid. A receiver-shaped parameter must bind `self`. *)
+    | IDENT
+        (receiver_shorthand Receiver_Value (IDENT, IDENTleft) IDENTleft [])
+    | TMUT IDENT
+        (receiver_shorthand Receiver_Mut_Value (IDENT, IDENTleft) TMUTleft
+          [(Keyword_Token "mut", TMUTleft)])
+    | TAMP IDENT
+        (receiver_shorthand (Receiver_Ref {mutable = false, lifetime = NONE})
+          (IDENT, IDENTleft) TAMPleft [(Operator_Token, TAMPleft)])
+    | TAMP TMUT IDENT
+        (receiver_shorthand (Receiver_Ref {mutable = true, lifetime = NONE})
+          (IDENT, IDENTleft) TAMPleft
+          [(Operator_Token, TAMPleft), (Keyword_Token "mut", TMUTleft)])
+    | TAMP TLIFETIME IDENT
+        (receiver_shorthand
+          (Receiver_Ref
+            {mutable = false, lifetime = SOME (Rust_Lifetime (TLIFETIME, TLIFETIMEleft))})
+          (IDENT, IDENTleft) TAMPleft [(Operator_Token, TAMPleft)])
+    | TAMP TLIFETIME TMUT IDENT
+        (receiver_shorthand
+          (Receiver_Ref
+            {mutable = true, lifetime = SOME (Rust_Lifetime (TLIFETIME, TLIFETIMEleft))})
+          (IDENT, IDENTleft) TAMPleft
+          [(Operator_Token, TAMPleft), (Keyword_Token "mut", TMUTleft)])
   urust_type :
       TRUSTTYPE
         (Primitive_Type (TRUSTTYPE, TRUSTTYPEleft))
@@ -2323,7 +2606,6 @@ yacc_rules\<open>
   urust_optional_types :
       ([])
     | urust_types (urust_types)
-    | urust_types COMMA (urust_types)
   urust_tuple_types :
       urust_type COMMA ([urust_type])
     | urust_type COMMA urust_types
@@ -2424,6 +2706,8 @@ yacc_rules\<open>
         | uclosure                          (uclosure)
         | uitem_decl
             (reject_item_in_expression uitem_decl)
+        | uimpl
+            (URust_Grammar.impl_in_expression_error (impl_syntax_position uimpl))
   uclosure : TBARBAR uexpr
                 (mk_closure
                   ([], uexpr,
@@ -3676,7 +3960,8 @@ struct
        T.TRUSTTYPE (URust_AST.DPT_U8, pos, pos), T.HOLTYPE (source, pos, pos), T.GLT (0, pos, pos),
        T.GGT (0, pos, pos), T.GHOLTYPE (("", lexer_layout, 0, 0), pos, pos),
        T.TANNOTATION (URust_AST.Item_Annotation (source, layout), pos, pos),
-       T.TLIFETIME ("", pos, pos), T.TCONSTOPEN (lexer_layout, pos, pos)]
+       T.TLIFETIME ("", pos, pos), T.TIMPL (lexer_layout, pos, pos),
+       T.TCONSTOPEN (lexer_layout, pos, pos)]
     val valueless_tokens =
       [T.LPAR (pos, pos), T.RPAR (pos, pos), T.TGOPEN (pos, pos), T.TTRUE (pos, pos),
        T.TFALSE (pos, pos), T.TLET (pos, pos), T.TCONST (pos, pos), T.TRETURN (pos, pos),
@@ -3697,8 +3982,7 @@ struct
        T.TAS (pos, pos), T.TYIELD (pos, pos), T.TLOG (pos, pos), T.TLOGDATACLOSE (pos, pos),
        T.TSTRUCT (pos, pos), T.TENUM (pos, pos), T.TFN (pos, pos), T.TTHINARROW (pos, pos),
        T.TEXPRSTART (pos, pos), T.TITEMSTART (pos, pos), T.TTYPE (pos, pos),
-       T.TCHUNKSTART (pos, pos), T.TUSE (pos, pos), T.TPUB (pos, pos),
-       T.TIMPL (pos, pos), T.TDOLLAR (pos, pos)]
+       T.TCHUNKSTART (pos, pos), T.TUSE (pos, pos), T.TPUB (pos, pos), T.TDOLLAR (pos, pos)]
   end
 
   fun token_terminal_id (LrParser.Token.TOKEN (term, _)) = terminal_id term
@@ -3752,7 +4036,10 @@ struct
     in Source_Parser.Stream.streamify next_token end
 
   fun parse_layout ctxt layout =
-    let val _ = URustLex.UserDeclarations.set_layout layout ctxt in
+    let
+      val _ = URustLex.UserDeclarations.set_layout layout ctxt
+      val _ = URustLex.UserDeclarations.set_input_mode URustLex.UserDeclarations.Expression_Input
+    in
       Parser_Lex_Util.parse_source_with_layout
           Source_Parser.parse
           (make_mode_lexer URustLrVals.Tokens.TEXPRSTART)
@@ -3765,7 +4052,10 @@ struct
     (start, stop)
 
   fun parse_item_layout ctxt layout =
-    let val _ = URustLex.UserDeclarations.set_layout layout ctxt in
+    let
+      val _ = URustLex.UserDeclarations.set_layout layout ctxt
+      val _ = URustLex.UserDeclarations.set_input_mode URustLex.UserDeclarations.Item_Input
+    in
       Parser_Lex_Util.parse_source_complete_with_layout
           Source_Parser.parse
           (make_mode_lexer URustLrVals.Tokens.TITEMSTART)
@@ -3825,6 +4115,9 @@ struct
              error
                ("urust_expr: expected a complete expression" ^
                  Position.here (URust_AST.use_item_position item))
+         | SOME (URust_AST.Parsed_Item
+             (URust_AST.Impl_Item_Node impl)) =>
+             URust_Grammar.impl_item_mode_error (URust_AST.impl_position impl)
          | SOME (URust_AST.Parsed_Chunk _) =>
              error "uRust parser: internal chunk result for expression input"
          | NONE => NONE)
@@ -3853,6 +4146,7 @@ struct
   fun parse_chunk_layout ctxt layout =
     let
       val _ = URustLex.UserDeclarations.set_layout layout ctxt
+      val _ = URustLex.UserDeclarations.set_input_mode URustLex.UserDeclarations.Chunk_Input
       val _ =
         URustLex.UserDeclarations.enable_annotations
           {source_starts_line =
@@ -3900,6 +4194,8 @@ struct
          error
            ("urust_datatype: expected a struct or enum item" ^
              Position.here (URust_AST.use_item_position item))
+     | SOME (URust_AST.Impl_Item_Node impl) =>
+         URust_Grammar.impl_item_mode_error (URust_AST.impl_position impl)
      | NONE => NONE)
 
   fun parse_function_source ctxt source =
@@ -3918,6 +4214,8 @@ struct
          error
            ("urust_fn: expected a complete function item" ^
              Position.here (URust_AST.use_item_position item))
+     | SOME (URust_AST.Impl_Item_Node impl) =>
+         URust_Grammar.impl_item_mode_error (URust_AST.impl_position impl)
      | NONE => NONE)
 
   fun parse_type_alias_source ctxt source =
@@ -3935,6 +4233,8 @@ struct
          error
            ("urust_type_alias: expected a complete type alias item" ^
              Position.here (URust_AST.use_item_position item))
+     | SOME (URust_AST.Impl_Item_Node impl) =>
+         URust_Grammar.impl_item_mode_error (URust_AST.impl_position impl)
      | NONE => NONE)
 
   fun parse_use_source ctxt source =
@@ -3952,6 +4252,8 @@ struct
          error
            ("uRust import: expected one complete use item" ^
              Position.here (URust_AST.type_alias_item_position item))
+     | SOME (URust_AST.Impl_Item_Node impl) =>
+         URust_Grammar.impl_item_mode_error (URust_AST.impl_position impl)
      | NONE => NONE)
   fun parse_type_source ctxt source =
     Parser_Lex_Util.with_parser_lock (fn () =>

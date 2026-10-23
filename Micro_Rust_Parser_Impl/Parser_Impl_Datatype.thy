@@ -1688,6 +1688,7 @@ fun prepare
       (case item of
          URust_AST.Struct_Item (name, pos, _, _) => (name, pos)
        | URust_AST.Enum_Item (name, pos, _, _) => (name, pos))
+    val _ = URust_AST.reject_datatype_keyword_names source_item
     val _ = reject_recursive_item rust_name item
     val _ = List.app (fn (name, pos, _, shape) => validate_shape name pos shape)
       (item_constructor_descriptors item)

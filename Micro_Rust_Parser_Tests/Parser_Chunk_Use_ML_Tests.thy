@@ -1918,7 +1918,7 @@ local
        ("`_` is not a use path segment", "use demo::_;"),
        ("cannot be an import alias", "use demo::value as self;"),
        ("cannot be an import alias", "use demo::value as crate;"),
-       ("cannot be a use path segment", "use demo::impl;"),
+       ("syntax error", "use demo::impl;"),
        ("generic arguments are not allowed in use paths", "use demo::Cell::<u8>;"),
        ("generic arguments are not allowed in use paths", "use demo::<u8>::Cell;"),
        ("visibility qualifiers (`pub use`) are not supported", "pub use demo::value;"),
@@ -2914,11 +2914,13 @@ local
   val value_ns = S.Value_Namespace
   val later =
     URust_Imports.Declared_Later
-      [{key = "LaterItem", namespace = value_ns, roles = [S.Call_Notation]},
-       {key = "UseChoice", namespace = value_ns, roles = [S.Call_Notation]},
-       {key = "LaterEnum", namespace = type_ns, roles = [S.Generated_Enum, S.Mapped_Type]},
-       {key = "LaterEnum::Ready", namespace = type_ns, roles = [S.Enum_Variant]},
-       {key = "LaterEnum::Ready", namespace = value_ns, roles = [S.Generated_Constructor]}]
+      {entities =
+        [{key = "LaterItem", namespace = value_ns, roles = [S.Call_Notation]},
+         {key = "UseChoice", namespace = value_ns, roles = [S.Call_Notation]},
+         {key = "LaterEnum", namespace = type_ns, roles = [S.Generated_Enum, S.Mapped_Type]},
+         {key = "LaterEnum::Ready", namespace = type_ns, roles = [S.Enum_Variant]},
+         {key = "LaterEnum::Ready", namespace = value_ns, roles = [S.Generated_Constructor]}],
+       associated_functions = []}
   val partial =
     prepare_with later ctxt
       [leaf ["LaterItem"] (SOME "later"), leaf ["UseChoice"] (SOME "both"),

@@ -1954,11 +1954,10 @@ urust_expr_rejects
   \<open> constructor "Some" expects 1 pattern argument(s) \<close>
   \<comment> \<open> [AUDIT] an n-ary constructor spelling is not a binder (Rust E0530). \<close>
 
-urust_expr_rejects
-  \<open> |TNil| () \<close>
-  \<open> unsupported or refutable pattern in a closure formal position \<close>
-  \<comment> \<open> [DIVERGENT] binding sites do not yet treat the constructor of a single-constructor
-       type as irrefutable, so this matches \<open>for\<close>; Rust accepts unit-struct formals. \<close>
+urust_expr closure_formal_sole_constructor \<open> |TNil| () \<close>
+  \<comment> \<open> [FIXED] binding sites treat the nullary constructor of a single-constructor type as
+       irrefutable (impl blocks, D176), so this matches \<open>let\<close> and \<open>for\<close>; Rust accepts
+       unit-struct formals. \<close>
 
 urust_expr_rejects
   \<open> |1| () \<close>

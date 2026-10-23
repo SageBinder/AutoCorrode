@@ -1538,8 +1538,9 @@ ML_val \<open>
 
 section\<open> Command diagnostics and output \<close>
 
-ML_val \<open>
-  local
+ML \<open>
+structure Datatype_Command_Test =
+struct
     fun run_command interactive source_name command_text () =
       let
         val thy = \<^theory>
@@ -1830,6 +1831,13 @@ ML_val \<open>
       "[" ^ commas (map (fn (source, target) =>
         quote source ^ " \<rightarrow> " ^ cartouche target) entries) ^ "]"
 
+end
+\<close>
+
+ML_val \<open>
+  local
+    open Datatype_Command_Test
+
     val _ =
       assert_succeeded "renamed-short-selectors"
         ("urust_datatype [hol_names = " ^
@@ -1939,6 +1947,14 @@ ML_val \<open>
          ("partial", [("Tuple", "ModelTuple")], ["Unit", "ModelTuple", "Named"]),
          ("all", [("Named", "ModelNamed"), ("Unit", "ModelUnit"), ("Tuple", "ModelTuple")],
           ["ModelUnit", "ModelTuple", "ModelNamed"])]
+  in
+    val _ = ()
+  end
+\<close>
+
+ML_val \<open>
+  local
+    open Datatype_Command_Test
 
     val _ =
       List.app
@@ -2035,6 +2051,14 @@ ML_val \<open>
       assert_succeeded "rename-error-recovery"
         ("urust_datatype [hol_names = " ^ rename_list [("value", "recovered_selector")] ^
          "] " ^ datatype_source "RenameRecovery" "value: u32")
+  in
+    val _ = ()
+  end
+\<close>
+
+ML_val \<open>
+  local
+    open Datatype_Command_Test
 
     val _ =
       List.app
@@ -2138,6 +2162,14 @@ ML_val \<open>
     val _ =
       assert_registry_unchanged "inherited and overloaded aliases"
         \<^context> (result_context inherited_result)
+  in
+    val _ = ()
+  end
+\<close>
+
+ML_val \<open>
+  local
+    open Datatype_Command_Test
 
     val (fallback_result, _, _) =
       capture_result true "unregistered-field-fallback"
@@ -2244,6 +2276,15 @@ ML_val \<open>
          ("missing-comma", "register_notation pretty", "Outer syntax error"),
          ("prefixed", "urust_register_notation = false",
           "unknown uRust command option \"urust_register_notation\"")]
+  in
+    val _ = ()
+  end
+\<close>
+
+ML_val \<open>
+  local
+    open Datatype_Command_Test
+
     val _ =
       List.app
         (fn command =>
@@ -2350,6 +2391,14 @@ ML_val \<open>
       assert_succeeded "registration-diagnostic-recovery"
         ("urust_datatype [register_notation] " ^
           datatype_source "RegistrationRecovery" "recoveryAlias: u32,")
+  in
+    val _ = ()
+  end
+\<close>
+
+ML_val \<open>
+  local
+    open Datatype_Command_Test
 
     val (_, _, quiet) =
       capture_result true "quiet"
@@ -2455,6 +2504,14 @@ ML_val \<open>
            then ()
            else error "enum verbosity 1 source order changed"
        | _ => error "enum verbosity 1 manifest is incomplete")
+  in
+    val _ = ()
+  end
+\<close>
+
+ML_val \<open>
+  local
+    open Datatype_Command_Test
 
     val (_, _, enum_detailed) =
       capture_result true "enum-detailed"
@@ -2503,6 +2560,14 @@ ML_val \<open>
         ("declare [[urust_pp_test = true]]\n" ^
          "urust_datatype [pp_test = false] scoped_pp_false " ^
           datatype_source "ScopedPpFalse" "value: u64,")
+  in
+    val _ = ()
+  end
+\<close>
+
+ML_val \<open>
+  local
+    open Datatype_Command_Test
 
     val pretty_replay =
       capture_full_result true "pretty-replay"
@@ -2641,6 +2706,14 @@ ML_val \<open>
       else
         error
           "pretty datatype replay generated or registered artifacts more than once"
+  in
+    val _ = ()
+  end
+\<close>
+
+ML_val \<open>
+  local
+    open Datatype_Command_Test
 
     val (_, _, pretty_detailed) =
       capture_result true "pretty-detailed"
@@ -2751,6 +2824,14 @@ ML_val \<open>
     val _ =
       assert_absent "combined interactive/show_results gate"
         "urust_datatype generated artifacts" fully_gated
+  in
+    val _ = ()
+  end
+\<close>
+
+ML_val \<open>
+  local
+    open Datatype_Command_Test
 
     val (failed_result, _, failed_output) =
       capture_result true "failed-output"
@@ -2862,6 +2943,15 @@ ML_val \<open>
           cartouche
             (" struct PolymorphicFieldType(" ^
              type_cartouche "'a" ^ "); "))
+  in
+    val _ = ()
+  end
+\<close>
+
+ML_val \<open>
+  local
+    open Datatype_Command_Test
+
     val _ =
       assert_rejected "unprefixed-type-cartouche"
         "HOL type cartouches must use the \<tau> prefix"
@@ -2971,6 +3061,15 @@ ML_val \<open>
         ("urust_datatype named_extra_semicolon " ^
           cartouche
             " struct NamedExtraSemicolon { value: u32, }; ")
+  in
+    val _ = ()
+  end
+\<close>
+
+ML_val \<open>
+  local
+    open Datatype_Command_Test
+
     val _ =
       assert_rejected "enum-extra-semicolon"
         "syntax error found at ;"
@@ -3078,6 +3177,15 @@ ML_val \<open>
         ("urust_datatype [pp_test, pp_test = false] " ^
           "duplicate_pp_test " ^
           cartouche " struct DuplicatePpTest; ")
+  in
+    val _ = ()
+  end
+\<close>
+
+ML_val \<open>
+  local
+    open Datatype_Command_Test
+
     val _ =
       assert_rejected "duplicate-inline-pretty"
         "duplicate uRust command option \"pretty\""
@@ -3186,6 +3294,15 @@ ML_val \<open>
         "requires positional call syntax"
         ("urust_expr _ " ^
           cartouche " ParserTuple ")
+  in
+    val _ = ()
+  end
+\<close>
+
+ML_val \<open>
+  local
+    open Datatype_Command_Test
+
     val _ =
       assert_rejected "unit-struct-as-call"
         "is a bare value, not a call"
@@ -3296,6 +3413,15 @@ ML_val \<open>
       assert_succeeded "detached-scope"
         ("urust_datatype detached_scope " ^
           cartouche " struct DetachedScope; ")
+  in
+    val _ = ()
+  end
+\<close>
+
+ML_val \<open>
+  local
+    open Datatype_Command_Test
+
     val NONE =
       URust_Item_Scope.lookup_type \<^context> "DetachedScope"
     val NONE =

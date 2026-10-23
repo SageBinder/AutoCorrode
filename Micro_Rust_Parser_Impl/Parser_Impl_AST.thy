@@ -326,9 +326,14 @@ sig
   and ur_arm =
       UR_Arm of ur_pat * (ur_expr * Position.T) option * ur_expr * source_layout
 
+  datatype receiver_form =
+      Receiver_Value
+    | Receiver_Mut_Value
+    | Receiver_Ref of {mutable: bool, lifetime: rust_lifetime option}
   datatype function_parameter =
-    Function_Parameter of
-      Position.T option * ur_pat * rust_type * source_layout
+      Function_Parameter of
+        Position.T option * ur_pat * rust_type * source_layout
+    | Receiver_Parameter of receiver_form * Position.T * source_layout
   datatype urust_function =
     Function_Item of
       string * Position.T * rust_lifetime list * function_parameter list *
@@ -338,11 +343,18 @@ sig
       string * Position.T * (string * Position.T) list *
       rust_type * source_layout
     | Generic_Type_Alias of generic_parameter list * urust_type_alias
+  datatype item_annotation =
+    Item_Annotation of Input.source * source_layout
+  datatype impl_member =
+    Impl_Member of item_annotation option * urust_function * Input.source
+  datatype urust_impl =
+    Impl_Item of rust_type * impl_member list * source_layout
   datatype urust_item =
       Datatype_Item of urust_datatype
     | Function_Item_Node of urust_function
     | Type_Alias_Item_Node of urust_type_alias
     | Use_Item_Node of use_item
+    | Impl_Item_Node of urust_impl
 
   val type_alias_item_position: urust_type_alias -> Position.T
   val type_alias_source_layout: urust_type_alias -> source_layout
@@ -358,10 +370,19 @@ sig
   val function_parameters: urust_function -> function_parameter list
   val function_return_type: urust_function -> rust_type option
   val function_parameter_position: function_parameter -> Position.T
+  val receiver_parameter: function_parameter -> (receiver_form * Position.T) option
+  val impl_target: urust_impl -> rust_type
+  val impl_members: urust_impl -> impl_member list
+  val impl_source_layout: urust_impl -> source_layout
+  val impl_position: urust_impl -> Position.T
+  val impl_item_position: urust_impl -> Position.T
+  val impl_member_annotation: impl_member -> item_annotation option
+  val impl_member_function: impl_member -> urust_function
+  val impl_member_source: impl_member -> Input.source
   val rust_snake_case: string -> string
+  val reject_keyword_name: string -> string -> string * Position.T -> unit
+  val reject_datatype_keyword_names: urust_datatype -> unit
 
-  datatype item_annotation =
-    Item_Annotation of Input.source * source_layout
   datatype annotated_item =
     Annotated_Item of item_annotation option * urust_item * Input.source
   datatype urust_chunk =
@@ -499,6 +520,20 @@ end
       including its leading apostrophe, and the position of its token. Reference_Type retains its
       optional source lifetime and Function_Item its ordered lifetime parameters, both only for
       printing, positions and lifetime scope checks; type resolution erases them.
+    * function_parameter is either a Function_Parameter (optional `mut` position, pattern, Rust
+      type) or a Receiver_Parameter, a `self` receiver shorthand without a type. receiver_form
+      records the source spelling: Receiver_Value (`self`), Receiver_Mut_Value (`mut self`) and
+      Receiver_Ref (`&self`, `&mut self`, optionally with a lifetime). A Receiver_Parameter
+      retains the `self` token position and a layout spanning the whole receiver with its `&`
+      operator and `mut` keyword. The grammar accepts a shorthand only as the first parameter of a
+      function; whether the function may take one is an elaboration decision. Typed `self: T`
+      receivers stay Function_Parameter values.
+    * urust_impl (Impl_Item) is an inherent impl block: its unresolved target type, its members
+      in source order and a layout spanning `impl` through the closing brace with the `impl`
+      keyword and both braces. An Impl_Member retains the member's optional annotation, its
+      function item and the function's positioned source slice (without the annotation), so
+      each member can be prepared like a chunk function. Impl_Item_Node occurs only in chunk
+      results; the item and expression parsers reject `impl` at its keyword.
     * urust_type_alias and Type_Alias_Item retain the declared item name, ordered positioned type
       parameters, positioned Rust RHS and complete layout. Type_Alias_Item_Node joins datatype and
       function items in the complete-item parser, before registry validation or installation.
@@ -1017,7 +1052,7 @@ struct
   val use_root_keywords = ["crate", "super", "self", "Self"]
   val use_reserved_keywords =
     use_root_keywords @
-    ["async", "await", "break", "continue", "dyn", "extern", "impl",
+    ["async", "await", "break", "continue", "dyn", "extern",
      "mod", "move", "ref", "static", "trait", "where",
      "abstract", "become", "box", "do", "final", "gen", "macro", "override",
      "priv", "try", "typeof", "unsized", "virtual", "yield"]
@@ -1185,9 +1220,14 @@ struct
   and ur_arm =
       UR_Arm of ur_pat * (ur_expr * Position.T) option * ur_expr * source_layout
 
+  datatype receiver_form =
+      Receiver_Value
+    | Receiver_Mut_Value
+    | Receiver_Ref of {mutable: bool, lifetime: rust_lifetime option}
   datatype function_parameter =
-    Function_Parameter of
-      Position.T option * ur_pat * rust_type * source_layout
+      Function_Parameter of
+        Position.T option * ur_pat * rust_type * source_layout
+    | Receiver_Parameter of receiver_form * Position.T * source_layout
   datatype urust_function =
     Function_Item of
       string * Position.T * rust_lifetime list * function_parameter list *
@@ -1197,11 +1237,18 @@ struct
       string * Position.T * (string * Position.T) list *
       rust_type * source_layout
     | Generic_Type_Alias of generic_parameter list * urust_type_alias
+  datatype item_annotation =
+    Item_Annotation of Input.source * source_layout
+  datatype impl_member =
+    Impl_Member of item_annotation option * urust_function * Input.source
+  datatype urust_impl =
+    Impl_Item of rust_type * impl_member list * source_layout
   datatype urust_item =
       Datatype_Item of urust_datatype
     | Function_Item_Node of urust_function
     | Type_Alias_Item_Node of urust_type_alias
     | Use_Item_Node of use_item
+    | Impl_Item_Node of urust_impl
 
   fun type_alias_source_layout
       (Type_Alias_Item (_, _, _, _, layout)) = layout
@@ -1245,12 +1292,58 @@ struct
 
   fun function_parameter_position
       (Function_Parameter (_, _, _, layout)) = source_span layout
+    | function_parameter_position
+      (Receiver_Parameter (_, _, layout)) = source_span layout
+
+  fun receiver_parameter (Receiver_Parameter (form, self_pos, _)) = SOME (form, self_pos)
+    | receiver_parameter (Function_Parameter _) = NONE
+
+  fun impl_target (Impl_Item (target, _, _)) = target
+  fun impl_members (Impl_Item (_, members, _)) = members
+  fun impl_source_layout (Impl_Item (_, _, layout)) = layout
+  fun impl_position impl =
+    the_source_token_position (impl_source_layout impl) (Keyword_Token "impl")
+  fun impl_item_position impl = source_span (impl_source_layout impl)
+  fun impl_member_annotation (Impl_Member (annotation, _, _)) = annotation
+  fun impl_member_function (Impl_Member (_, function, _)) = function
+  fun impl_member_source (Impl_Member (_, _, source)) = source
 
   fun ascii_lower character =
     if #"A" <= character andalso character <= #"Z"
     then Char.chr
       (Char.ord character + Char.ord #"a" - Char.ord #"A")
     else character
+
+  (* `Self` and `self` are Rust keywords, so no declaration introduces a name spelled so (the
+     receiver `self` is a parameter form, not a declared name). One rule serves every
+     name-introducing position: label is the command, what the role of the name. *)
+  fun reject_keyword_name label what (name, pos) =
+    if name = "Self" orelse name = "self" then
+      error (label ^ ": " ^ name ^ " is a keyword and cannot name " ^ what ^ Position.here pos)
+    else ()
+
+  fun reject_datatype_keyword_names item =
+    let
+      val reject = reject_keyword_name "urust_datatype"
+      fun fields (Named_Shape fields) =
+            List.app (fn Datatype_Field (name, pos, _) => reject "a field" (name, pos)) fields
+        | fields _ = ()
+      fun check (Datatype_Header (parameters, _, _, item)) =
+            (List.app
+              (fn Generic_Parameter (name, pos, Type_Parameter) =>
+                    reject "a type parameter" (name, pos)
+                | Generic_Parameter (name, pos, Const_Parameter) =>
+                    reject "a const parameter" (name, pos))
+              parameters;
+             check item)
+        | check (Struct_Item (name, pos, shape, _)) = (reject "a type" (name, pos); fields shape)
+        | check (Enum_Item (name, pos, variants, _)) =
+            (reject "a type" (name, pos);
+             List.app
+               (fn Datatype_Variant (variant, variant_pos, shape) =>
+                 (reject "a variant" (variant, variant_pos); fields shape))
+               variants)
+    in check item end
 
   fun rust_snake_case name =
     let
@@ -1283,8 +1376,6 @@ struct
           String.str (ascii_lower character)
     in String.concat (map_index convert characters) end
 
-  datatype item_annotation =
-    Item_Annotation of Input.source * source_layout
   datatype annotated_item =
     Annotated_Item of item_annotation option * urust_item * Input.source
   datatype urust_chunk =
@@ -1294,6 +1385,7 @@ struct
     | item_position (Function_Item_Node function) = function_item_position function
     | item_position (Type_Alias_Item_Node item) = type_alias_item_position item
     | item_position (Use_Item_Node item) = use_item_position item
+    | item_position (Impl_Item_Node impl) = impl_item_position impl
 
   fun annotation_payload (Item_Annotation (payload, _)) = payload
   fun annotation_source_layout (Item_Annotation (_, layout)) = layout

@@ -8557,8 +8557,12 @@ ML_val\<open>
          Position.make0 391 93100 0 "" ""
            "synthetic-notation-high-declaration",
        serial = high_serial}
+    (* Two registrations of one constructor stay distinct in the registry view only as automatic
+       registrations, each with its own identity; explicit duplicates are represented by one. *)
     val synthetic_ctxt =
       Context.Proof ctxt
+      |> Micro_Rust_Names.mark_automatic low_serial
+      |> Micro_Rust_Names.mark_automatic high_serial
       |> Micro_Rust_Names.Data.map
           (Symtab.update
             (Micro_Rust_Names.mk_key Micro_Rust_Names.NLiteral synthetic_name,

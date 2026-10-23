@@ -36,7 +36,7 @@ sig
   datatype target_policy =
       Require_Targets
     | Allow_Unavailable_Targets
-    | Declared_Later of entity list
+    | Declared_Later of {entities: entity list, associated_functions: string list}
   val validate_batch: URust_AST.use_item list -> batch
   val batch_leaves: batch -> leaf list
   val resolve_batch:
@@ -78,7 +78,11 @@ end
     namespace are rejected at the later alias. A grouped `self` imports only the type identity of a
     generated enum. Exact keys obtain their namespace memberships from item origin and shape,
     type mappings and literal/call notation registrations; field-only notations and keys without
-    any supported item are positioned rejections. Chunk batches reject an alias
+    any supported item are positioned rejections. Associated functions of impls (decided from the
+    owner kind, including impls declared later in the chunk) and method-only keys are not import
+    targets; an explicit call notation under a path key stays importable. The heads of use paths
+    are unchanged: an imported head must still be a generated enum (expression and pattern paths
+    accept every imported type head). Chunk batches reject an alias
     that collides with an item declared in that chunk. Bindings carry the identity
     of their validated leaf. Semantic reports are deferred only after the complete batch validates.
     Require_Targets rejects a target that is absent from the context. Allow_Unavailable_Targets
@@ -88,7 +92,9 @@ end
     but listed among the entities that will be declared binds an unavailable binding in that
     namespace only; an entity that exists keeps resolving, and the roles that a listed entity adds
     to it are recorded as pending, so that a use requiring them reports the later declaration; a
-    target that neither exists nor is listed is unknown, as under Require_Targets. Under
+    target that neither exists nor is listed is unknown, as under Require_Targets. Its
+    associated_functions lists the associated-function keys of the impl members still to be
+    declared. Under
     Require_Targets and Declared_Later, a single-segment target that an enclosing import binds as
     unavailable in one namespace is unavailable in that namespace only, and a target without any
     available namespace is rejected as not yet available. Duplicates are rejected among the
@@ -241,7 +247,10 @@ struct
        literal_notations =
          when (not (null (Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NLiteral key))),
        call_notations =
-         when (not (null (Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NFunction key)))}
+         when
+           (Micro_Rust_Names.has_eligible_entries ctxt [Micro_Rust_Names.Exclude_Method_Only]
+              Micro_Rust_Names.NFunction key andalso
+            not (Micro_Rust_Names.is_associated_function ctxt key))}
     end
 
   fun registry_member ctxt key : resolved =
@@ -257,7 +266,21 @@ struct
   datatype target_policy =
       Require_Targets
     | Allow_Unavailable_Targets
-    | Declared_Later of entity list
+    | Declared_Later of {entities: entity list, associated_functions: string list}
+
+  (* Associated functions and methods are not namespace items, so they are not importable, as in
+     Rust. The owner kind decides, also for an impl member declared later in the chunk; an
+     explicit call notation under a path key stays importable. *)
+  fun is_associated_target policy ctxt key =
+    Micro_Rust_Names.is_associated_function ctxt key orelse
+      (case policy of
+         Declared_Later {associated_functions, ...} => member (op =) associated_functions key
+       | _ => false)
+
+  fun reject_associated_target policy ctxt key pos =
+    if is_associated_target policy ctxt key then
+      import_error ("associated function " ^ quote key ^ " cannot be imported") pos
+    else ()
 
   (* The registry members of a key, completed under Declared_Later from the entities that later
      declarations introduce: an absent member becomes unavailable, and an available member records
@@ -267,7 +290,7 @@ struct
       val registered = registry_member ctxt key
       fun declared namespace =
         (case policy of
-           Declared_Later entities =>
+           Declared_Later {entities, ...} =>
              Option.map #roles
                (find_first
                  (fn entity => #key entity = key andalso #namespace entity = namespace) entities)
@@ -489,6 +512,7 @@ struct
                        [(variant, variant_pos)] =>
                          let
                            val key = owner ^ "::" ^ variant
+                           val _ = reject_associated_target policy ctxt key variant_pos
                            fun not_a_variant () =
                              import_error
                                (quote variant ^ " is not a variant of enum " ^ quote owner)
@@ -511,7 +535,10 @@ struct
                          import_error "enum variants have no nested importable items" nested_pos
                      | [] => import_error "internal empty variant path" head_pos)
               | NONE =>
-                  let val key = space_implode "::" (map #1 path) in
+                  let
+                    val key = space_implode "::" (map #1 path)
+                    val _ = reject_associated_target policy ctxt key (#span leaf)
+                  in
                     require_target policy ctxt key (#span leaf) (known_member policy ctxt key)
                   end))
 
@@ -620,10 +647,12 @@ struct
         | role S.Call_Notation = notations Micro_Rust_Names.NFunction
       and notations kind =
         List.app
-          (fn ({reg_pos, serial, ...}: Micro_Rust_Names.entry) =>
-            Navigation.defer_report ctxt pos
-              (Position.make_entity_markup {def = false} serial Micro_Rust_Names.notationN
-                (key, reg_pos)))
+          (fn entry =>
+            let val (serial, reg_pos) = Micro_Rust_Names.navigation_target ctxt entry in
+              Navigation.defer_report ctxt pos
+                (Position.make_entity_markup {def = false} serial Micro_Rust_Names.notationN
+                  (key, reg_pos))
+            end)
           (Micro_Rust_Names.lookups ctxt kind key)
       val roles = #roles member
       val ordered =

@@ -3,6 +3,8 @@
 theory Parser_Function_ML_Tests
   imports
     Parser_Function_Examples
+    Parser_Test_Fixtures_Left
+    Parser_Test_Fixtures_Right
     Micro_Rust_Parser_Impl.Parser_Impl_Chunk
 begin
 
@@ -1961,7 +1963,7 @@ ML_val \<open>
           "fn SignatureFailure((left, right): (u8, bool)) -> u8 { left }"),
          ("signature-duplicate-parameter", "duplicate parameter",
           "fn SignatureFailure(value: u8, value: bool) -> u8 { value }"),
-         ("signature-untyped-receiver", "syntax error",
+         ("signature-untyped-receiver", "receiver shorthand is only allowed in impl members",
           "fn SignatureFailure(self) -> u8 { self }"),
          ("signature-body-unresolved", "unresolved body name",
           "fn SignatureFailure(value: u8) -> u8 { MissingSignatureBody(value) }"),
@@ -2621,7 +2623,12 @@ ML_val \<open>
         val ctxt = Theory.begin_theory (name, Position.none) [left, right]
           |> Proof_Context.init_global
         val _ = require "merge equality lost distinct typed schemes"
-          (length (Parser_Test_Calls.entries ctxt "SignatureCoverageReplay") = 2)
+          (length (Micro_Rust_Names.registrations ctxt Micro_Rust_Names.NFunction
+            "SignatureCoverageReplay") = 2)
+        val _ = require "the merged view does not show the covering scheme alone"
+          (map (Micro_Rust_Names.normalized_backend o #hol_term)
+             (Parser_Test_Calls.entries ctxt "SignatureCoverageReplay") =
+           [Micro_Rust_Names.normalized_backend identity])
         val compatible = Micro_Rust_Dispatch.candidates ctxt Micro_Rust_Names.NFunction
           "SignatureCoverageReplay" (fastype_of specialized)
         val _ = require "generic/specialized theory union creates ambiguity"
@@ -2682,6 +2689,1056 @@ ML_val \<open>
       in () end
     val _ = List.app ambient_call [("signature_type_only_registration", \<^sort>\<open>type\<close>),
       ("signature_ordered_ambient", \<^sort>\<open>linorder\<close>)]
+  in val _ = () end
+\<close>
+
+section\<open> Method-only marks, backend filters and dispatch payloads \<close>
+
+definition registry_filter_word :: \<open>8 word \<Rightarrow> ('s, 8 word, 'a, 'i, 'o) function_body\<close> where
+  \<open>registry_filter_word value = FunctionBody (literal value)\<close>
+
+definition registry_filter_other_word ::
+  \<open>8 word \<Rightarrow> ('s, 8 word, 'a, 'i, 'o) function_body\<close> where
+  \<open>registry_filter_other_word value = FunctionBody (literal value)\<close>
+
+definition registry_filter_bool :: \<open>bool \<Rightarrow> ('s, bool, 'a, 'i, 'o) function_body\<close> where
+  \<open>registry_filter_bool value = FunctionBody (literal value)\<close>
+
+definition registry_filter_nat :: \<open>nat \<Rightarrow> ('s, nat, 'a, 'i, 'o) function_body\<close> where
+  \<open>registry_filter_nat value = FunctionBody (literal value)\<close>
+
+ML \<open>
+(* Registrations in the shapes of the impl registration path, made directly through the registry. *)
+structure Parser_Registry_Test =
+struct
+  structure Names = Micro_Rust_Names
+
+  fun range label offset =
+    Position.make0 1 offset (offset + 4) "" label ""
+    |> Position.copy_id (Position.thread_data ())
+
+  fun backend ctxt name =
+    Const (Proof_Context.intern_const ctxt name,
+      Parser_Function_Regression_Test.declared_type ctxt name)
+
+  fun register name term s =
+    Names.register_with_source_serial Names.NFunction name term NONE (range name 1) s
+
+  val explicit = register
+  fun generated name term s = Names.mark_automatic s #> register name term s
+  fun method name term s =
+    Names.mark_automatic s #> Names.mark_method_only s #> register name term s
+
+  fun entries ctxt name = Names.lookups ctxt Names.NFunction name
+
+  fun serials entries = sort int_ord (map #serial entries)
+
+  fun eligible ctxt filters name =
+    serials (Names.eligible_entries ctxt filters (entries ctxt name))
+
+  fun filters_of (Const (\<^const_name>\<open>urust_dispatch\<close>, _) $ payload $ _) =
+        #4 (the (Micro_Rust_Dispatch.dest_payload payload))
+    | filters_of _ = error "expected a dispatch marker"
+
+  fun position_key position =
+    (Position.offset_of position, Position.end_offset_of position, Position.id_of position)
+
+  fun positions_key ({terminal_pos, qualifier_positions, backend_only_positions}:
+      Micro_Rust_Dispatch.marker_positions) =
+    (position_key terminal_pos, map position_key qualifier_positions,
+     map position_key backend_only_positions)
+
+  fun owners ctxt name =
+    Names.associated_functions ctxt name
+    |> map (fn {self_type, identity, pos} => (identity, self_type, position_key pos))
+    |> sort (int_ord o apply2 #1)
+
+  fun self_types ctxt name =
+    map #2 (owners ctxt name) |> sort Term_Ord.typ_ord
+
+  (* Everything a client can observe about one key, with dispatch at an occurrence type. *)
+  fun observe concrete ctxt key originals =
+    let
+      val filter_sets =
+        [[], [Names.Exclude_Generated], [Names.Exclude_Method_Only],
+         [Names.Only_Sources originals]]
+    in
+      (entries ctxt key
+       |> map (fn entry =>
+            (#serial entry, Names.is_automatic ctxt entry, Names.is_method_only ctxt entry,
+             apsnd position_key (Names.navigation_target ctxt entry),
+             position_key (#reg_pos entry)))
+       |> sort (int_ord o apply2 #1),
+       map (fn filters => Names.has_eligible_entries ctxt filters Names.NFunction key)
+         filter_sets,
+       map (fn filters =>
+           serials (map #entry
+             (Micro_Rust_Dispatch.filtered_candidates ctxt filters Names.NFunction key
+               concrete)))
+         filter_sets,
+       map (Pretty.pure_string_of o Micro_Rust_Notation_Print.pretty_entry ctxt)
+         (filter (fn (_, name, _) => name = key) (Names.dump ctxt)) |> sort_strings)
+    end
+end
+\<close>
+
+ML_val \<open>
+  local
+    open Parser_Function_Regression_Test
+    open Parser_Registry_Test
+    structure Dispatch = Micro_Rust_Dispatch
+    val word = backend \<^context> "registry_filter_word"
+    val other_word = backend \<^context> "registry_filter_other_word"
+    val bool = backend \<^context> "registry_filter_bool"
+    val nat = backend \<^context> "registry_filter_nat"
+    val method_word = serial ()
+    val method_bool = serial ()
+    val generated_word = serial ()
+    val generated_bool = serial ()
+    val explicit_word = serial ()
+    val explicit_bool = serial ()
+    val mixed_method = serial ()
+    val mixed_generated = serial ()
+    val mixed_explicit = serial ()
+    val mixed_other = serial ()
+    val ctxt =
+      Context.Proof \<^context>
+      |> method "RegistryMethodOnly" word method_word
+      |> method "RegistryMethodOnly" bool method_bool
+      |> generated "RegistryGenerated" word generated_word
+      |> generated "RegistryGenerated" bool generated_bool
+      |> explicit "RegistryExplicit" word explicit_word
+      |> explicit "RegistryExplicit" bool explicit_bool
+      |> method "RegistryMixed" word mixed_method
+      |> generated "RegistryMixed" bool mixed_generated
+      |> explicit "RegistryMixed" nat mixed_explicit
+      |> explicit "RegistryMixed" other_word mixed_other
+      |> Context.proof_of
+
+    (* Marks. *)
+    fun status name = map (fn entry =>
+        (#serial entry, Names.is_automatic ctxt entry, Names.is_method_only ctxt entry))
+      (entries ctxt name) |> sort (int_ord o apply2 #1)
+    val _ = require "method-only marks"
+      (status "RegistryMixed" =
+        sort (int_ord o apply2 #1)
+          [(mixed_method, true, true), (mixed_generated, true, false),
+           (mixed_explicit, false, false), (mixed_other, false, false)])
+    val _ = require "plain automatic or explicit entries are method-only"
+      (forall (not o #3) (status "RegistryGenerated" @ status "RegistryExplicit"))
+    val _ = require "method entries lost their marks"
+      (forall (fn (_, automatic, method_only) => automatic andalso method_only)
+        (status "RegistryMethodOnly"))
+
+    (* Eligibility under every filter, combination and source list. *)
+    val sources = Names.Only_Sources
+    val _ = List.app (fn (label, filters, expected) =>
+        require ("eligible entries: " ^ label) (eligible ctxt filters "RegistryMixed" =
+          sort int_ord expected))
+      [("none", [], [mixed_method, mixed_generated, mixed_explicit, mixed_other]),
+       ("generated", [Names.Exclude_Generated], [mixed_explicit, mixed_other]),
+       ("method-only", [Names.Exclude_Method_Only], [mixed_generated, mixed_explicit, mixed_other]),
+       ("one source", [sources [mixed_method]], [mixed_method]),
+       ("several sources", [sources [mixed_method, mixed_explicit, generated_word]],
+          [mixed_method, mixed_explicit]),
+       ("no sources", [sources []], []),
+       ("generated and method-only", [Names.Exclude_Generated, Names.Exclude_Method_Only],
+          [mixed_explicit, mixed_other]),
+       ("method-only and sources", [Names.Exclude_Method_Only, sources [mixed_method, mixed_generated]],
+          [mixed_generated]),
+       ("generated and sources", [Names.Exclude_Generated, sources [mixed_generated]], []),
+       ("two source sets intersect", [sources [mixed_method, mixed_other], sources [mixed_other]],
+          [mixed_other])]
+
+    (* Report-free existence of eligible entries. *)
+    fun has filters name = Names.has_eligible_entries ctxt filters Names.NFunction name
+    val _ = List.app (fn (label, filters, name, expected) =>
+        require ("has_eligible_entries: " ^ label) (has filters name = expected))
+      [("all method-only, unfiltered", [], "RegistryMethodOnly", true),
+       ("all method-only, direct call", [Names.Exclude_Method_Only], "RegistryMethodOnly", false),
+       ("all method-only, turbofish", [Names.Exclude_Generated], "RegistryMethodOnly", false),
+       ("all generated, direct call", [Names.Exclude_Method_Only], "RegistryGenerated", true),
+       ("all generated, turbofish", [Names.Exclude_Generated], "RegistryGenerated", false),
+       ("mixed, direct call", [Names.Exclude_Method_Only], "RegistryMixed", true),
+       ("mixed, both exclusions", [Names.Exclude_Generated, Names.Exclude_Method_Only],
+          "RegistryMixed", true),
+       ("mixed, method source only, direct call",
+          [Names.Exclude_Method_Only, sources [mixed_method]], "RegistryMixed", false),
+       ("mixed, no sources", [sources []], "RegistryMixed", false),
+       ("explicit only, turbofish", [Names.Exclude_Generated], "RegistryExplicit", true),
+       ("explicit only, direct call", [Names.Exclude_Method_Only], "RegistryExplicit", true),
+       ("unregistered", [], "RegistryUnregistered", false)]
+    val _ = require "has_eligible_entries emitted reports"
+      (null (snd (Parser_Test_Reports.markup (fn () =>
+        has [Names.Exclude_Method_Only] "RegistryMethodOnly"))))
+
+    (* Payload encoding round-trips every filter set, with and without reported positions. *)
+    val positions =
+      {terminal_pos = range "registry-payload-terminal" 20,
+       qualifier_positions = [range "registry-payload-qualifier" 10],
+       backend_only_positions = [range "registry-payload-backend" 30]}
+    val no_positions =
+      {terminal_pos = Position.none, qualifier_positions = [], backend_only_positions = []}
+    val filter_sets =
+      [[], [Names.Exclude_Generated], [Names.Exclude_Method_Only], [sources [mixed_method]],
+       [sources [mixed_method, mixed_other, 7]], [sources []],
+       [Names.Exclude_Method_Only, Names.Exclude_Generated],
+       [Names.Exclude_Generated, sources [3, 1, 2], Names.Exclude_Method_Only, sources []]]
+    fun round_trip label marker_positions filters =
+      (case Dispatch.dest_payload
+          (Dispatch.mk_filtered_payload_positions filters Names.NFunction "Registry::Path"
+            marker_positions) of
+         SOME (kind, name, decoded, decoded_filters) =>
+           require ("payload round trip: " ^ label)
+             (kind = Names.NFunction andalso name = "Registry::Path" andalso
+              positions_key decoded = positions_key marker_positions andalso
+              decoded_filters = filters)
+       | NONE => error "payload was not recognized")
+    val _ = List.app (round_trip "positions" positions) filter_sets
+    val _ = List.app (round_trip "no positions" no_positions) filter_sets
+    val _ = require "an unfiltered payload changed its encoding"
+      (Dispatch.mk_filtered_payload_positions [] Names.NFunction "Registry::Path" positions =
+        Dispatch.mk_payload_positions Names.NFunction "Registry::Path" positions)
+
+    (* restrict_backends rewrites every marker of a call head and accumulates filters. *)
+    val marker = Dispatch.mk_marker_term NONE
+      (Dispatch.mk_payload_positions Names.NFunction "RegistryMixed" positions)
+    val witness_marker =
+      Dispatch.mk_marker_positions Names.NFunction "RegistryMixed"
+        (#terminal_pos positions) [] (Free ("RegistryMixed", dummyT))
+    val _ = require "restriction by no filter changed the marker"
+      (Dispatch.restrict_backends [] marker = marker)
+    val _ = List.app (fn filters =>
+        require "restriction did not install its filters"
+          (filters_of (Dispatch.restrict_backends filters marker) = filters))
+      filter_sets
+    val accumulated =
+      marker |> Dispatch.restrict_backends [sources [mixed_method]]
+      |> Dispatch.restrict_backends [Names.Exclude_Method_Only, sources [mixed_method]]
+      |> Dispatch.exclude_generated_backends
+    val _ = require "restrictions did not accumulate in order"
+      (filters_of accumulated =
+        [sources [mixed_method], Names.Exclude_Method_Only, Names.Exclude_Generated])
+    val _ = require "turbofish entry point is not the generated exclusion"
+      (Dispatch.exclude_generated_backends marker =
+        Dispatch.restrict_backends [Names.Exclude_Generated] marker)
+    val restricted_witness = Dispatch.restrict_backends [Names.Exclude_Method_Only] witness_marker
+    val _ = require "restriction lost the witness or positions"
+      (case restricted_witness of
+         Const _ $ payload $ (Const (\<^const_name>\<open>Witness\<close>, _) $ Free ("RegistryMixed", _)) =>
+           positions_key (#3 (the (Dispatch.dest_payload payload))) =
+             positions_key {terminal_pos = #terminal_pos positions, qualifier_positions = [],
+               backend_only_positions = []}
+       | _ => false)
+    val head = Abs ("x", dummyT, marker $ (witness_marker $ Bound 0))
+    fun markers (t as Const (\<^const_name>\<open>urust_dispatch\<close>, _) $ _ $ _) = [t]
+      | markers (t $ u) = markers t @ markers u
+      | markers (Abs (_, _, body)) = markers body
+      | markers _ = []
+    val _ = require "a nested marker was not restricted"
+      (map filters_of (markers (Dispatch.restrict_backends [Names.Exclude_Method_Only] head)) =
+        [[Names.Exclude_Method_Only], [Names.Exclude_Method_Only]])
+
+    (* Dispatch considers exactly the eligible backends. *)
+    val any_type = TVar (("'occurrence", 0), [])
+    fun candidates filters typ =
+      serials (map #entry (Dispatch.filtered_candidates ctxt filters Names.NFunction
+        "RegistryMixed" typ))
+    val word_type = fastype_of word
+    val _ = List.app (fn (label, filters, typ, expected) =>
+        require ("dispatch candidates: " ^ label) (candidates filters typ = sort int_ord expected))
+      [("none", [], any_type, [mixed_method, mixed_generated, mixed_explicit, mixed_other]),
+       ("generated", [Names.Exclude_Generated], any_type, [mixed_explicit, mixed_other]),
+       ("method-only", [Names.Exclude_Method_Only], any_type,
+          [mixed_generated, mixed_explicit, mixed_other]),
+       ("sources", [sources [mixed_generated, mixed_other]], any_type,
+          [mixed_generated, mixed_other]),
+       ("no sources", [sources []], any_type, []),
+       ("word, none", [], word_type, [mixed_method, mixed_other]),
+       ("word, method-only", [Names.Exclude_Method_Only], word_type, [mixed_other]),
+       ("word, method source", [sources [mixed_method]], word_type, [mixed_method])]
+    fun dispatch filters typ =
+      Navigation.capture (fn () =>
+        Syntax.check_term ctxt
+          (Type.constraint typ (Dispatch.mk_marker_term NONE
+            (Dispatch.mk_filtered_payload_positions filters Names.NFunction "RegistryMixed"
+              positions)))) |> fst
+    val concrete_word = \<^typ>\<open>8 word \<Rightarrow> (unit, 8 word, unit, unit, unit) function_body\<close>
+    val concrete_bool = \<^typ>\<open>bool \<Rightarrow> (unit, bool, unit, unit, unit) function_body\<close>
+    fun selects label filters typ name =
+      require ("dispatch selection: " ^ label)
+        (case Type.strip_constraints (dispatch filters typ) of
+           Const (selected, _) => selected = name
+         | _ => false)
+    val _ = selects "method-only exclusion resolves the overload" [Names.Exclude_Method_Only]
+      concrete_word \<^const_name>\<open>registry_filter_other_word\<close>
+    val _ = selects "source selection resolves the overload" [sources [mixed_method]]
+      concrete_word \<^const_name>\<open>registry_filter_word\<close>
+    val _ = selects "generated bool backend without filters" [] concrete_bool
+      \<^const_name>\<open>registry_filter_bool\<close>
+    val ambiguous = Exn.result (fn () => dispatch [] concrete_word) () |> message
+    val _ = require "unfiltered same-typed backends were not ambiguous"
+      (String.isSubstring "Ambiguous uRust notation" ambiguous)
+    val excluded = Exn.result (fn () => dispatch [Names.Exclude_Generated] concrete_bool) ()
+      |> message
+    val _ = require "excluded generated backend was dispatched"
+      (String.isSubstring "no backend matches the use-site type" excluded andalso
+        String.isSubstring "Generic arguments exclude generated functions" excluded andalso
+        not (String.isSubstring "registry_filter_bool" excluded))
+    val empty_sources = Exn.result (fn () => dispatch [sources []] concrete_word) () |> message
+    val _ = require "an empty source list dispatched"
+      (String.isSubstring "no backend matches the use-site type" empty_sources)
+  in val _ = () end
+\<close>
+
+section\<open> Explicit registrations replace covering automatic entries \<close>
+
+ML_val \<open>
+  local
+    open Parser_Function_Regression_Test
+    open Parser_Registry_Test
+    val word = backend \<^context> "registry_filter_word"
+    (* Automatic entries in the shapes of an impl member: a path entry and a method-only entry. *)
+    fun automatic_with name term method_only s state =
+      let
+        val thy = Toplevel.theory_of state |> Context.Theory
+          |> (if method_only then method name term s else generated name term s)
+          |> Context.the_theory
+      in initial thy end
+    fun automatic name term method_only state =
+      automatic_with name term method_only (serial ()) state
+    fun explicit_command name backend_name state =
+      run_from state ("registry-explicit-" ^ name)
+        ("micro_rust_notation (call) " ^ backend_name ^ " (" ^ quote name ^ ")")
+    val status_ord =
+      prod_ord bool_ord (prod_ord bool_ord string_ord) o
+        (fn ((a, b, c), (d, e, f)) => ((a, (b, c)), (d, (e, f))))
+    fun stored state name = map (fn entry =>
+        (Names.is_automatic (Toplevel.context_of state) entry,
+         Names.is_method_only (Toplevel.context_of state) entry,
+         Term.head_of (#hol_term entry) |> dest_Const_name))
+      (entries (Toplevel.context_of state) name)
+      |> sort status_ord
+    val word_name = \<^const_name>\<open>registry_filter_word\<close>
+    val bool_name = \<^const_name>\<open>registry_filter_bool\<close>
+    val base = initial \<^theory>
+    fun check (key, method_only) =
+      let
+        val auto_status = (true, method_only)
+        fun expect label state expected =
+          require (key ^ ": " ^ label) (stored state key = sort status_ord expected)
+        val after_serial = serial ()
+        val after = base |> automatic_with key word method_only after_serial
+          |> explicit_command key "registry_filter_word"
+        val _ = expect "explicit after automatic, same backend" after [(false, false, word_name)]
+        val prior = base |> explicit_command key "registry_filter_word"
+          |> automatic key word method_only
+        val _ = expect "explicit before automatic, same backend" prior [(false, false, word_name)]
+        val other_after = base |> automatic key word method_only
+          |> explicit_command key "registry_filter_bool"
+        val _ = expect "explicit after automatic, other backend" other_after
+          [(#1 auto_status, #2 auto_status, word_name), (false, false, bool_name)]
+        val other_before = base |> explicit_command key "registry_filter_bool"
+          |> automatic key word method_only
+        val _ = expect "explicit before automatic, other backend" other_before
+          [(#1 auto_status, #2 auto_status, word_name), (false, false, bool_name)]
+        val replayed = after |> explicit_command key "registry_filter_word"
+          |> automatic_with key word method_only after_serial
+        val _ = expect "replays after the replacement" replayed [(false, false, word_name)]
+      in () end
+    val _ = List.app check [("RegistryReplace::get", false), ("registry_replace_get", true)]
+
+    (* A specialization that an automatic scheme covers does not cover it, so nothing is replaced. *)
+    val identity_name = \<^const_name>\<open>signature_plain_identity\<close>
+    val generic = Const (identity_name, declared_type \<^context> "signature_plain_identity")
+    val specialized = base |> automatic "RegistryReplaceGeneric" generic false
+      |> (fn state => run_from state "registry-explicit-specialization"
+        ("micro_rust_notation (call) " ^ cartouche
+          " signature_plain_identity :: nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body " ^
+          " (\"RegistryReplaceGeneric\")"))
+    val _ = require "a covered explicit specialization replaced its automatic scheme"
+      (stored specialized "RegistryReplaceGeneric" = [(true, false, identity_name)])
+
+    (* Turbofish reaches the explicit registration that replaced the generated function. *)
+    val declared = run_from base "registry-turbofish-function"
+      (command "" "registry_turbo" "fn RegistryTurbo(first: u8, second: u8) -> u8 { second }")
+    val generated_only = Exn.result (fn () => run_from declared "registry-turbofish-generated"
+      ("urust_expr registry_turbo_generated " ^ cartouche " RegistryTurbo::<1>(2u8) ")) ()
+      |> message
+    val _ = require "turbofish reached a generated function"
+      (String.isSubstring "generic arguments are not supported on generated Rust function paths"
+        generated_only)
+    val replaced = run_from declared "registry-turbofish-explicit"
+      ("micro_rust_notation (call) registry_turbo (\"RegistryTurbo\")\n" ^
+       "micro_rust_notation (call) registry_turbo (\"RegistryTurboExplicitOnly\")\n" ^
+       "urust_expr registry_turbo_explicit " ^ cartouche " RegistryTurbo::<1>(2u8) " ^ "\n" ^
+       "urust_expr registry_turbo_control " ^ cartouche " RegistryTurboExplicitOnly::<1>(2u8) " ^
+       "\n" ^
+       "urust_expr registry_turbo_plain " ^ cartouche " RegistryTurbo(1, 2u8) ")
+    val replaced_ctxt = Toplevel.context_of replaced
+    val _ = require "turbofish after an explicit-after-automatic registration did not dispatch"
+      (stored replaced "RegistryTurbo" =
+        [(false, false, Proof_Context.intern_const replaced_ctxt "registry_turbo")] andalso
+       Term.aconv (rhs replaced_ctxt "registry_turbo_explicit",
+         rhs replaced_ctxt "registry_turbo_control"))
+    val _ = require "the plain call lost the replaced function"
+      (Term.exists_subterm (fn Const (name, _) =>
+          name = Proof_Context.intern_const replaced_ctxt "registry_turbo"
+        | _ => false) (rhs replaced_ctxt "registry_turbo_plain"))
+  in val _ = () end
+\<close>
+
+section\<open> Order-independent registration view \<close>
+
+text\<open>
+Every registry fact visible to clients is a function of the set of registrations: an explicit
+registration before or after an automatic one, or strictly covering it, gives the same view
+within one theory and across sibling branches merged in either order.
+\<close>
+
+ML_val \<open>
+  local
+    open Parser_Function_Regression_Test
+    open Parser_Registry_Test
+    structure Dispatch = Micro_Rust_Dispatch
+    val word = backend \<^context> "registry_filter_word"
+    val word_unit =
+      Const (\<^const_name>\<open>registry_filter_word\<close>,
+        \<^typ>\<open>8 word \<Rightarrow> (unit, 8 word, unit, unit, unit) function_body\<close>)
+    val concrete = fastype_of word_unit
+    fun extend name parents declaration =
+      Theory.begin_theory (name, Position.none) parents |> Context.Theory |> declaration
+      |> Context.the_theory |> Theory.end_theory
+    fun merge name theories =
+      Theory.begin_theory (name, Position.none) theories |> Proof_Context.init_global
+
+    (* One scenario: an automatic registration and an explicit one of a key, in every order. *)
+    fun scenario label key method_only automatic_term explicit_term expected =
+      let
+        val automatic_serial = serial ()
+        val explicit_serial = serial ()
+        val explicit_pos = range ("registry-view-" ^ label) 10
+        val add_automatic =
+          (if method_only then method else generated) key automatic_term automatic_serial
+        val add_explicit =
+          Names.register_with_source_serial Names.NFunction key explicit_term NONE explicit_pos
+            explicit_serial
+        fun name suffix = "Registry_View_" ^ label ^ "_" ^ suffix
+        val after = extend (name "After") [\<^theory>] (add_automatic #> add_explicit)
+        val prior = extend (name "Before") [\<^theory>] (add_explicit #> add_automatic)
+        val common = extend (name "Common") [\<^theory>] add_automatic
+        val replacing = extend (name "Replacing") [common] add_explicit
+        val untouched = extend (name "Untouched") [common] I
+        val explicit_branch = extend (name "Explicit") [\<^theory>] add_explicit
+        val automatic_branch = extend (name "Automatic") [\<^theory>] add_automatic
+        fun view theories =
+          observe concrete (merge (name "View") theories) key [automatic_serial]
+        val reference = view [after]
+        val variants =
+          [("explicit before automatic", [prior]),
+           ("explicit after automatic, replacing branch", [replacing]),
+           ("explicit after automatic, replacing then untouched", [replacing, untouched]),
+           ("explicit after automatic, untouched then replacing", [untouched, replacing]),
+           ("explicit before automatic, explicit then automatic sibling",
+              [explicit_branch, automatic_branch]),
+           ("explicit before automatic, automatic then explicit sibling",
+              [automatic_branch, explicit_branch])]
+        val _ = List.app (fn (variant, theories) =>
+            require (label ^ ": " ^ variant ^ " changed the view") (view theories = reference))
+          variants
+        val _ = require (label ^ ": unexpected view")
+          (reference = expected automatic_serial explicit_serial (position_key explicit_pos))
+        val untouched_view = view [untouched]
+        val _ = require (label ^ ": the untouched branch is not automatic")
+          (map #2 (#1 untouched_view) = [true] andalso map #3 (#1 untouched_view) = [method_only])
+      in () end
+
+    fun row key tags = key ^ " \<longmapsto> registry_filter_word  (" ^ commas ("function" :: tags) ^ ")"
+    fun same_backend key a e pos =
+      ([(a, false, false, (e, pos), pos)], [true, true, true, true], [[a], [a], [a], [a]],
+       [row key []])
+    fun strict_covering key a e pos =
+      ([(a, false, false, (e, pos), pos), (e, false, false, (e, pos), pos)],
+       [true, true, true, true], [[e], [e], [e], [a]], [row key [], row key []])
+    val _ = scenario "Same_Path" "RegistryView::get" false word word
+      (same_backend "RegistryView::get")
+    val _ = scenario "Same_Method" "registry_view_get" true word word
+      (same_backend "registry_view_get")
+    val _ = scenario "Covering_Path" "RegistryViewCovering::get" false word_unit word
+      (strict_covering "RegistryViewCovering::get")
+    val _ = scenario "Covering_Method" "registry_view_covering_get" true word_unit word
+      (strict_covering "registry_view_covering_get")
+
+    (* Status is computed under the entry's own key: an explicit registration of the same backend
+       under another key changes nothing, and a serial cannot name registrations of two keys. *)
+    val shared = serial ()
+    val keyed = Context.Proof \<^context>
+      |> generated "RegistryViewKeyed::get" word shared
+      |> explicit "registry_view_keyed_get" word (serial ())
+    val _ = require "an explicit registration under another key changed the status"
+      (forall (Names.is_automatic (Context.proof_of keyed))
+        (entries (Context.proof_of keyed) "RegistryViewKeyed::get"))
+    val reused = Exn.result (fn () => keyed |> register "registry_view_keyed_other" word shared) ()
+      |> message
+    val _ = require "a serial was registered under two keys"
+      (String.isSubstring "registration serial is reused under" reused)
+
+    (* Two branches that register the same backend explicitly agree in either merge order. *)
+    val path_key = "RegistryViewTwo::get"
+    val automatic_serial = serial ()
+    val first_explicit = serial ()
+    val second_explicit = serial ()
+    val common = extend "Registry_View_Two_Common" [\<^theory>]
+      (generated path_key word automatic_serial)
+    fun explicit_at s offset =
+      Names.register_with_source_serial Names.NFunction path_key word NONE
+        (range "registry-view-two" offset) s
+    val first = extend "Registry_View_Two_First" [common] (explicit_at first_explicit 10)
+    val second = extend "Registry_View_Two_Second" [common] (explicit_at second_explicit 30)
+    fun target theories =
+      let val ctxt = merge "Registry_View_Two" theories
+      in apsnd position_key (Names.navigation_target ctxt (the_single (entries ctxt path_key))) end
+    val _ = require "the covering explicit registration depends on merge order"
+      (target [first, second] = target [second, first] andalso
+       target [first, second] = (first_explicit, position_key (range "registry-view-two" 10)))
+
+    (* The impl identity still selects a path entry registered explicitly with its own backend. *)
+    val identity = serial ()
+    val identity_ctxt =
+      Context.Proof \<^context>
+      |> Names.reserve_associated_function
+           {name = "RegistryIdentity::get", self_type = \<^typ>\<open>8 word\<close>, identity = identity,
+            pos = range "registry-identity" 40}
+      |> generated "RegistryIdentity::get" word identity
+      |> explicit "RegistryIdentity::get" word (serial ())
+      |> Context.proof_of
+    val _ = require "Only_Sources lost an impl after an explicit same-backend registration"
+      (Names.has_eligible_entries identity_ctxt [Names.Only_Sources [identity]] Names.NFunction
+         "RegistryIdentity::get" andalso
+       map #serial (entries identity_ctxt "RegistryIdentity::get") = [identity] andalso
+       map #identity (Names.associated_functions identity_ctxt "RegistryIdentity::get") =
+         [identity])
+    val selected = Navigation.capture (fn () =>
+      Syntax.check_term identity_ctxt
+        (Type.constraint concrete (Dispatch.mk_marker_term NONE
+          (Dispatch.mk_filtered_payload_positions [Names.Only_Sources [identity]]
+            Names.NFunction "RegistryIdentity::get"
+            {terminal_pos = Position.none, qualifier_positions = [],
+             backend_only_positions = []})))) |> fst |> Type.strip_constraints
+    val _ = require "identity selection did not dispatch to the explicitly registered entry"
+      (case selected of
+         Const (name, _) => name = \<^const_name>\<open>registry_filter_word\<close>
+       | _ => false)
+  in val _ = () end
+\<close>
+
+ML_val \<open>
+  local
+    open Parser_Function_Regression_Test
+    open Parser_Registry_Test
+    (* Ordinary commands: a locale function registered automatically by interpretation, and an
+       explicit call notation of a backend that covers the instance, before or after it. *)
+    fun branch name parents text =
+      Theory.begin_theory (name, Position.none) parents |> initial
+      |> (fn state => if text = "" then state else run_from state name text)
+      |> Toplevel.theory_of |> Theory.end_theory
+    val located = branch "Registry_Commands_Locale" [\<^theory>]
+      ("locale registry_view_locale =\n  fixes registry_view_witness :: " ^
+         cartouche " 'a itself " ^ "\nbegin\n" ^
+       command "[register_notation]" "registry_view_turbo"
+         "fn RegistryViewTurbo(first: u8, second: u8) -> u8 { second }" ^ "\n" ^
+       command "[register_notation]" "registry_view_id"
+         "fn RegistryViewId(value: \<tau>\<open>'a\<close>) -> \<tau>\<open>'a\<close> { value }" ^ "\nend")
+    val explicit_text =
+      "micro_rust_notation (call) registry_view_locale.registry_view_turbo " ^
+        "(\"RegistryViewTurbo\")\n" ^
+      "micro_rust_notation (call) registry_view_locale.registry_view_turbo " ^
+        "(\"RegistryViewTurboOnly\")\n" ^
+      "micro_rust_notation (call) registry_view_locale.registry_view_id (\"RegistryViewId\")"
+    fun interpretation label =
+      "interpretation " ^ label ^ ": registry_view_locale " ^ quote "TYPE(nat)" ^
+        "\nby unfold_locales"
+    val automatic_branch = branch "Registry_Commands_Automatic" [located]
+      (interpretation "registry_commands_automatic")
+    val explicit_branch = branch "Registry_Commands_Explicit" [located] explicit_text
+    val after = branch "Registry_Commands_After" [automatic_branch] explicit_text
+    val prior = branch "Registry_Commands_Before" [explicit_branch]
+      (interpretation "registry_commands_before")
+    val untouched = branch "Registry_Commands_Untouched" [automatic_branch]
+      ("definition registry_commands_unrelated where " ^
+        cartouche " registry_commands_unrelated = () ")
+    fun theory_of theories = Theory.begin_theory ("Registry_Commands_View", Position.none) theories
+    val automatic_ctxt = Proof_Context.init_global automatic_branch
+    val turbo_serial = #serial (the_single (entries automatic_ctxt "RegistryViewTurbo"))
+    val id_serial = #serial (the_single (entries automatic_ctxt "RegistryViewId"))
+    val nat_id = \<^typ>\<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
+    fun check label theories =
+      let
+        val thy = theory_of theories
+        val ctxt = Proof_Context.init_global thy
+        val turbo = the_single (entries ctxt "RegistryViewTurbo")
+        val ids = entries ctxt "RegistryViewId"
+        val _ = require (label ^ ": the same-backend entry changed")
+          (#serial turbo = turbo_serial andalso not (Names.is_automatic ctxt turbo) andalso
+           fst (Names.navigation_target ctxt turbo) <> turbo_serial andalso
+           Names.has_eligible_entries ctxt [Names.Only_Sources [turbo_serial]] Names.NFunction
+             "RegistryViewTurbo")
+        val _ = require (label ^ ": the strictly covered entry changed")
+          (length ids = 2 andalso member (op =) (map #serial ids) id_serial andalso
+           forall (not o Names.is_automatic ctxt) ids andalso
+           Names.has_eligible_entries ctxt [Names.Only_Sources [id_serial]] Names.NFunction
+             "RegistryViewId" andalso
+           map (#serial o #entry)
+             (Micro_Rust_Dispatch.filtered_candidates ctxt [] Names.NFunction "RegistryViewId"
+               nat_id) <> [id_serial])
+        val state = run_from (initial thy) label
+          ("urust_expr registry_view_turbofish " ^
+             cartouche " RegistryViewTurbo::<1>(2u8) " ^ "\n" ^
+           "urust_expr registry_view_control " ^ cartouche " RegistryViewTurboOnly::<1>(2u8) ")
+        val state_ctxt = Toplevel.context_of state
+      in
+        require (label ^ ": turbofish did not reach the explicit registration")
+          (Term.aconv (rhs state_ctxt "registry_view_turbofish",
+            rhs state_ctxt "registry_view_control"))
+      end
+    val _ = List.app (fn (label, theories) => check label theories)
+      [("registry-commands-after", [after]),
+       ("registry-commands-before", [prior]),
+       ("registry-commands-after-untouched", [after, untouched]),
+       ("registry-commands-untouched-after", [untouched, after]),
+       ("registry-commands-explicit-automatic", [explicit_branch, automatic_branch]),
+       ("registry-commands-automatic-explicit", [automatic_branch, explicit_branch])]
+    val generated_only = Exn.result (fn () =>
+      run_from (initial (theory_of [untouched])) "registry-commands-generated-only"
+        ("urust_expr registry_view_generated " ^ cartouche " RegistryViewTurbo::<1>(2u8) ")) ()
+      |> message
+    val _ = require "the automatic branch accepted generic arguments on a generated function"
+      (String.isSubstring "generic arguments are not supported on generated Rust function paths"
+        generated_only)
+  in val _ = () end
+\<close>
+
+ML_val \<open>
+  local
+    open Parser_Function_Regression_Test
+    (* A generated function, an explicit call notation of the same backend in one branch, an
+       unrelated sibling branch, and a turbofish call in their merge, in both import orders. *)
+    fun branch name parents text =
+      Theory.begin_theory (name, Position.none) parents |> initial
+      |> (fn state => if text = "" then state else run_from state name text)
+      |> Toplevel.theory_of |> Theory.end_theory
+    val common = branch "Registry_Turbofish_Common" [\<^theory>]
+      (command "" "registry_diamond_turbo"
+        "fn RegistryDiamondTurbo(first: u8, second: u8) -> u8 { second }")
+    val replacing = branch "Registry_Turbofish_Replacing" [common]
+      ("micro_rust_notation (call) registry_diamond_turbo (\"RegistryDiamondTurbo\")\n" ^
+       "micro_rust_notation (call) registry_diamond_turbo (\"RegistryDiamondTurboOnly\")")
+    val sibling = branch "Registry_Turbofish_Sibling" [common]
+      ("definition registry_turbofish_unrelated where " ^
+        cartouche " registry_turbofish_unrelated = () ")
+    fun turbofish label theories =
+      let
+        val state =
+          run_from (initial (Theory.begin_theory (label, Position.none) theories)) label
+            ("urust_expr registry_diamond_turbofish " ^
+               cartouche " RegistryDiamondTurbo::<1>(2u8) " ^ "\n" ^
+             "urust_expr registry_diamond_control " ^
+               cartouche " RegistryDiamondTurboOnly::<1>(2u8) ")
+        val ctxt = Toplevel.context_of state
+      in
+        require (label ^ ": turbofish did not reach the explicit registration")
+          (Term.aconv (rhs ctxt "registry_diamond_turbofish", rhs ctxt "registry_diamond_control"))
+      end
+    val _ = turbofish "Registry_Turbofish_Replacing_Only" [replacing]
+    val _ = turbofish "Registry_Turbofish_Replacing_Sibling" [replacing, sibling]
+    val _ = turbofish "Registry_Turbofish_Sibling_Replacing" [sibling, replacing]
+    val generated_only = Exn.result (fn () =>
+      turbofish "Registry_Turbofish_Sibling_Only" [sibling]) () |> message
+    val _ = require "the sibling branch accepted generic arguments on a generated function"
+      (String.isSubstring "generic arguments are not supported on generated Rust function paths"
+        generated_only)
+  in val _ = () end
+\<close>
+
+ML_val \<open>
+  local
+    open Parser_Function_Regression_Test
+    open Parser_Registry_Test
+    val word = backend \<^context> "registry_filter_word"
+    val word_unit =
+      Const (\<^const_name>\<open>registry_filter_word\<close>,
+        \<^typ>\<open>8 word \<Rightarrow> (unit, 8 word, unit, unit, unit) function_body\<close>)
+    val concrete = fastype_of word_unit
+    fun extend name parents declaration =
+      Theory.begin_theory (name, Position.none) parents |> Context.Theory |> declaration
+      |> Context.the_theory |> Theory.end_theory
+    fun merge name theories =
+      Theory.begin_theory (name, Position.none) theories |> Proof_Context.init_global
+    fun explicit_at key term s offset =
+      Names.register_with_source_serial Names.NFunction key term NONE
+        (range ("registry-follow-up-" ^ key) offset) s
+
+    (* Review 03 probe P7b: an automatic entry covered by an explicit registration of its own
+       backend and by a strictly covering one navigates to the maximal one everywhere. *)
+    val key = "RegistryCovers::get"
+    val automatic_serial = serial ()
+    val same_serial = serial ()
+    val covering_serial = serial ()
+    val common = extend "Registry_Covers_Common" [\<^theory>]
+      (generated key word_unit automatic_serial)
+    val add_same = explicit_at key word_unit same_serial 10
+    val add_covering = explicit_at key word covering_serial 30
+    val same_then_covering = extend "Registry_Covers_Same_First" [common]
+      (add_same #> add_covering)
+    val covering_then_same = extend "Registry_Covers_Covering_First" [common]
+      (add_covering #> add_same)
+    val same_branch = extend "Registry_Covers_Same" [common] add_same
+    val covering_branch = extend "Registry_Covers_Covering" [common] add_covering
+    fun view theories =
+      observe concrete (merge "Registry_Covers_View" theories) key [automatic_serial]
+    val reference = view [same_then_covering]
+    val covering_pos = position_key (range ("registry-follow-up-" ^ key) 30)
+    val _ = List.app (fn (label, theories) =>
+        require ("P7b " ^ label ^ " changed the view") (view theories = reference))
+      [("covering first", [covering_then_same]),
+       ("siblings, same first", [same_branch, covering_branch]),
+       ("siblings, covering first", [covering_branch, same_branch])]
+    val _ = require "P7b: the automatic entry does not navigate to the maximal registration"
+      (#1 reference =
+        [(automatic_serial, false, false, (covering_serial, covering_pos), covering_pos),
+         (covering_serial, false, false, (covering_serial, covering_pos), covering_pos)] andalso
+       #3 reference =
+        [[covering_serial], [covering_serial], [covering_serial], [automatic_serial]])
+
+    (* Review 03 probe P7a: explicit registrations without an automatic one, either identical
+       or strictly covering, give the same view in one theory, in both insertion orders, and
+       across siblings in both merge orders: only the preferred registration is visible. *)
+    fun explicit_pair label lower_term upper_term expected =
+      let
+        val pair_key = "RegistryPair" ^ label ^ "::get"
+        val lower = serial ()
+        val upper = serial ()
+        val add_lower = explicit_at pair_key lower_term lower 10
+        val add_upper = explicit_at pair_key upper_term upper 20
+        fun name suffix = "Registry_Pair_" ^ label ^ "_" ^ suffix
+        val lower_first = extend (name "Lower_First") [\<^theory>] (add_lower #> add_upper)
+        val upper_first = extend (name "Upper_First") [\<^theory>] (add_upper #> add_lower)
+        val lower_branch = extend (name "Lower") [\<^theory>] add_lower
+        val upper_branch = extend (name "Upper") [\<^theory>] add_upper
+        fun pair_view theories =
+          observe concrete (merge (name "View") theories) pair_key [lower, upper]
+        val reference = pair_view [lower_first]
+        val _ = List.app (fn (variant, theories) =>
+            require ("P7a " ^ label ^ ": " ^ variant ^ " changed the view")
+              (pair_view theories = reference))
+          [("upper first", [upper_first]),
+           ("siblings, lower first", [lower_branch, upper_branch]),
+           ("siblings, upper first", [upper_branch, lower_branch])]
+        fun stored theories =
+          Names.registrations (merge (name "Raw") theories) Names.NFunction pair_key
+          |> map #serial |> sort int_ord
+        val _ = List.app (fn theories =>
+            require ("P7a " ^ label ^ ": the stored registrations depend on the layout")
+              (stored theories = sort int_ord [lower, upper]))
+          [[lower_first], [upper_first], [lower_branch, upper_branch],
+           [upper_branch, lower_branch]]
+      in
+        require ("P7a " ^ label ^ ": unexpected view")
+          (reference = expected pair_key lower upper
+            (position_key (range ("registry-follow-up-" ^ pair_key) 10))
+            (position_key (range ("registry-follow-up-" ^ pair_key) 20)))
+      end
+    fun pair_row pair_key = pair_key ^ " \<longmapsto> registry_filter_word  (function)"
+    val _ = explicit_pair "Identical" word word (fn pair_key => fn lower => fn _ => fn pos => fn _ =>
+      ([(lower, false, false, (lower, pos), pos)], [true, true, true, true],
+       [[lower], [lower], [lower], [lower]], [pair_row pair_key]))
+    val _ = explicit_pair "Covering" word_unit word (fn pair_key => fn _ => fn upper => fn _ =>
+      fn pos =>
+        ([(upper, false, false, (upper, pos), pos)], [true, true, true, true],
+         [[upper], [upper], [upper], [upper]], [pair_row pair_key]))
+
+    (* A serial reused under two keys in sibling branches is the same positioned error in either
+       merge order, and the error on insertion names both uses as well. *)
+    val reused = serial ()
+    val path_pos = range "registry-reuse-path" 50
+    val bare_pos = range "registry-reuse-bare" 60
+    val path_branch = extend "Registry_Reuse_Path" [\<^theory>]
+      (Names.register_with_source_serial Names.NFunction "RegistryReuse::get" word NONE path_pos
+        reused)
+    val bare_branch = extend "Registry_Reuse_Bare" [\<^theory>]
+      (Names.register_with_source_serial Names.NFunction "registry_reuse_get" word NONE bare_pos
+        reused)
+    fun reuse_failure theories =
+      Exn.result (fn () => merge "Registry_Reuse_Merge" theories) () |> message
+    val failures =
+      [reuse_failure [path_branch, bare_branch], reuse_failure [bare_branch, path_branch]]
+    fun names_both failure =
+      String.isSubstring "urust: notation registration serial is reused under" failure andalso
+      String.isSubstring (quote "RegistryReuse::get") failure andalso
+      String.isSubstring (quote "registry_reuse_get") failure andalso
+      forall (member (op =) (diagnostic_ranges failure) o range_of) [path_pos, bare_pos]
+    val _ = require "serial reuse across branches is not one positioned error"
+      (forall names_both failures andalso nth failures 0 = nth failures 1)
+    val inserted = Exn.result (fn () =>
+      Context.Theory path_branch
+      |> Names.register_with_source_serial Names.NFunction "registry_reuse_get" word NONE
+        bare_pos reused) () |> message
+    val _ = require "serial reuse on insertion differs from the merge error"
+      (inserted = nth failures 0)
+  in val _ = () end
+\<close>
+
+section\<open> Associated-function owners \<close>
+
+ML_val \<open>
+  local
+    open Parser_Function_Regression_Test
+    open Parser_Registry_Test
+    val key = "RegistryAssoc::get"
+    fun reserve name self_type identity pos =
+      Names.reserve_associated_function
+        {name = name, self_type = self_type, identity = identity, pos = pos}
+    val first_pos = range "registry-assoc-first" 10
+    val second_pos = range "registry-assoc-second" 20
+    val third_pos = range "registry-assoc-third" 30
+    val first = serial ()
+    val second = serial ()
+    val third = serial ()
+    val base = Context.Theory \<^theory>
+    val nat_list = \<^typ>\<open>nat list\<close>
+    val bool_list = \<^typ>\<open>bool list\<close>
+    fun list_of T = Type (\<^type_name>\<open>list\<close>, [T])
+    val generic_list = list_of (TFree ("'a", \<^sort>\<open>type\<close>))
+    fun ctxt_of context = Context.proof_of context
+
+    (* Replays with the same identity are idempotent, also after schematic renaming. *)
+    val reserved = base |> reserve key nat_list first first_pos
+    val replayed = reserved |> reserve key nat_list first second_pos
+    val _ = require "a same-identity replay added an owner"
+      (owners (ctxt_of replayed) key = [(first, nat_list, position_key first_pos)])
+    val generic_reserved = base |> reserve key generic_list first first_pos
+    val generic_replayed = generic_reserved
+      |> reserve key (list_of (TVar (("'renamed", 7), \<^sort>\<open>type\<close>))) first second_pos
+    val _ = require "a renamed schematic replay added an owner"
+      (length (owners (ctxt_of generic_replayed) key) = 1)
+    val _ = require "a theory-level Self type was not generalized"
+      (case self_types (ctxt_of generic_reserved) key of
+         [Type (\<^type_name>\<open>list\<close>, [TVar _])] => true
+       | _ => false)
+
+    (* The lookup lists every owner with its identity, Self type and position. *)
+    val both = reserved |> reserve key bool_list second second_pos
+    val _ = require "associated_functions lost an owner"
+      (owners (ctxt_of both) key =
+        [(first, nat_list, position_key first_pos), (second, bool_list, position_key second_pos)])
+    val _ = require "is_associated_function"
+      (Names.is_associated_function (ctxt_of both) key andalso
+       not (Names.is_associated_function (ctxt_of both) "RegistryAssoc::missing"))
+    val _ = require "a key without owners listed owners"
+      (null (Names.associated_functions (ctxt_of both) "RegistryAssoc::missing"))
+    val function_owned = both |> Names.reserve_declaration Names.Function_Declaration
+      "RegistryAssoc::free" first_pos
+    val _ = require "a function owner is an associated function"
+      (not (Names.is_associated_function (ctxt_of function_owned) "RegistryAssoc::free"))
+    val _ = require "associated_functions emitted reports"
+      (null (snd (Parser_Test_Reports.markup (fn () =>
+        Names.associated_functions (ctxt_of both) key))))
+
+    (* Different identities conflict exactly when their Self types unify. *)
+    fun conflict label context =
+      let
+        val failure = Exn.result (fn () => ignore (context ())) () |> message
+      in
+        require (label ^ ": overlapping impls were accepted")
+          (String.isSubstring "is defined in more than one impl with overlapping Self types"
+            failure);
+        failure
+      end
+    fun reports_both label failure positions =
+      require (label ^ ": conflict lost a position")
+        (forall (member (op =) (diagnostic_ranges failure) o range_of) positions)
+    val same = conflict "same Self type" (fn () => reserved |> reserve key nat_list third third_pos)
+    val _ = reports_both "same Self type" same [first_pos, third_pos]
+    val generic = conflict "generic Self type"
+      (fn () => reserved |> reserve key generic_list third third_pos)
+    val _ = reports_both "generic Self type" generic [first_pos, third_pos]
+    val generic_first = conflict "generic owner first"
+      (fn () => generic_reserved |> reserve key nat_list third third_pos)
+    val _ = reports_both "generic owner first" generic_first [first_pos, third_pos]
+    val accepted = both |> reserve key \<^typ>\<open>nat option\<close> third third_pos
+    val _ = require "non-unifiable Self types were rejected"
+      (length (owners (ctxt_of accepted) key) = 3)
+
+    (* Associated functions conflict with constructor owners in both orders. *)
+    fun constructor_conflict label context =
+      require (label ^ ": constructor ownership did not reject")
+        (String.isSubstring "already owned by a Rust constructor item"
+          (Exn.result (fn () => ignore (context ())) () |> message))
+    val _ = constructor_conflict "associated first" (fn () =>
+      reserved |> Names.reserve_declaration Names.Constructor_Declaration key second_pos)
+    val _ = constructor_conflict "constructor first" (fn () =>
+      base |> Names.reserve_declaration Names.Constructor_Declaration key second_pos
+      |> reserve key nat_list first first_pos)
+  in val _ = () end
+\<close>
+
+section\<open> Merged and interpreted impl-member registrations \<close>
+
+ML_val \<open>
+  local
+    open Parser_Function_Regression_Test
+    open Parser_Registry_Test
+    val key = "MergeCell::get"
+    val left = \<^theory>\<open>Parser_Test_Fixtures_Left\<close>
+    val right = \<^theory>\<open>Parser_Test_Fixtures_Right\<close>
+    val parent = \<^theory>\<open>Parser_Test_Fixtures\<close>
+    fun merge name theories =
+      Theory.begin_theory (name, Position.none) theories |> Proof_Context.init_global
+    fun marks ctxt name =
+      map (fn entry => (Names.is_automatic ctxt entry, Names.is_method_only ctxt entry))
+        (entries ctxt name)
+
+    (* Owners and marks of the two branches survive theory merge in both orders. *)
+    val left_owner = the_single (Names.associated_functions (Proof_Context.init_global left) key)
+    val right_owner = the_single (Names.associated_functions (Proof_Context.init_global right) key)
+    val branch_types = sort Term_Ord.typ_ord [\<^typ>\<open>nat list\<close>, \<^typ>\<open>bool list\<close>]
+    fun merged_ok ctxt =
+      (require "merged owners differ from the union of the branches"
+         (self_types ctxt key = branch_types andalso
+          map #1 (owners ctxt key) = sort int_ord [#identity left_owner, #identity right_owner]);
+       require "merged method entries lost their marks"
+         (marks ctxt "merge_cell_get" = [(true, true), (true, true)]);
+       require "merged path entries changed their marks"
+         (marks ctxt key = [(true, false), (true, false)]))
+    val left_right = merge "Registry_Merge_Left_Right" [left, right]
+    val right_left = merge "Registry_Merge_Right_Left" [right, left]
+    val _ = List.app merged_ok [left_right, right_left, \<^context>]
+    val _ = require "merge order changed the owners"
+      (owners left_right key = owners right_left key)
+
+    (* An overlapping impl or a constructor of another branch is rejected in both merge orders. *)
+    fun branch name declaration =
+      Theory.begin_theory (name, Position.none) [parent] |> Context.Theory |> declaration
+      |> Context.the_theory |> Theory.end_theory
+    val overlapping_pos = range "registry-merge-overlapping" 40
+    val overlapping = branch "Registry_Merge_Overlapping"
+      (Names.reserve_associated_function
+        {name = key, self_type = Type (\<^type_name>\<open>list\<close>, [TFree ("'a", \<^sort>\<open>type\<close>)]),
+         identity = serial (), pos = overlapping_pos})
+    val disjoint = branch "Registry_Merge_Disjoint"
+      (Names.reserve_associated_function
+        {name = key, self_type = \<^typ>\<open>nat option\<close>, identity = serial (),
+         pos = range "registry-merge-disjoint" 50})
+    val constructor = branch "Registry_Merge_Constructor"
+      (Names.reserve_declaration Names.Constructor_Declaration key
+        (range "registry-merge-constructor" 60))
+    fun rejected label theories needle =
+      let
+        val failure = Exn.result (fn () =>
+          Names.associated_functions (merge label theories) key) () |> message
+      in
+        require (label ^ ": merge did not reject") (String.isSubstring needle failure);
+        failure
+      end
+    val overlap = "is defined in more than one impl with overlapping Self types"
+    val failures =
+      [rejected "Registry_Merge_Left_Overlapping" [left, overlapping] overlap,
+       rejected "Registry_Merge_Overlapping_Left" [overlapping, left] overlap]
+    val _ = List.app (fn failure =>
+        require "merge conflict lost a position"
+          (String.isSubstring (Position.here (#pos left_owner)) failure andalso
+           member (op =) (diagnostic_ranges failure) (range_of overlapping_pos)))
+      failures
+    val _ = require "merge conflict depends on merge order" (nth failures 0 = nth failures 1)
+    val _ = List.app (fn (label, theories) =>
+        ignore (rejected label theories "already owned by a Rust constructor item"))
+      [("Registry_Merge_Left_Constructor", [left, constructor]),
+       ("Registry_Merge_Constructor_Left", [constructor, left])]
+    val _ = List.app (fn (label, theories) =>
+        require (label ^ ": disjoint Self types were rejected")
+          (length (owners (merge label theories) key) = 3))
+      [("Registry_Merge_Disjoint_Both", [left, right, disjoint]),
+       ("Registry_Merge_Both_Disjoint", [disjoint, right, left])]
+
+    (* Locale interpretations morph the Self type: differently typed instances of one impl are
+       accepted and same-typed replays are idempotent. *)
+    val locale_key = "RegistryLocalePair::get"
+    val located = run_from (initial \<^theory>) "registry-assoc-locale"
+      ("locale registry_assoc_locale =\n  fixes registry_assoc_witness :: " ^
+        cartouche " 'a itself ")
+    val locale_thy = Toplevel.theory_of located
+    val identity = serial ()
+    val member_pos = range "registry-assoc-locale-member" 70
+    val locale_lthy =
+      Named_Target.init [] (Locale.intern locale_thy "registry_assoc_locale") locale_thy
+    val self_type = Syntax.read_typ locale_lthy "'a list"
+    val declared = locale_lthy
+      |> Local_Theory.declaration {pervasive = false, syntax = false, pos = member_pos}
+        (fn phi => Names.reserve_associated_function
+          {name = locale_key, self_type = Morphism.typ phi self_type, identity = identity,
+           pos = member_pos})
+    val _ = require "the locale owner lost its fixed Self type"
+      (self_types declared locale_key = [self_type])
+    val interpreted_thy = Local_Theory.exit_global declared
+    val _ = require "a locale owner leaked into the theory"
+      (null (owners (Proof_Context.init_global interpreted_thy) locale_key))
+    fun interpret state label instance =
+      run_from state label
+        ("interpretation " ^ label ^ ": registry_assoc_locale " ^ quote instance ^
+          "\nby unfold_locales")
+    val nat_state = interpret (initial interpreted_thy) "registry_assoc_nat" "TYPE(nat)"
+    val nat_again = interpret nat_state "registry_assoc_nat_again" "TYPE(nat)"
+    val bool_state = interpret nat_again "registry_assoc_bool" "TYPE(bool)"
+    val _ = require "an interpretation did not register its instance"
+      (self_types (Toplevel.context_of nat_state) locale_key = [\<^typ>\<open>nat list\<close>])
+    val _ = require "a same-typed interpretation was not idempotent"
+      (self_types (Toplevel.context_of nat_again) locale_key = [\<^typ>\<open>nat list\<close>])
+    val _ = require "differently typed interpretations of one impl were not accepted"
+      (map #1 (owners (Toplevel.context_of bool_state) locale_key) = [identity, identity] andalso
+       self_types (Toplevel.context_of bool_state) locale_key = branch_types)
+    val _ = require "an interpreted instance lost the member position"
+      (forall (fn state =>
+          forall (fn (_, _, pos) => pos = position_key member_pos)
+            (owners (Toplevel.context_of state) locale_key))
+        [nat_state, nat_again, bool_state] andalso
+       map #3 (owners declared locale_key) = [position_key member_pos])
+    val overlapping_instance = Exn.result (fn () =>
+      Toplevel.theory_of bool_state |> Context.Theory
+      |> Names.reserve_associated_function
+        {name = locale_key, self_type = \<^typ>\<open>nat list\<close>, identity = serial (),
+         pos = range "registry-assoc-locale-overlap" 80}) () |> message
+    val _ = require "another impl overlapping an interpreted instance was accepted"
+      (String.isSubstring overlap overlapping_instance)
+  in val _ = () end
+\<close>
+
+section\<open> Notation listing tags \<close>
+
+ML_val \<open>
+  local
+    open Parser_Function_Regression_Test
+    open Parser_Registry_Test
+    val word = backend \<^context> "registry_filter_word"
+    val ctxt =
+      Context.Proof \<^context>
+      |> generated "RegistryPrint::get" word (serial ())
+      |> method "registry_print_get" word (serial ())
+      |> explicit "RegistryPrintExplicit" word (serial ())
+      |> Context.proof_of
+    val names = ["RegistryPrint::get", "registry_print_get", "RegistryPrintExplicit"]
+    val lines =
+      Names.dump ctxt
+      |> filter (fn (_, name, _) => member (op =) names name)
+      |> map (Pretty.pure_string_of o Micro_Rust_Notation_Print.pretty_entry ctxt)
+      |> sort_strings
+    val expected = sort_strings
+      ["RegistryPrint::get \<longmapsto> registry_filter_word  (function, generated)",
+       "registry_print_get \<longmapsto> registry_filter_word  (function, generated, method-only)",
+       "RegistryPrintExplicit \<longmapsto> registry_filter_word  (function)"]
+    val _ = require ("notation listing tags: " ^ commas_quote lines) (lines = expected)
+    val listing = Pretty.pure_string_of (Micro_Rust_Notation_Print.pretty_notations ctxt)
+    val _ = require "the notation listing omitted a tagged entry"
+      (forall (fn line => String.isSubstring line listing) expected)
   in val _ = () end
 \<close>
 
@@ -3606,12 +4663,15 @@ ML_val\<open>
           (binder_types (declared_type recovered "receiver_failure") = [\<^typ>\<open>8 word\<close>])
       in () end
     val _ = List.app reject
-      [("receiver-untyped-self", "syntax error", "fn BadReceiver(self) -> u8 { self }"),
-       ("receiver-borrowed-shorthand", "syntax error", "fn BadReceiver(&self) -> u8 { self }"),
-       ("receiver-mut-borrowed-shorthand", "syntax error", "fn BadReceiver(&mut self) -> u8 { self }"),
+      [("receiver-untyped-self", "receiver shorthand is only allowed in impl members",
+        "fn BadReceiver(self) -> u8 { self }"),
+       ("receiver-borrowed-shorthand", "receiver shorthand is only allowed in impl members",
+        "fn BadReceiver(&self) -> u8 { self }"),
+       ("receiver-mut-borrowed-shorthand", "receiver shorthand is only allowed in impl members",
+        "fn BadReceiver(&mut self) -> u8 { self }"),
        ("receiver-borrowed-pattern", "unsupported function parameter pattern",
         "fn BadReceiver(&self: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { self }"),
-       ("receiver-implicit-Self", "unknown Rust type", "fn BadReceiver(self: Self) -> Self { self }"),
+       ("receiver-implicit-Self", "Self is only available inside an impl block", "fn BadReceiver(self: Self) -> Self { self }"),
        ("receiver-rust-reference", "shared Rust references", "fn BadReceiver(self: &u8) -> u8 { 0 }"),
        ("receiver-duplicate", "duplicate parameter \"self\"",
         "fn BadReceiver(self: u8, self: bool) -> u8 { self }"),
@@ -3922,7 +4982,7 @@ ML_val\<open>
         "fn BadReference<'a>(value: 'a) -> u8 { 0 }"),
        ("reference-missing-target", "syntax error",
         "fn BadReference(value: &'a mut) -> u8 { 0 }"),
-       ("reference-shorthand-receiver", "syntax error",
+       ("reference-shorthand-receiver", "receiver shorthand is only allowed in impl members",
         "fn BadReference(&'a mut self) -> u8 { 0 }"),
        ("reference-body-apostrophe", "unexpected input",
         "fn BadReference(value: &mut u8) -> u8 { 'a }"),
@@ -4222,29 +5282,35 @@ local
   open Marker_Position_Test
   val ctxt = Context_Position.set_visible true \<^context>
 
-  fun round_trip scope =
+  (* Every backend filter form, alone and combined; no filter is the unrestricted payload. *)
+  fun round_trip filters =
     let
       val name = "MarkerPosition::callee"
       val payload =
-        Dispatch.mk_scoped_payload_positions scope
+        Dispatch.mk_filtered_payload_positions filters
           Micro_Rust_Names.NFunction name positions
     in
       require "dispatch payload is not a free variable for the term decoder"
         (decodes_as_free ctxt payload);
       (case Dispatch.dest_payload payload of
-         SOME (decoded_kind, decoded_name, decoded, decoded_scope) =>
+         SOME (decoded_kind, decoded_name, decoded, decoded_filters) =>
            require "dispatch payload did not round-trip its tag and positions"
              (decoded_kind = Micro_Rust_Names.NFunction andalso
-               decoded_name = name andalso decoded_scope = scope andalso
+               decoded_name = name andalso decoded_filters = filters andalso
                same_marker_positions positions decoded)
        | NONE => error "dispatch payload was not recognised")
     end
-  val _ = List.app round_trip [Dispatch.All_Backends, Dispatch.Explicit_Backends]
+  val _ =
+    List.app round_trip
+      [[], [Micro_Rust_Names.Exclude_Generated], [Micro_Rust_Names.Exclude_Method_Only],
+       [Micro_Rust_Names.Only_Sources [1, 2]], [Micro_Rust_Names.Only_Sources []],
+       [Micro_Rust_Names.Only_Sources [1, 1]],
+       [Micro_Rust_Names.Exclude_Generated, Micro_Rust_Names.Exclude_Method_Only]]
 
   val _ =
     (case Dispatch.dest_payload
         (Dispatch.mk_payload Micro_Rust_Names.NFunction "MarkerPositionCallee" hostile) of
-       SOME (_, _, decoded, Dispatch.All_Backends) =>
+       SOME (_, _, decoded, []) =>
          require "single-position payload did not round-trip its position"
            (same_marker_positions
              {terminal_pos = hostile, qualifier_positions = [],
@@ -4260,7 +5326,8 @@ local
     |> Dispatch.exclude_generated_backends
   val _ =
     (case Dispatch.dest_marker_untyped restricted of
-       SOME ((_, _, decoded, Dispatch.Explicit_Backends), SOME (Free ("callee", _))) =>
+       SOME ((_, _, decoded, [Micro_Rust_Names.Exclude_Generated]),
+             SOME (Free ("callee", _))) =>
          require "restricted marker did not keep its positions"
            (same_marker_positions positions decoded)
      | _ => error "restricted marker lost its explicit scope or witness")
@@ -4327,14 +5394,19 @@ local
 
   val dispatch_name =
     payload_name
-      (Dispatch.mk_scoped_payload_positions Dispatch.All_Backends
+      (Dispatch.mk_payload_positions
         Micro_Rust_Names.NFunction "MarkerPosition::callee" positions)
   val dispatch_corruptions =
     (case String.fields (fn c => c = Char.chr 0) dispatch_name of
        [tag, name, _, encoded] =>
          [("non-numeric count", space_implode separator [tag, name, "x", encoded]),
           ("negative count", space_implode separator [tag, name, "~1", encoded]),
-          ("count beyond the positions", space_implode separator [tag, name, "9", encoded])]
+          ("count beyond the positions", space_implode separator [tag, name, "9", encoded])] @
+         map (fn field => ("malformed filters " ^ quote field,
+           space_implode separator [tag, name, "2", encoded, field]))
+           ["", "bogus", "sources", "sources x", "sources ~1", "sources 1 ",
+            "generated,", ",generated", "generated,generated",
+            "method_only,method_only", "empty_sources,empty_sources", "sources 1,sources 1"]
      | _ => error "dispatch payload has an unexpected layout")
   val _ =
     List.app
@@ -4491,6 +5563,9 @@ ML_val\<open>
     val _ = List.app check
       [("native-function-pointer", "fn NativeSurface(value: fn(&Element) -> bool) -> bool { value }"),
        ("native-function-pointer-unit", "fn NativeSurface(value: fn()) { value }"),
+       ("native-function-pointer-one", "fn NativeSurface(value: fn(u32)) { value }"),
+       ("native-function-pointer-one-trailing", "fn NativeSurface(value: fn(u32,)) { value }"),
+       ("native-function-pointer-two", "fn NativeSurface(value: fn(u32, u64)) { value }"),
        ("native-function-pointer-trailing-comma",
         "fn NativeSurface(value: fn(u8, bool,) -> fn() -> u64) { value }"),
        ("native-lifetime-argument",
@@ -4506,6 +5581,14 @@ ML_val\<open>
         "fn NativeSurface(value: Element) -> Buffer<{ (Flavor::Small as usize) + 1 }> { value }"),
        ("native-const-nested-block",
         "fn NativeSurface(value: Buffer<{ { let size = 1; /* \<alpha> */ size + 1 } }>) { value }"),
+       ("native-const-after-adjacent-closers",
+        "fn NativeSurface(value: Outer<Middle<Inner<u32>>, {1}>) { value }"),
+       ("native-const-after-spaced-closers",
+        "fn NativeSurface(value: Outer<Middle<Inner<u32> >, {1}>) { value }"),
+       ("native-const-result-after-adjacent-closers",
+        "fn NativeSurface(value: Element) -> Outer<Middle<Inner<u32>>, {1}> { value }"),
+       ("native-const-two-adjacent-closer-groups",
+        "fn NativeSurface(value: Outer<Next<Middle<Inner<u32>>, {1}>, {2}>) { value }"),
        ("native-macro-type",
         "fn NativeSurface(value: $Scalar) -> FieldValue<$Scalar, Register> { value }")]
 
@@ -4526,6 +5609,10 @@ ML_val\<open>
         "fn NativeSurface(value: Iterator<Item = >) { value }"),
        ("native-function-pointer-missing", "syntax error",
         "fn NativeSurface(value: fn(&)) { value }"),
+       ("native-function-pointer-double-trailing", "syntax error",
+        "fn NativeSurface(value: fn(u32,,)) { value }"),
+       ("native-function-pointer-two-double-trailing", "syntax error",
+        "fn NativeSurface(value: fn(u32, u64,,)) { value }"),
        ("native-const-unclosed", "syntax error",
         "fn NativeSurface(value: Buffer<{ 1 >) { value }")]
   in val _ = () end

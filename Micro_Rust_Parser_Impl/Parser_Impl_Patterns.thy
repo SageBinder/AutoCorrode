@@ -382,13 +382,18 @@ struct
   fun coverage_is_total Coverage_Total = true
     | coverage_is_total _ = false
 
+  (* Family membership is constructor identity. Self, alias and turbofish heads give the
+     constructor at its instance type, which must still count as the family's member. *)
+  val same_constructor = Term.aconv_untyped
+
   fun family_complete members covered =
-    List.all (fn member => List.exists (fn constructor => constructor aconv member) covered)
+    List.all
+      (fn member => List.exists (fn constructor => same_constructor (constructor, member)) covered)
       members
 
   fun family_coverage name members covered =
     let
-      val covered' = fold (fn constructor => insert (op aconv) constructor) covered []
+      val covered' = fold (fn constructor => insert same_constructor constructor) covered []
     in
       if family_complete members covered'
       then Coverage_Total
@@ -398,7 +403,7 @@ struct
   fun same_coverage_family
       ({name = left_name, members = left_members, covered = _},
        {name = right_name, members = right_members, covered = _}) =
-    left_name = right_name andalso eq_list (op aconv) (left_members, right_members)
+    left_name = right_name andalso eq_list same_constructor (left_members, right_members)
 
   fun resolved_coverage pattern =
     let
@@ -475,6 +480,8 @@ struct
       fun resolve source_pattern =
         (case source_pattern of
            P_Wild pos => Resolved_Wild pos
+         (* Self is a path in every pattern position, never a binder. *)
+         | P_Ident ("Self", pos) => resolve (P_Path (make_single_path ("Self", pos)))
          | P_Ident (name, pos) =>
              (case policy of
                 Always_Binder => Resolved_Bind (binding name pos)
@@ -689,9 +696,18 @@ struct
     Term.lambda_name
       (signature_name binder_sig, lookup_signature environment binder_sig)
 
+  (* The constructor of a single-constructor family without arguments, such as a unit struct,
+     matches every value of its type. *)
+  fun sole_unit_constructor info =
+    R.constructor_arity info = 0 andalso
+      (case R.constructor_family info of
+         SOME (_, [_]) => true
+       | _ => false)
+
   fun directly_irrefutable allow_extended pattern =
     let
       fun direct (Resolved_Bind _) = true
+        | direct (Resolved_Constructor (info, _, [])) = sole_unit_constructor info
         | direct (Resolved_Wild _) = true
         | direct (Resolved_Tuple (patterns, _)) =
             not (null patterns) andalso List.all direct patterns
@@ -704,7 +720,11 @@ struct
 
   val constrain_pattern_abstraction = URust_Case_Compiler.constrain_pattern_abstraction
 
-  fun direct_abstraction ctxt report_wildcards allow_extended environment pattern =
+  (* unit_constructors admits a nullary sole constructor, which only a binding site (let, for,
+     closure formals) treats as irrefutable. Case arms, and through them while let, keep the case
+     compilation. *)
+  fun direct_abstraction ctxt report_wildcards allow_extended unit_constructors environment
+      pattern =
     let
       fun has_alias (Resolved_Alias _) = true
         | has_alias (Resolved_Tuple (patterns, _)) = exists has_alias patterns
@@ -714,8 +734,21 @@ struct
           (fn bind => fn body =>
             constrain_pattern_abstraction (HOLogic.listT dummyT) pos (bind body))
           abstraction
+      fun constructor_value_type (Const (name, T)) =
+            if T = dummyT then
+              Sign.the_const_type (Proof_Context.theory_of ctxt) name
+              |> Logic.varifyT_global |> Logic.incr_tvar (serial ()) |> Type_Infer.paramify_vars
+            else T
+        | constructor_value_type _ = dummyT
       fun direct (Resolved_Bind binder_sig) =
             SOME (abstract_signature environment binder_sig)
+        | direct (Resolved_Constructor (info, pos, [])) =
+            if unit_constructors andalso sole_unit_constructor info then
+              SOME (fn body =>
+                constrain_pattern_abstraction
+                  (constructor_value_type (R.constructor_term info)) pos
+                  (R.anonymous_abstraction body))
+            else NONE
         | direct (Resolved_Wild pos) =
             (if report_wildcards then R.report_wildcard ctxt pos else ();
              SOME (fn body => R.anonymous_abstraction body))
@@ -811,6 +844,13 @@ struct
 
   fun prepare_binding site ctxt environment pattern =
     let
+      (* Self is a path pattern, so `let mut Self` has no binder to make mutable. *)
+      val _ =
+        (case (site, strip_groups pattern) of
+           (Mutable_Let_Binder _, P_Ident ("Self", pos)) =>
+             error ("urust: Self is a path pattern and cannot be a mutable binding" ^
+               Position.here pos)
+         | _ => ())
       val policy =
         (case site of
            For_Binder => Resolve_Constructor_Binding
@@ -848,7 +888,7 @@ struct
       (* A directly irrefutable pattern always has a direct abstraction. Building it reports the
          pattern's wildcards before the deferred semantic reports below. *)
       val abstraction =
-        (case direct_abstraction ctxt true allow_extended environment' resolved of
+        (case direct_abstraction ctxt true allow_extended true environment' resolved of
            SOME abstraction => abstraction
          | NONE =>
              error ("urust_expr: internal irrefutable pattern without a direct abstraction" ^
@@ -894,7 +934,8 @@ struct
       fun prepare (resolved, _, _) =
         let
           val abstraction =
-            (case direct_abstraction ctxt true true environment' resolved of
+            (* A closure formal is a binding site, so a nullary sole constructor binds it. *)
+            (case direct_abstraction ctxt true true true environment' resolved of
                SOME abstraction => abstraction
              | NONE =>
                  error ("urust_expr: internal irrefutable closure formal without a direct" ^
@@ -1115,7 +1156,7 @@ struct
       val patterns =
         map (prepare_case_pattern ctxt arm_environment) (expand_resolved_pattern resolved)
       val binders = map (lookup_signature arm_environment) signatures
-      val direct = direct_abstraction ctxt false true arm_environment resolved
+      val direct = direct_abstraction ctxt false true false arm_environment resolved
       val total = coverage_is_total (resolved_coverage resolved)
     in
       (Prepared_Case_Arm

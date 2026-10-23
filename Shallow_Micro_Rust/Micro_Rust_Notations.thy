@@ -94,11 +94,11 @@ type entry =
   below --- because the parse phase runs pre-type and cannot itself choose
   by type.)
 
-  \<open>reg_eq\<close> identifies entries by their typed term, without positions and up to the
-  naming of schematic type variables, so theory merges stay transitive. Insertion additionally
-  treats a backend that an existing scheme covers as already registered
-  (\<open>backend_covers\<close>), so re-registering the same backend is idempotent (e.g. when a
-  syntax declaration is replayed on context-open).\<close>
+  \<open>reg_eq\<close> identifies backends by their typed term, without positions and up to the
+  naming of schematic type variables, so theory merges stay transitive. Replaying a registration
+  is idempotent (e.g. when a syntax declaration is replayed on context-open). The client-visible
+  view of a key is computed from its registrations by \<open>lookups\<close>, which hides covered
+  explicit schemes (\<open>backend_covers\<close>).\<close>
 fun normalized_backend term =
   let
     val stripped = Term_Position.strip_positions term;
@@ -112,43 +112,109 @@ fun normalized_backend term =
     |> Term_Subst.zero_var_indexes
   end;
 
+(* A cheap prefilter. Normalization renames type variables and renumbers schematic indexes; the
+   untyped skeleton is invariant under it as long as the backend has no term-level schematic
+   variables, which registered backends never have (registration generalizes types only). *)
+fun same_skeleton (e1 : entry, e2 : entry) =
+  Term.aconv_untyped (apply2 (Term_Position.strip_positions o #hol_term) (e1, e2));
+
 fun reg_eq (e1 : entry, e2 : entry) =
+  same_skeleton (e1, e2) andalso
   Term.aconv (apply2 normalized_backend (#hol_term e1, #hol_term e2));
 
 (* A specialization of an already registered polymorphic backend adds no capability. Match
    complete types and value syntax so concrete locale instances of different types stay distinct. *)
 fun backend_covers thy (general: entry) (specific: entry) =
+  same_skeleton (general, specific) andalso
   let
     val general_term = normalized_backend (#hol_term general);
     val specific_term = normalized_backend (#hol_term specific);
     val shifted = Term.map_types (Logic.incr_tvar (Term.maxidx_of_term specific_term + 1)) general_term;
-  in
-    Term.aconv_untyped (general_term, specific_term) andalso
-      can (Pattern.match thy (shifted, specific_term)) (Vartab.empty, Vartab.empty)
-  end;
+  in can (Pattern.match thy (shifted, specific_term)) (Vartab.empty, Vartab.empty) end;
+
+(* Data holds the registrations themselves; clients see the view computed by lookups below.
+   Merging identifies only identical registrations (same serial and backend), so a theory union
+   keeps every registration of its branches whatever the merge order. *)
+fun same_registration (e1 : entry, e2 : entry) = #serial e1 = #serial e2 andalso reg_eq (e1, e2);
 
 structure Data = Generic_Data
 (
   type T = entry list Symtab.table;
   val empty = Symtab.empty;
-  val merge = Symtab.merge_list reg_eq;
+  val merge = Symtab.merge_list same_registration;
 );
 
 (* Namespace ownership is declaration-only: overloadable functions carry no backend here.
-   Both insertion and theory merge check constructor conflicts independently of merge order. *)
-datatype declaration_kind = Function_Declaration | Constructor_Declaration;
+   Both insertion and theory merge check constructor conflicts independently of merge order.
+   An associated function of an impl additionally carries its Self type and the identity of the
+   impl member, the source serial of its path entry. *)
+type associated_owner = {self_type: typ, identity: serial};
+
+datatype declaration_kind =
+    Function_Declaration
+  | Constructor_Declaration
+  | Associated_Function_Declaration of associated_owner;
 type declaration_owner = {kind: declaration_kind, pos: Position.T};
+
+(* Self types are stored generalized, with schematic variables named canonically, so a replay or a
+   theory merge of the same owner is recognized structurally. *)
+fun normalized_self_type T =
+  let
+    val substitutions =
+      Term.add_tvarsT T [] |> rev
+      |> map_index (fn (index, (variable, sort)) =>
+           ((variable, sort), TVar (("'self" ^ string_of_int index, 0), sort)))
+      |> TVars.make;
+  in Term_Subst.instantiateT substitutions T end;
 
 fun owner_eq (left: declaration_owner, right: declaration_owner) =
   #kind left = #kind right;
 
+fun is_function_owner ({kind = Constructor_Declaration, ...}: declaration_owner) = false
+  | is_function_owner _ = true;
+
+fun associated_owner ({kind = Associated_Function_Declaration owner, pos}: declaration_owner) =
+      SOME (owner, pos)
+  | associated_owner _ = NONE;
+
+(* Inherent impls overlap when their Self types unify. Theory merges have no type signature, so
+   both checks use the same purely structural unification, which ignores sorts. *)
+fun overlapping_self_types (left, right) =
+  let
+    val shifted = Logic.incr_tvar (Term.maxidx_of_typ left + 1) right;
+  in can (Type.raw_unify (left, shifted)) Vartab.empty end;
+
+(* Owners are searched in identity order, so the reported pair does not depend on merge order. *)
+fun associated_conflict name owners =
+  let
+    val associated =
+      map_filter associated_owner owners
+      |> sort (int_ord o apply2 (#identity o fst));
+    fun conflict (({identity, self_type}: associated_owner, pos), rest) =
+      Option.map (fn (_, other_pos) => [pos, other_pos])
+        (find_first (fn ({identity = other, self_type = other_type}, _) =>
+          other <> identity andalso overlapping_self_types (self_type, other_type)) rest);
+    fun search [] = NONE
+      | search (owner :: rest) =
+          (case conflict (owner, rest) of NONE => search rest | found => found);
+  in
+    Option.map (fn positions =>
+        "urust: associated function " ^ quote name ^
+          " is defined in more than one impl with overlapping Self types" ^
+          implode (map Position.here positions))
+      (search associated)
+  end;
+
 fun check_owners name (owners: declaration_owner list) =
-  if exists (fn owner => #kind owner = Function_Declaration) owners andalso
+  if exists is_function_owner owners andalso
       exists (fn owner => #kind owner = Constructor_Declaration) owners
   then error ("urust_fn: Rust function path " ^ quote name ^
     " is already owned by a Rust constructor item" ^
     implode (map (Position.here o #pos) owners))
-  else owners;
+  else
+    (case associated_conflict name owners of
+       SOME message => error message
+     | NONE => owners);
 
 structure Declaration_Owners = Generic_Data
 (
@@ -168,18 +234,86 @@ structure Automatic_Registrations = Generic_Data
 
 fun mark_automatic s = Automatic_Registrations.map (Inttab.update (s, ()));
 
-fun is_automatic ctxt ({serial, ...}: entry) =
-  Inttab.defined (Automatic_Registrations.get (Context.Proof ctxt)) serial;
+fun is_automatic_serial context s = Inttab.defined (Automatic_Registrations.get context) s;
 
-fun reserve_declaration kind name pos =
+(* Serials of automatic method entries: the bare-name registrations of impl members with a self
+   receiver. A Rust method is not in scope as a free function, so direct calls exclude them. *)
+structure Method_Only_Registrations = Generic_Data
+(
+  type T = unit Inttab.table;
+  val empty = Inttab.empty;
+  val merge = Inttab.merge (K true);
+);
+
+fun mark_method_only s = Method_Only_Registrations.map (Inttab.update (s, ()));
+
+fun is_method_only_serial context s =
+  Inttab.defined (Method_Only_Registrations.get context) s;
+
+fun reserve_owner name owner =
   Declaration_Owners.map (fn table =>
     let
       val owners = the_default [] (Symtab.lookup table name);
       (* A repeated declaration of an owned kind keeps the first owner and its position. *)
-      val checked = check_owners name (insert owner_eq {kind = kind, pos = pos} owners);
+      val checked = check_owners name (insert owner_eq owner owners);
     in Symtab.update (name, checked) table end);
 
+fun reserve_declaration kind name pos = reserve_owner name {kind = kind, pos = pos};
+
+(* The caller allocates the identity before its declaration callback and applies the declaration
+   morphism to the Self type, so a replay or an interpretation at the same type is idempotent while
+   differently typed instances of one impl coexist. *)
+fun reserve_associated_function {name, self_type, identity, pos} context =
+  let
+    val generalized =
+      singleton (Variable.polymorphic (Context.proof_of context)) (Logic.mk_type self_type)
+      |> Logic.dest_type |> normalized_self_type;
+    val owner = {self_type = generalized, identity = identity};
+  in reserve_owner name {kind = Associated_Function_Declaration owner, pos = pos} context end;
+
+fun associated_functions ctxt name =
+  the_default [] (Symtab.lookup (Declaration_Owners.get (Context.Proof ctxt)) name)
+  |> map_filter associated_owner
+  |> map (fn ({self_type, identity}, pos) =>
+       {self_type = self_type, identity = identity, pos = pos});
+
+fun is_associated_function ctxt name = not (null (associated_functions ctxt name));
+
 fun mk_key kind name = kind_to_string kind ^ "\000" ^ name;
+
+(* Rust keys never contain the keywords Self (reserved for impl blocks) or self (reserved for the
+   module) as a segment. The one exception is a bare key self, which a literal notation may use
+   for an ordinary HOL value. Every registration command applies this one check. *)
+val reserved_key_segments = ["Self", "self"];
+
+fun key_segments name =
+  let
+    fun split input =
+      let val (segment, rest) = Substring.position "::" input in
+        Substring.string segment ::
+          (if Substring.isEmpty rest then [] else split (Substring.triml 2 rest))
+      end
+  in split (Substring.full name) end;
+
+fun reserved_key_segment {bare_self} name =
+  let
+    val segments = key_segments name
+    fun reserved segment =
+      exists (fn keyword =>
+          segment = keyword orelse String.isPrefix (keyword ^ "<") segment orelse
+          segment = keyword ^ "!")
+        reserved_key_segments
+  in
+    (case segments of
+       [segment] => if bare_self andalso segment = "self" then NONE
+         else if reserved segment then SOME segment else NONE
+     | _ => find_first reserved segments)
+  end;
+
+fun reserved_key_message segment =
+  if String.isPrefix "Self" segment
+  then "Self is reserved for impl blocks and cannot be a key segment"
+  else "self is reserved for module paths and cannot be a key segment";
 
 \<comment>\<open>Markup kind for uRust notation entities (def/ref protocol).\<close>
 val notationN = "micro_rust_notation";
@@ -306,31 +440,154 @@ fun set_shadow_bit kind names bit =
       ShadowOpts.map (fn state => fold (fn n => fn s => update_entry s n) names state)
     end;
 
+(* The key of each registration serial. A serial names one registering declaration under one
+   key (impl members use one serial per entry), so the status of an entry is computed under its
+   own key. *)
+fun describe_key key =
+  (case String.fields (fn ch => ch = #"\000") key of
+     [kind, name] => kind ^ " " ^ quote name
+   | _ => quote key);
+
+(* The same message on insertion and on theory merge, with the two uses in key order. *)
+fun serial_reuse_error uses =
+  let val sorted = sort (string_ord o apply2 fst) uses
+  in
+    error ("urust: notation registration serial is reused under " ^
+      space_implode " and " (map (describe_key o fst) sorted) ^
+      implode (map (Position.here o snd) sorted))
+  end;
+
+structure Registration_Keys = Generic_Data
+(
+  type T = (string * Position.T) Inttab.table;
+  val empty = Inttab.empty;
+  fun merge tables =
+    Inttab.join (fn _ => fn (left, right) =>
+      if fst left = fst right then left else serial_reuse_error [left, right]) tables;
+);
+
+fun stored_registrations context key = the_default [] (Symtab.lookup (Data.get context) key);
+
+(* Every stored registration of a key, including those the view hides (report-free). *)
+fun registrations ctxt kind name = stored_registrations (Context.Proof ctxt) (mk_key kind name);
+
+fun is_registered_under context key entry =
+  exists (fn other => same_registration (other, entry)) (stored_registrations context key);
+
+\<comment>\<open>REGISTRATION VIEW. Every client-visible fact is computed from the stored registrations of a
+  key, so it does not depend on the order of registrations or of theory merges:
+   - an automatic registration is always visible under its own serial (an impl identity for
+     \<open>Only_Sources\<close>), also when another registration covers it;
+   - it counts as explicit (neither automatic nor method-only) when an explicit registration of
+     the key covers it, and then navigates to a maximal covering explicit registration (one that no
+     other covering explicit registration strictly covers), the one with the smallest serial;
+   - an explicit registration that an automatic one covers adds nothing visible: it only makes
+     the automatic entry explicit;
+   - of explicit registrations that cover one another, only the preferred one is visible: a
+     maximal covering registration with the smallest serial (\<open>preferred_explicit\<close>);
+   - dispatch prefers covering schemes among the visible entries (\<open>filtered_candidates\<close>).\<close>
+(* Among explicit registrations, the preferred ones are maximal (no other one strictly covers
+   them), in serial order. *)
+fun preferred_explicit thy explicit =
+  let
+    fun strictly_covered other =
+      exists (fn general => backend_covers thy general other andalso
+        not (backend_covers thy other general)) explicit;
+  in explicit |> filter_out strictly_covered |> sort (int_ord o apply2 #serial) end;
+
+(* An explicit registration is represented by a preferred one that covers it: a maximal covering
+   registration with the smallest serial. *)
+fun represented_by thy explicit entry =
+  (case preferred_explicit thy (filter (fn other => backend_covers thy other entry) explicit) of
+     representative :: _ => #serial representative = #serial entry
+   | [] => true);
+
+fun explicit_cover_at context key entry =
+  let
+    val thy = Context.theory_of context;
+    val covering =
+      stored_registrations context key
+      |> filter (fn other as {serial, ...} =>
+           not (is_automatic_serial context serial) andalso backend_covers thy other entry);
+  in try hd (preferred_explicit thy covering) end;
+
+fun explicit_cover context (entry as {serial, ...}: entry) =
+  if not (is_automatic_serial context serial) then NONE
+  else
+    (case Option.map fst (Inttab.lookup (Registration_Keys.get context) serial) of
+       SOME key =>
+         if is_registered_under context key entry then explicit_cover_at context key entry
+         else NONE
+     | NONE => NONE);
+
+fun is_automatic ctxt (entry as {serial, ...}: entry) =
+  is_automatic_serial (Context.Proof ctxt) serial andalso
+  is_none (explicit_cover (Context.Proof ctxt) entry);
+
+fun is_method_only ctxt (entry as {serial, ...}: entry) =
+  is_method_only_serial (Context.Proof ctxt) serial andalso
+  is_none (explicit_cover (Context.Proof ctxt) entry);
+
+(* Navigation of an entry: the covering explicit registration, otherwise the entry itself. *)
+fun navigation_target ctxt (entry as {serial, reg_pos, ...}: entry) =
+  (case explicit_cover (Context.Proof ctxt) entry of
+     SOME {serial = explicit, reg_pos = explicit_pos, ...} => (explicit, explicit_pos)
+   | NONE => (serial, reg_pos));
+
+fun visible_entries context key =
+  let
+    val thy = Context.theory_of context;
+    val stored = stored_registrations context key;
+    val (automatic, explicit) =
+      List.partition (fn {serial, ...} => is_automatic_serial context serial) stored;
+    fun visible (entry as {serial, ...}: entry) =
+      is_automatic_serial context serial orelse
+      (not (exists (fn general => backend_covers thy general entry) automatic) andalso
+       represented_by thy explicit entry);
+    fun resolve (entry as {hol_term, source_const, serial, ...}: entry) =
+      if not (is_automatic_serial context serial) then entry
+      else
+        (case explicit_cover_at context key entry of
+           SOME {reg_pos, ...} =>
+             {hol_term = hol_term, source_const = source_const, reg_pos = reg_pos,
+              serial = serial}
+         | NONE => entry);
+  in map resolve (filter visible stored) end;
+
 \<comment>\<open>Register \<open>rust_name\<close> (in context \<open>kind\<close>) as a notation backend for
-  \<open>hol_term\<close>, recording \<open>reg_pos\<close>. CONSes onto the name's backend list, so
-  distinct backends accumulate, while a backend that an existing scheme covers
-  (\<open>backend_covers\<close>) is a no-op and one that covers existing specializations replaces them.
+  \<open>hol_term\<close>, recording \<open>reg_pos\<close>. CONSes onto the name's registration list.
 
   The caller allocates one \<open>serial\<close> per \<^emph>\<open>declaration\<close> (not per merge-replay).
   This function only updates data: a local-theory declaration is applied to several contexts, so
   the registering command emits its \<open>def\<close>-side entity markup once through
   \<open>report_registration\<close>. Use sites later emit matching \<open>ref\<close>-side markup pointing
-  back here, so jEdit's jump-to-definition lands on the registering command.\<close>
+  back here, so jEdit's jump-to-definition lands on the registering command.
+
+  Callers of automatic registrations mark the serial before registering it. Every registration
+  is stored unless the same registration (serial and backend) already is, as on a replay, and
+  nothing is ever removed, so the stored registrations, like the view above, are a function of the
+  registration set, and a theory merge loses no scheme.\<close>
 fun register_with_source_serial kind name hol_term source_const
     reg_pos s context =
   let
     val ctxt = Context.proof_of context;
+    val key = mk_key kind name;
     val hol_term = singleton (Variable.polymorphic ctxt) hol_term;
     val entry =
       {hol_term = hol_term, source_const = source_const,
        reg_pos = reg_pos, serial = s};
-    val existing = the_default [] (Symtab.lookup (Data.get context) (mk_key kind name));
+    val existing = stored_registrations context key;
+    val _ =
+      (case Inttab.lookup (Registration_Keys.get context) s of
+         SOME (use as (other, _)) =>
+           if other = key then () else serial_reuse_error [use, (key, reg_pos)]
+       | NONE => ());
+    fun store entries =
+      Data.map (Symtab.update (key, entries)) #>
+      Registration_Keys.map (Inttab.default (s, (key, reg_pos)));
   in
-    if exists (fn old => backend_covers (Proof_Context.theory_of ctxt) old entry) existing then context
-    else
-      let
-        val retained = filter_out (backend_covers (Proof_Context.theory_of ctxt) entry) existing;
-      in context |> Data.map (Symtab.update (mk_key kind name, entry :: retained)) end
+    if exists (fn old => same_registration (old, entry)) existing then context
+    else store (entry :: existing) context
   end;
 
 \<comment>\<open>The \<open>def\<close>-side entity markup of one registering command.\<close>
@@ -349,19 +606,44 @@ fun register_with_source kind name hol_term source_const reg_pos context =
 fun register kind name hol_term reg_pos =
   register_with_source kind name hol_term NONE reg_pos;
 
-\<comment>\<open>All backends registered for a \<open>(kind, name)\<close>, or \<open>[]\<close> if none.\<close>
-fun lookups ctxt kind name =
-  the_default [] (Symtab.lookup (Data.get (Context.Proof ctxt)) (mk_key kind name));
+\<comment>\<open>All backends visible for a \<open>(kind, name)\<close>, or \<open>[]\<close> if none. An automatic entry that an
+  explicit registration covers keeps its serial and reports the explicit registration's position.\<close>
+fun lookups ctxt kind name = visible_entries (Context.Proof ctxt) (mk_key kind name);
+
+\<comment>\<open>Which registered backends a use may dispatch to. A dispatch marker carries a set of filters,
+  and every filter of the set applies:
+   - \<open>Exclude_Generated\<close>: a turbofish payload is applied as leading arguments, which only
+     explicit notations accept, since a generated \<open>urust_fn\<close> has no generic parameters;
+   - \<open>Exclude_Method_Only\<close>: a direct call does not reach the method entries of impl members;
+   - \<open>Only_Sources\<close>: a path call selecting impls keeps only the entries whose source serial is
+     listed (the identities of the selected impls); an empty list leaves no eligible entry.\<close>
+datatype backend_filter =
+    Exclude_Generated
+  | Exclude_Method_Only
+  | Only_Sources of serial list;
+
+fun eligible_entry ctxt restriction (entry as {serial, ...}: entry) =
+  (case restriction of
+     Exclude_Generated => not (is_automatic ctxt entry)
+   | Exclude_Method_Only => not (is_method_only ctxt entry)
+   | Only_Sources serials => member (op =) serials serial);
+
+fun eligible_entries ctxt filters =
+  filter (fn entry => forall (fn restriction => eligible_entry ctxt restriction entry) filters);
+
+fun has_eligible_entries ctxt filters kind name =
+  not (null (eligible_entries ctxt filters (lookups ctxt kind name)));
 
 \<comment>\<open>All registered entries, as \<open>(kind, rust_name, entry)\<close> triples (for the
   query command). Splits the composite key back into kind and name; one row
   per backend.\<close>
 fun dump ctxt =
   Data.get (Context.Proof ctxt)
-  |> Symtab.dest
-  |> maps (fn (key, es) =>
+  |> Symtab.keys
+  |> maps (fn key =>
        (case String.fields (fn ch => ch = #"\000") key of
-          [k, n] => map (fn e => (string_to_kind k, n, e)) es
+          [k, n] =>
+            map (fn e => (string_to_kind k, n, e)) (visible_entries (Context.Proof ctxt) key)
         | _ => error "malformed micro_rust_notation key"));
 
 end
@@ -452,11 +734,43 @@ fun is_backend_identity_wrapper ctxt name =
 val payload_prefix = "_urust_dispatch_payload___";
 val payload_sep = String.str (Char.chr 0);
 
-\<comment>\<open>Which registered backends a marker may dispatch to. A turbofish payload is applied
-  as leading arguments, which only explicit notations accept: a generated \<open>urust_fn\<close> has no
-  generic parameters, so such a call considers \<open>Explicit_Backends\<close> only.\<close>
-datatype marker_scope = All_Backends | Explicit_Backends;
-val explicit_scope_field = "explicit";
+\<comment>\<open>A marker's filter set (\<^ML_type>\<open>Micro_Rust_Names.backend_filter\<close>) is an optional fifth
+  payload field: comma-separated filters, where a source filter lists its serials after the
+  \<open>sources\<close> tag. The tag \<open>empty_sources\<close> represents an empty selection.
+  An unfiltered marker keeps the four-field (or bare-tag) encoding.\<close>
+fun encode_filter Micro_Rust_Names.Exclude_Generated = "generated"
+  | encode_filter Micro_Rust_Names.Exclude_Method_Only = "method_only"
+  | encode_filter (Micro_Rust_Names.Only_Sources []) = "empty_sources"
+  | encode_filter (Micro_Rust_Names.Only_Sources serials) =
+      space_implode " " ("sources" :: map Value.print_int serials);
+
+fun decode_filter "generated" = SOME Micro_Rust_Names.Exclude_Generated
+  | decode_filter "method_only" = SOME Micro_Rust_Names.Exclude_Method_Only
+  | decode_filter "empty_sources" = SOME (Micro_Rust_Names.Only_Sources [])
+  | decode_filter field =
+      (case String.fields (fn c => c = #" ") field of
+         "sources" :: serials =>
+           if null serials then NONE
+           else
+             let val parsed = map (try Value.parse_nat) serials in
+               if exists is_none parsed then NONE
+               else
+                 SOME (Micro_Rust_Names.Only_Sources (map the parsed))
+             end
+       | _ => NONE);
+
+fun encode_filters filters = space_implode "," (map encode_filter filters);
+
+fun decode_filters field =
+  if field = "" then NONE
+  else
+    let val parsed = map decode_filter (String.fields (fn c => c = #",") field) in
+      if exists is_none parsed then NONE
+      else
+        let val filters = map the parsed in
+          if length (distinct (op =) filters) = length filters then SOME filters else NONE
+        end
+    end;
 
 type marker_positions =
   {terminal_pos: Position.T,
@@ -469,7 +783,7 @@ type marker_positions =
   and decode to exactly themselves, while the escaped payload name stays
   unqualified for \<^ML>\<open>Syntax_Phases.decode_term\<close>. An unrestricted payload
   without any reported position carries only its tag.\<close>
-fun encode_payload_positions scope kind name
+fun encode_payload_positions filters kind name
     ({terminal_pos, qualifier_positions,
       backend_only_positions} : marker_positions) =
   let
@@ -482,10 +796,9 @@ fun encode_payload_positions scope kind name
         Micro_Rust_Semantic_Navigation.encode_positions positions
   in
     Micro_Rust_Semantic_Navigation.escape_payload_name
-      (case scope of
-         Explicit_Backends => with_positions ^ payload_sep ^ explicit_scope_field
-       | All_Backends =>
-           if exists Position.is_reported positions then with_positions else tag)
+      (if not (null filters) then with_positions ^ payload_sep ^ encode_filters filters
+       else if exists Position.is_reported positions then with_positions
+       else tag)
   end;
 
 \<comment>\<open>A payload body with a malformed escape, position field or qualifier count is
@@ -535,14 +848,15 @@ fun decode_payload s =
                   backend_only_positions = []}))
        | [k, n, qualifier_count, enc] =>
            (k, n, decoded_positions qualifier_count enc)
-       | [k, n, qualifier_count, enc, scope] =>
-           if scope = explicit_scope_field then
-             (k, n, decoded_positions qualifier_count enc)
-           else malformed ()
+       | [k, n, qualifier_count, enc, _] =>
+           (k, n, decoded_positions qualifier_count enc)
        | _ => malformed ())
-    val scope =
-      if length parts = 5 then Explicit_Backends else All_Backends
-  in (Micro_Rust_Names.string_to_kind kind_str, name, positions, scope) end;
+    val filters =
+      (case parts of
+         [_, _, _, _, field] =>
+           (case decode_filters field of SOME filters => filters | NONE => malformed ())
+       | _ => [])
+  in (Micro_Rust_Names.string_to_kind kind_str, name, positions, filters) end;
 
 \<comment>\<open>Build the payload \<^verbatim>\<open>Free\<close> with the encoded data in its name.
 
@@ -552,13 +866,13 @@ fun decode_payload s =
   that lookup; the decoder accepts the free variable verbatim. The
   sentinel prefix is reserved enough that no user identifier could
   collide with it.\<close>
-fun mk_scoped_payload_positions scope kind name positions =
+fun mk_filtered_payload_positions filters kind name positions =
   Free
-    (payload_prefix ^ encode_payload_positions scope kind name positions,
+    (payload_prefix ^ encode_payload_positions filters kind name positions,
      dummyT);
 
 fun mk_payload_positions kind name positions =
-  mk_scoped_payload_positions All_Backends kind name positions;
+  mk_filtered_payload_positions [] kind name positions;
 
 \<comment>\<open>Retain the original single-position payload API for the legacy
   frontend and direct clients. Dedicated-parser qualified paths use
@@ -570,7 +884,7 @@ fun mk_payload kind name pos =
      backend_only_positions = []};
 
 \<comment>\<open>Recognise the payload \<^verbatim>\<open>Free\<close> and recover
-  \<open>(kind, name, marker_positions, marker_scope)\<close>.\<close>
+  \<open>(kind, name, marker_positions, filters)\<close>.\<close>
 fun dest_payload (Free (s, _)) =
       if String.isPrefix payload_prefix s
       then SOME (decode_payload (String.extract (s, size payload_prefix, NONE)))
@@ -683,22 +997,28 @@ fun dest_marker_untyped (Const (\<^const_name>\<open>urust_dispatch\<close>, _) 
        handle Match => NONE)
   | dest_marker_untyped _ = NONE;
 
+\<comment>\<open>Add a filter set to every marker in a call head. Filters accumulate: a marker that is
+  already restricted keeps its filters, so restrictions from different call forms compose.\<close>
+fun restrict_backends filters =
+  let
+    fun add_filter restriction existing =
+      if member (op =) existing restriction then existing else existing @ [restriction];
+    fun restrict (Const (\<^const_name>\<open>urust_dispatch\<close>, T) $ payload $ opt) =
+          (case dest_payload payload of
+             SOME (kind, name, positions, existing) =>
+               Const (\<^const_name>\<open>urust_dispatch\<close>, T) $
+                 mk_filtered_payload_positions (fold add_filter filters existing)
+                   kind name positions $ opt
+           | NONE =>
+               Const (\<^const_name>\<open>urust_dispatch\<close>, T) $ payload $ restrict opt)
+      | restrict (t $ u) = restrict t $ restrict u
+      | restrict (Abs (x, T, body)) = Abs (x, T, restrict body)
+      | restrict t = t;
+  in restrict end;
+
 \<comment>\<open>Restrict every marker in a call head to explicit backends, before a turbofish
   payload is applied to it.\<close>
-fun exclude_generated_backends
-      (Const (\<^const_name>\<open>urust_dispatch\<close>, T) $ payload $ opt) =
-      (case dest_payload payload of
-         SOME (kind, name, positions, _) =>
-           Const (\<^const_name>\<open>urust_dispatch\<close>, T) $
-             mk_scoped_payload_positions Explicit_Backends kind name positions $ opt
-       | NONE =>
-           Const (\<^const_name>\<open>urust_dispatch\<close>, T) $ payload $
-             exclude_generated_backends opt)
-  | exclude_generated_backends (t $ u) =
-      exclude_generated_backends t $ exclude_generated_backends u
-  | exclude_generated_backends (Abs (x, T, body)) =
-      Abs (x, T, exclude_generated_backends body)
-  | exclude_generated_backends t = t;
+val exclude_generated_backends = restrict_backends [Micro_Rust_Names.Exclude_Generated];
 
 \<comment>\<open>Can backend type \<open>T'\<close> serve an occurrence of type \<open>T\<close>?
   (Mirrors \<open>adhoc_overloading.ML\<close>: rename the backend's tvars away
@@ -747,14 +1067,12 @@ fun fresh_backend ctxt term =
   |> Term_Subst.zero_var_indexes
   |> Term.map_types (Logic.incr_tvar (serial ()) #> Type_Infer.paramify_vars);
 
-fun eligible_entries ctxt scope entries =
-  (case scope of
-     All_Backends => entries
-   | Explicit_Backends => filter_out (Micro_Rust_Names.is_automatic ctxt) entries);
+fun eligible_entries ctxt filters kind name =
+  Micro_Rust_Names.eligible_entries ctxt filters (Micro_Rust_Names.lookups ctxt kind name);
 
-fun scoped_candidates ctxt scope kind name T =
+fun filtered_candidates ctxt filters kind name T =
   let
-    val entries = eligible_entries ctxt scope (Micro_Rust_Names.lookups ctxt kind name);
+    val entries = eligible_entries ctxt filters kind name;
     (* Theory union may bring together a generic backend and its specialization. Prefer the
        covering scheme before instantiation, including when effect channels remain unconstrained. *)
     val maximal = filter (fn entry => not (exists (fn other =>
@@ -762,6 +1080,7 @@ fun scoped_candidates ctxt scope kind name T =
       Micro_Rust_Names.backend_covers (Proof_Context.theory_of ctxt) other entry) entries)) entries;
   in
     maximal
+    |> sort (int_ord o apply2 #serial)
     |> map_filter (fn entry as {hol_term, ...} =>
          Option.map (fn backend => {entry = entry, term = Type.constraint T backend})
            (unify_and_instantiate ctxt T (fresh_backend ctxt hol_term)))
@@ -769,7 +1088,7 @@ fun scoped_candidates ctxt scope kind name T =
          Term.aconv (apply2 Micro_Rust_Names.normalized_backend (#term left, #term right)))
   end;
 
-fun candidates ctxt kind name T = scoped_candidates ctxt All_Backends kind name T;
+fun candidates ctxt kind name T = filtered_candidates ctxt [] kind name T;
 
 \<comment>\<open>Look up a HOL constant by user-visible name. Returns
   \<open>SOME (full_name, declared_type)\<close> if the name resolves to a constant in \<open>ctxt\<close>,
@@ -931,10 +1250,13 @@ fun emit_notation_entries_at_pos
   if not (Position.is_reported pos) then ()
   else
     app
-        (fn ({serial, reg_pos, ...} : Micro_Rust_Names.entry) =>
-          Micro_Rust_Semantic_Navigation.defer_report ctxt pos
-            (Position.make_entity_markup {def = false} serial
-              Micro_Rust_Names.notationN (name, reg_pos)))
+        (fn entry =>
+          let val (serial, reg_pos) = Micro_Rust_Names.navigation_target ctxt entry
+          in
+            Micro_Rust_Semantic_Navigation.defer_report ctxt pos
+              (Position.make_entity_markup {def = false} serial
+                Micro_Rust_Names.notationN (name, reg_pos))
+          end)
         entries;
 
 fun selected_entry_last
@@ -1102,11 +1424,12 @@ fun emit_selected_use_markup_at_positions ctxt kind name selected
   not a reason to silently demote the name to a free variable. We report
   it loudly, showing the occurrence type and every registered backend
   with its type, so the arity/type mismatch is obvious.\<close>
-fun scope_note Explicit_Backends =
-      [Pretty.str "Generic arguments exclude generated functions, which take none."]
-  | scope_note All_Backends = [];
+fun filter_notes filters =
+  if member (op =) filters Micro_Rust_Names.Exclude_Generated
+  then [Pretty.str "Generic arguments exclude generated functions, which take none."]
+  else [];
 
-fun no_match_error ctxt scope kind name pos T =
+fun no_match_error ctxt filters kind name pos T =
   error (Pretty.string_of (Pretty.chunks
     ([Pretty.block [Pretty.str ("uRust notation \<open>" ^ name ^
        "\<close> is registered, but no backend matches the use-site type "),
@@ -1115,17 +1438,17 @@ fun no_match_error ctxt scope kind name pos T =
        (map (fn { hol_term, ... } : Micro_Rust_Names.entry =>
                Pretty.block [Syntax.pretty_term ctxt hol_term, Pretty.str " :: ",
                              Syntax.pretty_typ ctxt (fastype_of hol_term)])
-          (eligible_entries ctxt scope (Micro_Rust_Names.lookups ctxt kind name)))] @
-     scope_note scope)));
+          (eligible_entries ctxt filters kind name))] @
+     filter_notes filters)));
 
 fun resolve ctxt =
   let
     fun go t =
       (case dest_marker t of
-         SOME ((kind, name, positions, scope), opt_witness, T) =>
+         SOME ((kind, name, positions, filters), opt_witness, T) =>
            let
              val pos = #terminal_pos positions
-             val cands = scoped_candidates ctxt scope kind name T
+             val cands = filtered_candidates ctxt filters kind name T
              val _ =
                shadow_check ctxt kind name T pos (not (null cands))
                  (denotes_registered_backend (Micro_Rust_Names.lookups ctxt kind name) ctxt)
@@ -1140,10 +1463,10 @@ fun resolve ctxt =
                   else
                     (case cands of
                        [single] => select single
-                     | [] => no_match_error ctxt scope kind name pos T
+                     | [] => no_match_error ctxt filters kind name pos T
                      | _ => t \<comment>\<open>ambiguous: leave for \<open>reject_unresolved\<close>\<close>)
               | (NONE, [single]) => select single
-              | (NONE, []) => no_match_error ctxt scope kind name pos T
+              | (NONE, []) => no_match_error ctxt filters kind name pos T
               | (NONE, _) => t)
            end
        | NONE =>
@@ -1159,7 +1482,7 @@ fun reject_unresolved ctxt =
   let
     fun check t =
       (case dest_marker t of
-         SOME ((kind, name, positions, scope), _, T) =>
+         SOME ((kind, name, positions, filters), _, T) =>
            let val pos = #terminal_pos positions
            in
            error (Pretty.string_of (Pretty.chunks
@@ -1168,7 +1491,7 @@ fun reject_unresolved ctxt =
                 Pretty.str (Position.here pos)],
               Pretty.big_list "candidate backends:"
                 (map (Syntax.pretty_term ctxt o #hol_term)
-                   (eligible_entries ctxt scope (Micro_Rust_Names.lookups ctxt kind name)))]))
+                   (eligible_entries ctxt filters kind name))]))
            end
        | NONE =>
            (case t of u $ v => (check u; check v) | Abs (_, _, b) => check b | _ => ()));
@@ -1271,6 +1594,14 @@ fun do_register kind_opt (hol_src, (rust_name, rust_pos)) lthy =
       case kind_opt of
         SOME k => (check_forced_kind k lthy t0; k)
       | NONE => Micro_Rust_Names.infer_kind_of_type (fastype_of t0)
+    (* A bare key self stays available for a literal, an ordinary HOL value. *)
+    val _ =
+      (case Micro_Rust_Names.reserved_key_segment
+          {bare_self = kind = Micro_Rust_Names.NLiteral} rust_name of
+         SOME segment =>
+           error ("micro_rust_notation: " ^ Micro_Rust_Names.reserved_key_message segment ^
+             Position.here rust_pos)
+       | NONE => ())
   in
     lthy
     |> Local_Theory.declaration {pervasive=false, syntax=true, pos=Position.none}
@@ -1347,25 +1678,35 @@ end
 
 ML\<open>
 \<comment>\<open>Query command: prints every registered notation as
-  \<open><rust> \<longmapsto> <hol> (context)\<close>, with the HOL term printed via
-  \<open>Syntax.pretty_term\<close>.\<close>
+  \<open><rust> \<longmapsto> <hol> (context[, tags])\<close>, with the HOL term printed via
+  \<open>Syntax.pretty_term\<close>. The tags mark automatic registrations as \<open>generated\<close> and method
+  entries of impl members as \<open>method-only\<close>.\<close>
+structure Micro_Rust_Notation_Print =
+struct
+
+fun entry_tags ctxt entry =
+  (if Micro_Rust_Names.is_automatic ctxt entry then ["generated"] else []) @
+  (if Micro_Rust_Names.is_method_only ctxt entry then ["method-only"] else []);
+
+fun pretty_entry ctxt (kind, rust, entry as { hol_term, ... } : Micro_Rust_Names.entry) =
+  Pretty.block
+    [Pretty.str rust, Pretty.str " \<longmapsto> ",
+     Syntax.pretty_term ctxt hol_term,
+     Pretty.str ("  (" ^
+       commas (Micro_Rust_Names.kind_to_string kind :: entry_tags ctxt entry) ^ ")")];
+
+fun pretty_notations ctxt =
+  (case Micro_Rust_Names.dump ctxt of
+     [] => Pretty.str "no uRust name notations registered"
+   | entries => Pretty.big_list "uRust name notations:" (map (pretty_entry ctxt) entries));
+
+end;
+
 val _ =
   Outer_Syntax.command \<^command_keyword>\<open>print_micro_rust_notations\<close>
     "list all registered uRust name notations"
     (Scan.succeed (Toplevel.keep (fn st =>
-      let
-        val ctxt = Toplevel.context_of st;
-        val entries = Micro_Rust_Names.dump ctxt;
-        fun pretty (kind, rust, { hol_term, ... } : Micro_Rust_Names.entry) =
-          Pretty.block
-            [Pretty.str rust, Pretty.str " \<longmapsto> ",
-             Syntax.pretty_term ctxt hol_term,
-             Pretty.str ("  (" ^ Micro_Rust_Names.kind_to_string kind ^ ")")];
-      in
-        if null entries then writeln "no uRust name notations registered"
-        else Pretty.writeln
-          (Pretty.big_list "uRust name notations:" (map pretty entries))
-      end)));
+      Pretty.writeln (Micro_Rust_Notation_Print.pretty_notations (Toplevel.context_of st)))));
 \<close>
 
 

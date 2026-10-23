@@ -196,8 +196,8 @@ supported. Use `τ‹HOL type›` wherever a type is expected for polymorphism, 
 higher-order types or independent `_` inference holes. Parameters lower identifiers, `_`, and
 `mut identifier`, including explicitly typed `self: T` and `mut self: T`. The signature supplies
 the receiver type; body references, fields, methods and HOL escapes use the ordinary lexical
-parameter binding. This free-function command does not provide `impl` blocks, implicit `Self`
-resolution or shorthand receivers such as `&self`. Raw pointers and mutable references `&mut T`
+parameter binding. Shorthand receivers such as `&mut self` and `Self` are available only inside
+the inherent `impl` blocks of a `urust` chunk (below); a free function rejects them. Raw pointers and mutable references `&mut T`
 use the existing `('address, 'global, T) Global_Store.ref` model, so `self: &mut T` is an ordinary
 typed receiver and a caller passes a mutable local with `&mut local`.
 One address/global pair is shared across a complete signature; the body and expected types constrain
@@ -220,6 +220,68 @@ urust_fn identity_helper ‹
   fn Identity(value: τ‹'a›) -> τ‹'a› { value }
 ›
 ```
+
+The opt-in theory `Parser_Impl_Chunk` adds the source-ordered chunk command
+`urust [OPTIONS] ‹ [ω‹OPTIONS›] ITEM ... ›` for `fn`, `struct`, `enum`, `use` and inherent `impl`
+items. An `impl` block registers its members automatically:
+
+```isabelle
+urust ‹
+  struct Counter { value: u32 }
+
+  impl Counter {
+    fn new() -> Self { Self { value: 0_u32 } }
+    fn get(self) -> u32 { self.value }
+    ω‹name = "counter_store"›
+    fn set(&mut self, value: u32) { self.value = value; }
+  }
+
+  fn Demo() -> u32 { let c = Counter::new(); c.get() + Counter::get(c) }
+›
+```
+
+- **Members.** Each member is declared exactly as the equivalent `urust_fn` with a typed
+  receiver; `self`, `mut self` and `&'a mut self` mean `self: Self`, `mut self: Self` and
+  `self: &'a mut Self`. The default HOL name is the snake case of the target's final written
+  segment and the member (`counter_get`); `ω‹name = …›` on a member overrides it. Annotations on
+  the impl supply defaults for its members (member, then impl, then outer defaults, then scoped
+  configurations); `name` and member `pp_test` are rejected where they cannot apply. Because the
+  default name is `<type>_<fn>`, it can clash with another constant: a member of an impl on another
+  instance of the type (`impl Pair<u8>` and `impl Pair<u16>` both defining `f`), of another type
+  (`Foo::bar_baz` and `FooBar::baz`), or a free function of that name. A positioned error then
+  names the clash and suggests ω `name`. Duplicate members (Rust E0592) are rejected whatever their
+  options within one command; a checked-only member (`ω‹name = _›`) declares nothing, so a later
+  command does not see it.
+- **Registrations.** Every member registers its associated path `Counter::f`; a member whose first
+  parameter is `self` also registers a method entry `f`, so `x.f(..)` and `Counter::f(x, ..)`
+  call it. Direct calls `f(..)` never reach method entries (the hint names the method forms), and
+  associated functions and methods are not importable.
+- **`Self`.** In member types, and as a path head in calls, values, struct expressions,
+  constructors and patterns, `Self` is the implementing type with its generic arguments;
+  `Self::f(..)` calls this impl's own member. In a pattern (`let`, parameters, closure formals,
+  `match`) `Self` is a path, so it matches a unit struct's value; `mut Self` and `let Self { .. }`
+  / `let Self(..)` destructuring are rejected. `Self` and `self` cannot name any declared item,
+  member, variant, field or generic parameter (the receiver `self` is a parameter form), cannot
+  be a segment of a registration key (`urust_type`, notations, aliases, `simple_word_enum`
+  names; a bare literal key `self` excepted), and may only start a path (Rust E0433), macro
+  paths included. `Self` is
+  rejected outside impl members, including retained Rust types in declared HOL signatures;
+  declared types still skip Rust type interpretation. This structural check traverses Rust type
+  paths, including nested retained types; const-expression and HOL source escapes stay opaque.
+  `impl` is a reserved word.
+- **Targets and instances.** A target is a generated datatype or `urust_type` mapping, optionally
+  with concrete or `τ‹…›` arguments, or a `urust_type_alias` of one (keys go under the alias's
+  target). Following Rust, a path call `T::f(..)` with impls on several instances of `T` must
+  select one with `T::<A>::f(..)`, `Self`, a type alias that fixes the instance, an imported
+  alias, or an imported head with generic arguments; a plain imported generic head
+  (`use Pair as P; P::f()`) is ambiguous, as in Rust. Type alias and imported heads denote their
+  target, with its generic arguments, in every path role, unless the written key has an exact
+  registration.
+- **Not supported.** `impl<…>` generics, trait impls, `where`, `unsafe impl`, associated
+  `const`/`type` items, `pub`, `&self` (until the shared-reference model is chosen), autoref and
+  autoderef at method calls, and order-independent member visibility (members and items are seen
+  in source order). Method calls can still reach free functions and explicit notations of the same
+  name.
 
 `urust_type` is the sole nominal Rust-to-HOL type translation mechanism. Its context-local keys may
 be qualified and generic; ordered mapping placeholders must correspond exactly to the free type
@@ -527,7 +589,13 @@ prefix and suffix. Integer patterns use the same literal syntax and type inferen
 and compose inside lists, constructors, tuples, and struct fields.
 
 Ordinary `let` and `for` bindings support aliases of irrefutable patterns, including chained
-aliases, tuples, and rest-only lists such as `let whole @ [rest @ ..] = values;`.
+aliases, tuples, and rest-only lists such as `let whole @ [rest @ ..] = values;`. A nullary
+sole constructor, such as a unit struct or the only variant of a one-variant enum, is also
+irrefutable at these binding sites and in closure formals; `match`, `while let` and `matches!`
+keep case compilation for it, and so do `if let` and `let … else` except for a top-level tuple
+pattern, which takes the binding route. At `if let`, `let … else` and `while let` a total pattern,
+including one through a `Self`, alias or turbofish head, needs no fallback clause; `matches!` keeps
+its `false` clause, so a total pattern there is rejected as redundant.
 Closure formals accept the same patterns, as in `|(width, height)| width * height`: a formal
 other than a name or `_` is destructured inside the closure body exactly as
 `let PATTERN = formal;` would, and one formal list may bind each name only once. As at `for`,

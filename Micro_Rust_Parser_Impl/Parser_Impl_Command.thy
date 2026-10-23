@@ -65,7 +65,9 @@ inline, so named variables are fresh per function and may be captured by a local
 Parameters lower identifiers, \<open>_\<close>, and \<open>mut identifier\<close>.
 Explicitly typed \<open>self: T\<close> and \<open>mut self: T\<close> use the same signature typing
 and lexical binding as other identifiers, including field/method receivers and HOL escapes.
-Shorthand receivers and implicit \<open>Self\<close> resolution are not supplied by this free-function command.
+A free function rejects the shorthand receivers \<open>self\<close>, \<open>mut self\<close>, \<open>&self\<close> and
+\<open>&mut self\<close>, and \<open>Self\<close> outside an impl member; inside an impl member of a \<open>urust\<close>
+chunk the shorthands are their typed spellings and \<open>Self\<close> names the implementing type.
 An explicit outer name chooses the HOL binding; otherwise acronym-aware snake case derives it from
 the Rust name. An anonymous \<open>_\<close> checks without installing artifacts.
 Named functions register their Rust name by default for later direct calls. The Boolean
@@ -219,7 +221,11 @@ Semantic declaration and dependency navigation reports wait until successful ins
 The source-ordered chunk command \<open>urust\<close> is registered by the opt-in theory
 \<open>Parser_Impl_Chunk\<close>, so importing this theory keeps \<open>urust\<close> an ordinary name. It uses
 the option schemas, annotation reader and prepare/declare operations exported here, which the
-single-item commands share. Preparation is pure; declaration runs native backends in invisible
+single-item commands share. Impl blocks are prepared here too: each member is a function
+declaration whose registration key is its associated path \<open>T::f\<close>, owned as an associated
+function of the impl's Self type, with an additional method-only entry \<open>f\<close> when its first
+parameter is a \<open>self\<close> receiver. Members elaborate in a context that carries the impl's Self
+type, and at verbosity 1 and 2 each member's registrations follow its declaration output. Preparation is pure; declaration runs native backends in invisible
 contexts inside the caller's report transaction and regenerates the authored definition entities
 afterwards.
 
@@ -271,7 +277,9 @@ sig
 
   (* Shared option entries and parsed-item declaration operations for item-list commands. *)
   type command_options
-  datatype option_schema = Chunk_Defaults | Function_Annotation | Datatype_Annotation
+  datatype option_schema =
+    Chunk_Defaults | Function_Annotation | Datatype_Annotation | Impl_Annotation |
+    Impl_Member_Annotation
   val parse_options: option_schema -> command_options parser
   val read_annotation_options:
     Proof.context -> option_schema -> URust_AST.item_annotation -> command_options
@@ -296,6 +304,18 @@ sig
     prepared_datatype -> local_theory -> (unit -> unit) * local_theory
   val prepared_datatype_registrations:
     Proof.context -> prepared_datatype -> URust_Imports.registrations
+  type prepared_impl
+  val prepare_impl_item:
+    local_theory ->
+      {interactive: bool, options: command_options, impl: URust_AST.urust_impl} ->
+      prepared_impl
+  type checked_owner = {name: string, self_type: typ, identity: serial, pos: Position.T}
+  val declare_prepared_impl:
+    {enter: local_theory -> local_theory, leave: local_theory -> local_theory} ->
+      prepared_impl -> local_theory * checked_owner list ->
+      (unit -> unit) * (local_theory * checked_owner list)
+  val prepared_impl_registrations: prepared_impl -> URust_Imports.registrations
+  val prepared_impl_associated_keys: Proof.context -> prepared_impl -> string list
 end
 
 (* THE expression pipeline, exported: every declaration command and programmatic client supplies an
@@ -605,7 +625,7 @@ fun configured_integer lthy options name config =
 
 (* An authored channel option wins over the scoped default; the function name is the use site
    that an inherited default's failures cite. *)
-fun configured_channel lthy function options name scoped =
+fun configured_channel lthy rust_name options name scoped =
   (case Symtab.lookup options name of
      SOME (Type_Value source, _) => SOME (URust_Type_Mappings.Authored_Channel source)
    | SOME (_, pos) => option_type_error name "a HOL type" pos
@@ -614,7 +634,7 @@ fun configured_channel lthy function options name scoped =
        |> Option.map (fn source =>
             URust_Type_Mappings.Inherited_Channel
               {label = "scoped default " ^ scoped, source = source,
-               use_pos = #2 (URust_AST.function_name function)}))
+               use_pos = #2 rust_name}))
 
 fun configured_verbosity lthy options =
   configured_integer lthy options verbosity_option urust_verbosity
@@ -1269,26 +1289,72 @@ fun declare_urust_result pp_test render_pretty
           lthy))
   end
 
-fun function_parameter_argument parameter =
-  let
-    val URust_AST.Function_Parameter
-      (mutable_pos, pattern, _, _) = parameter
-    fun unsupported pos =
-      error
-        ("urust_fn: unsupported function parameter pattern" ^
-          Position.here pos)
-  in
-    (case (mutable_pos, pattern) of
-       (NONE, URust_AST.P_Wild pos) => ("_", pos)
-     | (SOME pos, URust_AST.P_Wild _) => unsupported pos
-     | (_, URust_AST.P_Ident (name, pos)) => (name, pos)
-     | (SOME pos, _) => unsupported pos
-     | (NONE, _) =>
-         unsupported (URust_AST.pattern_position pattern))
-  end
+(* Receiver shorthands denote a type only inside an impl member, whose Self type the free
+   function signature lacks. In a member they are exactly their typed spellings: self: Self,
+   mut self: Self and self: &'a mut Self, where Self resolves through the member's impl context;
+   the reference type spans the receiver, so &self reports the shared-reference rejection there. *)
+fun receiver_shorthand_error parameter =
+  error
+    ("urust: receiver shorthand is only allowed in impl members" ^
+      Position.here (URust_AST.function_parameter_position parameter))
 
-fun function_arguments function =
-  map function_parameter_argument
+fun desugar_parameter ctxt
+      (parameter as URust_AST.Receiver_Parameter (form, self_pos, layout)) =
+      if is_none (URust_Type_Mappings.impl_self ctxt) then receiver_shorthand_error parameter
+      else
+        let
+          val no_layout = URust_AST.make_source_layout Position.none []
+          val self_type =
+            URust_AST.Path_Type
+              ([URust_AST.Rust_Type_Path_Segment ("Self", Position.none, NONE, no_layout)],
+               no_layout)
+          val (mutable_pos, typ) =
+            (case form of
+               URust_AST.Receiver_Value => (NONE, self_type)
+             | URust_AST.Receiver_Mut_Value =>
+                 (SOME (URust_AST.the_source_token_position layout
+                    (URust_AST.Keyword_Token "mut")), self_type)
+             | URust_AST.Receiver_Ref {mutable, lifetime} =>
+                 (NONE,
+                  URust_AST.Reference_Type
+                    (if mutable then URust_AST.BM_Mut else URust_AST.BM_Imm, lifetime,
+                     self_type, layout)))
+        in
+          URust_AST.Function_Parameter
+            (mutable_pos, URust_AST.P_Ident ("self", self_pos), typ, layout)
+        end
+  | desugar_parameter _ parameter = parameter
+
+fun function_parameter_argument ctxt parameter =
+  (case desugar_parameter ctxt parameter of
+     URust_AST.Function_Parameter (mutable_pos, pattern, _, _) =>
+      let
+        fun unsupported pos =
+          error
+            ("urust_fn: unsupported function parameter pattern" ^
+              Position.here pos)
+      in
+        (case (mutable_pos, pattern) of
+           (NONE, URust_AST.P_Wild pos) => ("_", pos)
+         | (SOME pos, URust_AST.P_Wild _) => unsupported pos
+         | (SOME _, URust_AST.P_Ident ("Self", pos)) =>
+             error
+               ("urust: Self is a path pattern and cannot be a mutable binding" ^
+                 Position.here pos)
+         | (_, URust_AST.P_Ident (name, pos)) => (name, pos)
+         | (SOME pos, _) => unsupported pos
+         | (NONE, _) =>
+             unsupported (URust_AST.pattern_position pattern))
+      end
+   | URust_AST.Receiver_Parameter _ => raise Fail "urust_fn: receiver was not desugared")
+
+fun function_parameter_type ctxt parameter =
+  (case desugar_parameter ctxt parameter of
+     URust_AST.Function_Parameter (_, _, typ, _) => typ
+   | URust_AST.Receiver_Parameter _ => raise Fail "urust_fn: receiver was not desugared")
+
+fun function_arguments ctxt function =
+  map (function_parameter_argument ctxt)
     (URust_AST.function_parameters function)
 
 fun source_subrange source range =
@@ -1333,25 +1399,26 @@ datatype function_signature =
     Declared_Signature of string * Position.T
   | Rust_Signature of URust_Type_Mappings.function_channels
 
-fun function_parameter_types function =
-  map (fn URust_AST.Function_Parameter (_, _, typ, _) => typ)
-    (URust_AST.function_parameters function)
+fun function_parameter_types ctxt function =
+  map (function_parameter_type ctxt) (URust_AST.function_parameters function)
 
 (* A declared type is read like a urust_expr declaration type and alone supplies the parameter
-   slots: the Rust parameter and return types are never resolved, so they neither constrain it nor
-   fail. Lifetime scope remains a Rust rule of the item.
+   slots: the Rust parameter and return types are never resolved and do not constrain it. Lifetime
+   scope and the lexical Self/self scope, path-start and keyword rules remain Rust rules of the item.
 
    Otherwise resolve the optional channels and every Rust signature type together. Shared names
    retain their sorts and relationships; independent inference holes stay distinct. The constructed
    complete type supplies the lexical parameter slots and the sole body-checking pipeline. *)
 fun prepare_function_signature lthy (Declared_Signature declared) function =
       let
-        val arguments = function_arguments function
+        val arguments = function_arguments lthy function
+        val rust_types =
+          function_parameter_types lthy function @
+            the_list (URust_AST.function_return_type function)
         val _ =
           URust_Type_Mappings.check_lifetimes
-            (URust_AST.function_lifetime_parameters function)
-            (function_parameter_types function @
-              the_list (URust_AST.function_return_type function))
+            (URust_AST.function_lifetime_parameters function) rust_types
+        val _ = URust_Type_Mappings.check_signature_syntax lthy rust_types
         val (complete_type, type_pos) =
           URust_Report_Transaction.native lthy (fn read_ctxt =>
             read_declared_type read_ctxt Function declared)
@@ -1364,8 +1431,8 @@ fun prepare_function_signature lthy (Declared_Signature declared) function =
       end
   | prepare_function_signature lthy (Rust_Signature channels) function =
       let
-        val arguments = function_arguments function
-        val parameter_types = function_parameter_types function
+        val arguments = function_arguments lthy function
+        val parameter_types = function_parameter_types lthy function
         val return_type =
           the_default
             (URust_AST.Primitive_Type
@@ -1392,7 +1459,7 @@ fun prepare_function_signature lthy (Declared_Signature declared) function =
 
 fun elaborate_function_item pp_test lthy signature_source source function =
   let
-    val arguments = function_arguments function
+    val arguments = function_arguments lthy function
     val body_source = function_body_source source function
     val (declared_type, arguments_with_types) =
       prepare_function_signature lthy signature_source function
@@ -1421,40 +1488,99 @@ fun declaration_registered_term
   | declaration_registered_term
       (Anonymous_Result {term, ...}) = term
 
-fun reject_function_item_conflict lthy (rust_name, rust_pos) =
-  ignore (Micro_Rust_Names.reserve_declaration Micro_Rust_Names.Function_Declaration
-    rust_name rust_pos (Context.Proof lthy))
+(* How a named function with enabled registration becomes callable. A free function registers
+   its Rust name. An impl member registers its associated path, whose source serial is the
+   member's identity and which owns the path as an associated function of the member's Self
+   type; a member with a self receiver also registers the method-only entry under its bare
+   name, which reserves nothing. Identity and Self type are fixed before the declaration
+   callback, so replays and interpretations keep them. *)
+datatype function_registration =
+    Free_Function
+  | Impl_Function of
+      {associated_key: string, method: bool, self_type: typ, identity: serial}
 
-fun register_function_result target (rust_name, rust_pos) declaration lthy =
+fun reject_function_item_conflict lthy registration (rust_name, rust_pos) =
+  (case registration of
+     Free_Function =>
+       ignore (Micro_Rust_Names.reserve_declaration Micro_Rust_Names.Function_Declaration
+         rust_name rust_pos (Context.Proof lthy))
+   | Impl_Function {associated_key, self_type, identity, ...} =>
+       ignore (Micro_Rust_Names.reserve_associated_function
+         {name = associated_key, self_type = self_type, identity = identity, pos = rust_pos}
+         (Context.Proof lthy)))
+
+(* Overlap is a property of the impl, not of its registrations: a member without registered
+   notations still owns its associated path. *)
+fun reserve_impl_owner (Impl_Function {associated_key, self_type, identity, ...}) (_, rust_pos)
+      lthy =
+      Local_Theory.declaration {pervasive = false, syntax = true, pos = rust_pos}
+        (fn phi =>
+          Micro_Rust_Names.reserve_associated_function
+            {name = associated_key, self_type = Morphism.typ phi self_type,
+             identity = identity, pos = rust_pos})
+        lthy
+  | reserve_impl_owner Free_Function _ lthy = lthy
+
+fun register_function_result target registration bare_name (rust_name, rust_pos) declaration
+    lthy =
   (case target of
      Anonymous_Target _ => lthy
    | Named_Target _ =>
        let
-         val registration_serial = serial ()
          val term = declaration_registered_term declaration
          val source_const =
            (case Term.strip_comb term of (constant as Const _, _) => SOME constant | _ => NONE)
+         fun register name s phi =
+           Micro_Rust_Names.register_with_source_serial Micro_Rust_Names.NFunction name
+             (Morphism.term phi term) (Option.map (Morphism.term phi) source_const) rust_pos s
+         val (declare, registrations) =
+           (case registration of
+              Free_Function =>
+                let val registration_serial = serial () in
+                  (fn phi =>
+                    Micro_Rust_Names.reserve_declaration Micro_Rust_Names.Function_Declaration
+                      rust_name rust_pos #>
+                    Micro_Rust_Names.mark_automatic registration_serial #>
+                    register rust_name registration_serial phi,
+                   [(rust_name, registration_serial)])
+                end
+            | Impl_Function {associated_key, method, self_type, identity} =>
+                let
+                  val method_serial = serial ()
+                  fun method_entry phi =
+                    if method then
+                      Micro_Rust_Names.mark_automatic method_serial #>
+                      Micro_Rust_Names.mark_method_only method_serial #>
+                      register bare_name method_serial phi
+                    else I
+                in
+                  (fn phi =>
+                    Micro_Rust_Names.reserve_associated_function
+                      {name = associated_key, self_type = Morphism.typ phi self_type,
+                       identity = identity, pos = rust_pos} #>
+                    Micro_Rust_Names.mark_automatic identity #>
+                    register associated_key identity phi #>
+                    method_entry phi,
+                   (associated_key, identity) ::
+                     (if method then [(bare_name, method_serial)] else []))
+                end)
        in
-         lthy |> Local_Theory.declaration {pervasive = false, syntax = true, pos = rust_pos}
-           (fn phi =>
-             Micro_Rust_Names.reserve_declaration Micro_Rust_Names.Function_Declaration
-               rust_name rust_pos #>
-             Micro_Rust_Names.mark_automatic registration_serial #>
-             Micro_Rust_Names.register_with_source_serial Micro_Rust_Names.NFunction rust_name
-               (Morphism.term phi term) (Option.map (Morphism.term phi) source_const)
-               rust_pos registration_serial)
+         lthy |> Local_Theory.declaration {pervasive = false, syntax = true, pos = rust_pos} declare
          |> tap (fn completed =>
            (Navigation.defer_report completed rust_pos Markup.keyword3;
-            Micro_Rust_Names.report_registration completed rust_name rust_pos
-              registration_serial))
+            List.app
+              (fn (name, s) => Micro_Rust_Names.report_registration completed name rust_pos s)
+              registrations))
        end)
 
 fun declare_urust_function_result pp_test render_pretty
     abbreviation application_definition attributes binding
-    target register_notation signature_source source function lthy =
+    target register_notation registration rust_name elaboration signature_source source function lthy =
   let
+    (* Elaboration reads in the member context; the declaration installs in lthy. *)
+    val elaboration_lthy = elaboration lthy
     val {term, arguments, declared_type, arguments_with_types} =
-      elaborate_function_item pp_test lthy signature_source source function
+      elaborate_function_item pp_test elaboration_lthy signature_source source function
     val pretty_body =
       if render_pretty then
         let
@@ -1462,12 +1588,12 @@ fun declare_urust_function_result pp_test render_pretty
           fun reparse pretty_source =
             let
               val ast =
-                (case URust_Parser.parse_source lthy pretty_source of
+                (case URust_Parser.parse_source elaboration_lthy pretty_source of
                    SOME ast => ast
                  | NONE => error "urust_fn: empty pretty replay")
             in
               ignore
-                (elaborate_prepared_ast lthy
+                (elaborate_prepared_ast elaboration_lthy
                   {kind = Function,
                    source = pretty_source,
                    declared_type = declared_type,
@@ -1489,9 +1615,9 @@ fun declare_urust_function_result pp_test render_pretty
       in
         (declaration,
          if register_notation then
-           register_function_result target
-             (URust_AST.function_name function) declaration installed
-         else installed)
+           register_function_result target registration
+             (#1 (URust_AST.function_name function)) rust_name declaration installed
+         else reserve_impl_owner registration rust_name installed)
       end
     val (declaration, lthy') =
       (case target of
@@ -1509,7 +1635,7 @@ fun declare_urust_function_result pp_test render_pretty
       (case target of
          Named_Target _ =>
            Navigation.defer_report lthy'
-             (#2 (URust_AST.function_name function))
+             (#2 rust_name)
              (Name_Space.markup
                (Consts.space_of (Proof_Context.consts_of lthy'))
                (Proof_Context.intern_const lthy'
@@ -1787,18 +1913,23 @@ fun default_function_target function =
 (* The pure part of a function declaration: effective options, their compatibility, attribute
    checks and the HOL target. A multi-item command prepares every member before its first
    declaration; the ineffective-pretty warning is released with the successful output. *)
+(* rust_name is the registration key and its position: the Rust name of a free function, the
+   associated path of an impl member. The AST keeps the source name for printing. An impl member
+   also carries its impl's Self context, in which it elaborates. *)
 datatype prepared_function =
   Prepared_Function of
     {interactive: bool, pp_test: bool, verbosity: int, pretty: bool, render_pretty: bool,
      abbreviation: bool, application_definition: bool, attributes: Token.src list,
      binding: binding, target: declaration_target, register_notation: bool,
      signature_source: function_signature,
+     rust_name: string * Position.T, registration: function_registration,
+     impl_self: URust_Type_Mappings.impl_self option,
      source: Input.source, function: URust_AST.urust_function, warnings: unit -> unit}
 
 (* A declared type supplies every channel, so an authored channel option beside it is rejected
    and scoped channel defaults are not consulted. *)
-fun configured_signature lthy function options NONE =
-      let fun channel name scoped = configured_channel lthy function options name scoped in
+fun configured_signature lthy rust_name options NONE =
+      let fun channel name scoped = configured_channel lthy rust_name options name scoped in
         Rust_Signature
           {state = channel state_option urust_state, abort = channel abort_option urust_abort,
            input = channel input_option urust_input, output = channel output_option urust_output}
@@ -1817,6 +1948,7 @@ fun configured_signature lthy function options NONE =
 fun prepare_function lthy
     {interactive, roundtrip, options, target, declared_type, source, function} =
   let
+    val _ = URust_AST.reject_keyword_name "urust" "a function" (URust_AST.function_name function)
     val register_notation =
       configured_flag lthy options register_notation_option urust_register_notation
     val pp_test =
@@ -1838,6 +1970,7 @@ fun prepare_function lthy
         "urust_fn" abbreviation application_definition
     val attributes =
       declaration_attributes lthy "urust_fn" target abbreviation options
+    val rust_name = URust_AST.function_name function
   in
     Prepared_Function
       {interactive = interactive, pp_test = pp_test, verbosity = verbosity, pretty = pretty,
@@ -1845,46 +1978,98 @@ fun prepare_function lthy
        application_definition = application_definition, attributes = attributes,
        binding = target_binding Function target, target = target,
        register_notation = register_notation,
-       signature_source = configured_signature lthy function options declared_type,
+       signature_source = configured_signature lthy rust_name options declared_type,
+       rust_name = rust_name, registration = Free_Function, impl_self = NONE,
        source = source, function = function, warnings = warnings}
   end
+
+fun registered_constant lthy binding declaration =
+  declaration_name (Local_Theory.full_name lthy binding) (declaration_registered_term declaration)
+
+(* Verbosity 1 and 2 list the callable entries of an impl member after its declaration. *)
+fun print_registration interactive verbosity lthy binding register_notation target registration
+    bare_name declaration =
+  (case (register_notation, target, registration) of
+     (true, Named_Target _, Impl_Function {associated_key, method, ...}) =>
+       if verbosity >= 1 andalso verbosity_output_enabled interactive lthy then
+         let
+           val name = registered_constant lthy binding declaration
+           val constant =
+             Pretty.mark_str
+               (Name_Space.markup (Consts.space_of (Proof_Context.consts_of lthy)) name,
+                Proof_Context.extern_const lthy name)
+           val (kind, keys) =
+             if method then ("method", associated_key ^ " / ." ^ bare_name)
+             else ("associated", associated_key)
+         in
+           Pretty.writeln
+             (Pretty.block
+               [Pretty.keyword1 kind, Pretty.brk 1, Pretty.str keys, Pretty.brk 1,
+                Pretty.str "\<mapsto>", Pretty.brk 1, constant])
+         end
+       else ()
+   | _ => ())
 
 (* The shared function declaration operation for an already prepared item. Registration
    conflicts and signature types depend on earlier declarations and are checked here. uRust
    reports join the enclosing report transaction; the successful result output is returned for
    the caller to emit after its whole transaction. *)
+(* Every impl member is checked for overlap, registered or not and declared or not; a free
+   function only when it registers its name. *)
+fun check_registration_conflict lthy
+    (Prepared_Function {register_notation, target, registration, rust_name, ...}) =
+  (case (registration, register_notation, target) of
+     (Impl_Function _, _, _) => reject_function_item_conflict lthy registration rust_name
+   | (Free_Function, true, Named_Target _) =>
+       reject_function_item_conflict lthy registration rust_name
+   | _ => ())
+
 fun declare_prepared_function
     (Prepared_Function
       {interactive, pp_test, verbosity, pretty, render_pretty, abbreviation,
        application_definition, attributes, binding, target, register_notation, signature_source,
-       source, function, warnings}) lthy =
+       rust_name, registration, impl_self, source, function, warnings}) lthy =
   let
-    val (rust_name, rust_pos) =
-      URust_AST.function_name function
     val _ =
-      if register_notation then
-        (case target of
-           Named_Target _ =>
-             reject_function_item_conflict lthy (rust_name, rust_pos)
-         | Anonymous_Target _ => ())
-      else ()
+      check_registration_conflict lthy
+        (Prepared_Function
+          {interactive = interactive, pp_test = pp_test, verbosity = verbosity, pretty = pretty,
+           render_pretty = render_pretty, abbreviation = abbreviation,
+           application_definition = application_definition, attributes = attributes,
+           binding = binding, target = target, register_notation = register_notation,
+           signature_source = signature_source, rust_name = rust_name,
+           registration = registration,
+           impl_self = impl_self, source = source, function = function, warnings = warnings})
+    val elaboration =
+      (case impl_self of
+         SOME self => URust_Type_Mappings.with_impl_self self
+       | NONE => I)
     val (result, lthy') =
       declare_urust_function_result pp_test render_pretty
         abbreviation application_definition attributes binding
-        target register_notation signature_source source function lthy
+        target register_notation registration rust_name elaboration signature_source source
+        function lthy
+    val bare_name = #1 (URust_AST.function_name function)
   in
-    (fn () => (warnings (); print_declaration interactive verbosity pretty lthy' result), lthy')
+    (fn () =>
+      (warnings ();
+       print_declaration interactive verbosity pretty lthy' result;
+       print_registration interactive verbosity lthy' binding register_notation target
+         registration bare_name result),
+     lthy')
   end
 
 (* The registrations that declaring a prepared function makes, by the same decision as
-   declare_prepared_function: a named target with callable registration enabled installs its
-   Rust callable entry. *)
+   declare_prepared_function: a named free function with callable registration enabled installs
+   its Rust callable entry. Impl members contribute no import entities: associated functions
+   and methods are not namespace items. *)
 fun prepared_function_registrations
-    (Prepared_Function {register_notation, target, function, ...}) : URust_Imports.registrations =
+    (Prepared_Function {register_notation, target, rust_name, registration, ...})
+    : URust_Imports.registrations =
   {item_types = [], type_mappings = [], constructors = [], literal_notations = [],
    call_notations =
-     (case (register_notation, target) of
-        (true, Named_Target _) => [#1 (URust_AST.function_name function)]
+     (case (register_notation, target, registration) of
+        (true, Named_Target _, Free_Function) => [#1 rust_name]
       | _ => [])}
 
 (* A complete single-declaration transaction: replay deferred reports, then print. A failing
@@ -1998,9 +2183,9 @@ fun define_urust_datatype
   end
 
 (* Naming choices carried by an annotation's command-layer name option. *)
-fun option_function_target options function =
+fun option_target options default =
   (case Symtab.lookup options name_option of
-     NONE => default_function_target function
+     NONE => default
    | SOME (Name_Value (SOME binding), _) => Named_Target binding
    | SOME (Name_Value NONE, pos) => Anonymous_Target pos
    | SOME (_, pos) => option_type_error name_option (name_expectation true) pos)
@@ -2010,6 +2195,9 @@ fun option_datatype_binding options =
      NONE => NONE
    | SOME (Name_Value (SOME binding), _) => SOME binding
    | SOME (_, pos) => option_type_error name_option (name_expectation false) pos)
+
+fun option_function_target options function =
+  option_target options (default_function_target function)
 
 fun prepare_function_item lthy {interactive, roundtrip, options, source, function} =
   prepare_function lthy
@@ -2132,9 +2320,31 @@ fun reject_annotation_option kind other_configs (name, pos) =
 
 (* Item-list commands: the shared defaults of an outer list and the per-declaration schemas of
    annotations, each with the client-specific rejection of names outside it. *)
-datatype option_schema = Chunk_Defaults | Function_Annotation | Datatype_Annotation
+(* An impl annotation supplies function defaults to every member; the HOL binding belongs to
+   one member. *)
+fun reject_impl_option (name, pos) =
+  if name = name_option then
+    error
+      ("urust: option " ^ quote name_option ^ " names one function; supply it in an " ^
+        "\<omega> annotation on the member" ^ Position.here pos)
+  else reject_annotation_option "impl" datatype_annotation_configs (name, pos)
+
+(* The chunk roundtrips an impl envelope as a whole, so pp_test belongs to the impl. *)
+fun reject_impl_member_option (name, pos) =
+  if name = pp_test_option then
+    error
+      ("urust: " ^ pp_test_option ^ " applies to the whole impl; set it on the impl annotation" ^
+        Position.here pos)
+  else reject_annotation_option "fn" datatype_annotation_configs (name, pos)
+
+datatype option_schema =
+  Chunk_Defaults | Function_Annotation | Datatype_Annotation | Impl_Annotation |
+  Impl_Member_Annotation
 
 fun schema_configs Chunk_Defaults = (reject_chunk_option, chunk_option_configs)
+  | schema_configs Impl_Annotation = (reject_impl_option, function_option_configs)
+  | schema_configs Impl_Member_Annotation =
+      (reject_impl_member_option, Symtab.delete pp_test_option function_annotation_configs)
   | schema_configs Function_Annotation =
       (reject_annotation_option "fn" datatype_annotation_configs, function_annotation_configs)
   | schema_configs Datatype_Annotation =
@@ -2182,6 +2392,199 @@ fun override_options overrides defaults = Symtab.fold Symtab.update overrides de
 
 fun configured_pp_test lthy options =
   configured_flag lthy options pp_test_option urust_pp_test
+
+(* Impl blocks. Preparation is pure, like that of the other chunk members: every member's
+   options and HOL binding are fixed before the first declaration of the chunk. The target is
+   resolved when the impl is declared, in its own member context, so it may name an earlier
+   member of the same chunk. *)
+type prepared_impl_member = {prepared: prepared_function, method: bool, default_name: bool}
+
+datatype prepared_impl =
+  Prepared_Impl of {target: URust_AST.rust_type, members: prepared_impl_member list}
+
+fun is_self_parameter (URust_AST.Receiver_Parameter _) = true
+  | is_self_parameter (URust_AST.Function_Parameter (_, URust_AST.P_Ident ("self", _), _, _)) =
+      true
+  | is_self_parameter _ = false
+
+(* Rust admits self only as the first parameter of an associated function, typed or not. *)
+fun check_member_receiver function =
+  (case URust_AST.function_parameters function of
+     [] => ()
+   | _ :: rest =>
+       (case find_first is_self_parameter rest of
+          SOME (URust_AST.Function_Parameter (_, URust_AST.P_Ident (_, pos), _, _)) =>
+            error ("urust: a self receiver must be the first parameter" ^ Position.here pos)
+        | SOME parameter =>
+            error
+              ("urust: a self receiver must be the first parameter" ^
+                Position.here (URust_AST.function_parameter_position parameter))
+        | NONE => ()))
+
+fun is_method function =
+  (case URust_AST.function_parameters function of
+     first :: _ => is_self_parameter first
+   | [] => false)
+
+(* The final segment of the written target names the default HOL bindings, which are therefore
+   known before the target resolves. Every other target shape is rejected here already. *)
+fun impl_target_segment lthy target =
+  (case target of
+     URust_AST.Path_Type (segments, _) =>
+       (case List.last segments of URust_AST.Rust_Type_Path_Segment (name, _, _, _) => name)
+   | _ =>
+       (ignore (URust_Type_Mappings.resolve_impl_target lthy target);
+        raise Fail "urust: a non-path impl target was accepted"))
+
+fun prepare_impl_item lthy {interactive, options, impl} =
+  let
+    val target = URust_AST.impl_target impl
+    val segment = URust_AST.rust_snake_case (impl_target_segment lthy target)
+    fun prepare_member member =
+      let
+        val function = URust_AST.impl_member_function member
+        val member_options =
+          (case URust_AST.impl_member_annotation member of
+             NONE => options
+           | SOME annotation =>
+               override_options
+                 (read_annotation_options lthy Impl_Member_Annotation annotation) options)
+        val _ = check_member_receiver function
+        val (name, name_pos) = URust_AST.function_name function
+        val default =
+          Named_Target
+            (Binding.make (segment ^ "_" ^ URust_AST.rust_snake_case name, name_pos))
+      in
+        {prepared =
+           prepare_function lthy
+             {interactive = interactive, roundtrip = false,
+              options = Symtab.delete_safe name_option member_options,
+              target = option_target member_options default, declared_type = NONE,
+              source = URust_AST.impl_member_source member, function = function},
+         method = is_method function,
+         default_name = not (Symtab.defined member_options name_option)}
+      end
+  in
+    Prepared_Impl {target = target, members = map prepare_member (URust_AST.impl_members impl)}
+  end
+
+fun impl_member_function_of
+    ({prepared = Prepared_Function {interactive, pp_test, verbosity, pretty, render_pretty,
+       abbreviation, application_definition, attributes, binding, target, register_notation,
+       signature_source, rust_name = (name, pos), source, function, warnings, ...}, method, ...}
+     : prepared_impl_member)
+    (self as {canonical_path, self_type, ...}: URust_Type_Mappings.impl_self) =
+  let val associated_key = canonical_path ^ "::" ^ name in
+    Prepared_Function
+      {interactive = interactive, pp_test = pp_test, verbosity = verbosity, pretty = pretty,
+       render_pretty = render_pretty, abbreviation = abbreviation,
+       application_definition = application_definition, attributes = attributes,
+       binding = binding, target = target, register_notation = register_notation,
+       signature_source = signature_source, rust_name = (associated_key, pos),
+       registration =
+         Impl_Function
+           {associated_key = associated_key, method = method, self_type = self_type,
+            identity = serial ()},
+       impl_self = SOME self, source = source, function = function, warnings = warnings}
+  end
+
+(* The default HOL name of a member (O3) does not distinguish the impls of different instances of
+   one type. A clash with an existing constant is reported at the member, before any declaration,
+   with the position of the earlier declaration and the remedy. *)
+fun reject_default_name_clash lthy ({canonical_path, ...}: URust_Type_Mappings.impl_self)
+    ({prepared = Prepared_Function {binding, target, function, ...}, default_name, ...}
+      : prepared_impl_member) =
+  (case target of
+     Named_Target _ =>
+       if not default_name then ()
+       else
+         let
+           val space = Consts.space_of (Proof_Context.consts_of lthy)
+           val full_name = Local_Theory.full_name lthy binding
+         in
+           if not (Name_Space.declared space full_name) then ()
+           else
+             let
+               val other_pos = #pos (Name_Space.the_entry space full_name)
+               val (name, pos) = URust_AST.function_name function
+               (* Another impl only when the constant is the backend of an impl member's path
+                  entry, whose serial is that member's identity. *)
+               val key = canonical_path ^ "::" ^ name
+               val identities = map #identity (Micro_Rust_Names.associated_functions lthy key)
+               fun impl_member ({serial, hol_term, ...}: Micro_Rust_Names.entry) =
+                 member (op =) identities serial andalso
+                   (case Term.head_of hol_term of
+                      Const (constant, _) => constant = full_name
+                    | _ => false)
+               val other =
+                 if exists impl_member
+                     (Micro_Rust_Names.lookups lthy Micro_Rust_Names.NFunction key)
+                 then "another impl of " ^ quote canonical_path
+                 else "an earlier declaration"
+             in
+               error
+                 ("urust: the default HOL name " ^ quote (Binding.name_of binding) ^
+                   " of member " ^ quote name ^ Position.here pos ^ " is already used by " ^
+                   other ^ Position.here other_pos ^
+                   "; choose another HOL name with \<omega>\<open>name = \"...\"\<close> on one of them")
+             end
+         end
+   | Anonymous_Target _ => ())
+
+(* Each member declares in the context that the next command of an equivalent sequence would
+   receive: enter prepares that context (for a chunk, its import frame), and leave closes it.
+   The target resolves once, in the first such context, before any member. *)
+(* The associated-function owners of checked-only (name = _) members, which declare nothing: the
+   caller threads them through every later impl of its command. *)
+type checked_owner = {name: string, self_type: typ, identity: serial, pos: Position.T}
+
+fun declare_prepared_impl {enter, leave} (Prepared_Impl {target, members}) (lthy, checked0) =
+  let
+    val target_lthy = enter lthy
+    val self =
+      URust_Report_Transaction.release_on_failure target_lthy
+        (fn () => URust_Type_Mappings.resolve_impl_target target_lthy target)
+    (* A checked-only member (name = _) declares nothing, so later members of the impl see its
+       owner only through this list. *)
+    fun declare member (lthy', checked) =
+      let
+        val member_lthy = enter lthy'
+        val prepared as Prepared_Function {target = member_target, registration, rust_name, ...} =
+          impl_member_function_of member self
+        val with_checked =
+          Context.proof_of (fold Micro_Rust_Names.reserve_associated_function checked
+            (Context.Proof member_lthy))
+        val (output, lthy'') =
+          URust_Report_Transaction.release_on_failure member_lthy
+            (fn () =>
+              (* A duplicate member is Rust's overlap error first; only a member that passes it
+                 can clash by its default HOL name. *)
+              (check_registration_conflict with_checked prepared;
+               reject_default_name_clash member_lthy self member;
+               declare_prepared_function prepared member_lthy))
+          ||> leave
+        val checked' =
+          (case (member_target, registration) of
+             (Anonymous_Target _, Impl_Function {associated_key, self_type, identity, ...}) =>
+               {name = associated_key, self_type = self_type, identity = identity,
+                pos = #2 rust_name} :: checked
+           | _ => checked)
+      in (output, (lthy'', checked')) end
+    val (outputs, (lthy'', checked'')) = fold_map declare members (lthy, checked0)
+  in (fn () => List.app (fn output => output ()) outputs, (lthy'', checked'')) end
+
+fun prepared_impl_registrations (_: prepared_impl) = URust_Imports.no_registrations
+
+(* The associated paths an impl's members own, as far as they are known before it is
+   declared: the target head resolves through registered aliases and imports, and a target that
+   a later chunk member declares keeps its written path. *)
+fun prepared_impl_associated_keys ctxt (Prepared_Impl {target, members}) =
+  (case URust_Type_Mappings.impl_target_key ctxt target of
+     NONE => []
+   | SOME path =>
+       (* Every member owns its associated path, registered, unregistered or checked-only. *)
+       map (fn {prepared = Prepared_Function {rust_name, ...}, ...} => path ^ "::" ^ #1 rust_name)
+         members)
 
 val parse_parameter =
   Parse.position Parse.liberal_name || Parse.position Parse.underscore
@@ -2274,6 +2677,15 @@ fun define_urust_type_alias (registration, source) lthy =
                  error
                    ("urust_type_alias: empty type alias item" ^
                      Position.here (Input.pos_of source)))
+          val reject = URust_AST.reject_keyword_name "urust_type_alias"
+          val _ = reject "a type" (URust_AST.type_alias_name item)
+          val _ =
+            List.app
+              (fn URust_AST.Generic_Parameter (name, pos, URust_AST.Type_Parameter) =>
+                    reject "a type parameter" (name, pos)
+                | URust_AST.Generic_Parameter (name, pos, URust_AST.Const_Parameter) =>
+                    reject "a const parameter" (name, pos))
+              (URust_AST.type_alias_parameter_descriptors item)
         in
           URust_Type_Mappings.declare_generic_alias
             {registration = registration,

@@ -1574,6 +1574,17 @@ fun events_of_expr options expression =
 fun events_of_datatype options item =
   datatype_document options item
 
+(* Receivers print in their source spelling, never as the typed parameter they denote. *)
+fun receiver_document Receiver_Value = identifier "self"
+  | receiver_document Receiver_Mut_Value = keyword "mut" @ space @ identifier "self"
+  | receiver_document (Receiver_Ref {mutable, lifetime}) =
+      operator "&" @
+      (case lifetime of
+         NONE => []
+       | SOME lifetime => lifetime_document "self receiver" lifetime @ space) @
+      (if mutable then keyword "mut" @ space else []) @
+      identifier "self"
+
 fun function_document options
     (Function_Item
       (name, _, lifetimes, parameters, return_type, body, _)) =
@@ -1587,11 +1598,12 @@ fun function_document options
         delimiter ">"
     fun parameter_document
         (Function_Parameter (mutable_pos, pattern, typ, _)) =
-      (case mutable_pos of
-         SOME _ => keyword "mut" @ space
-       | NONE => []) @
-      pattern_document options pattern_or_precedence pattern @
-      delimiter ":" @ space @ rust_type_document typ
+          (case mutable_pos of
+             SOME _ => keyword "mut" @ space
+           | NONE => []) @
+          pattern_document options pattern_or_precedence pattern @
+          delimiter ":" @ space @ rust_type_document typ
+      | parameter_document (Receiver_Parameter (form, _, _)) = receiver_document form
     val header =
       keyword "fn" @ space @ identifier name @ generics @
       parenthesized
@@ -1653,10 +1665,25 @@ fun annotation_document annotation =
     delimiter "\<close>" @ line
   end
 
+(* An impl prints its members on their own lines, each annotation on the line before its
+   member, in both modes: annotation placement is line-based. *)
+fun impl_document options (Impl_Item (target, members, _)) =
+  let
+    fun member_document member =
+      (case impl_member_annotation member of
+         NONE => []
+       | SOME annotation => annotation_document annotation) @
+      events_of_function options (impl_member_function member)
+  in
+    multiline_braced_after (keyword "impl" @ space @ rust_type_document target @ space)
+      (flat (separate (line @ line) (map member_document members)))
+  end
+
 fun item_document options (Datatype_Item item) = events_of_datatype options item
   | item_document options (Function_Item_Node function) = events_of_function options function
   | item_document options (Type_Alias_Item_Node item) = events_of_type_alias options item
   | item_document _ (Use_Item_Node item) = use_item_document item
+  | item_document options (Impl_Item_Node impl) = impl_document options impl
 
 fun events_of_annotated_item options item =
   (case annotated_item_annotation item of

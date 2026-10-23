@@ -4,6 +4,7 @@ theory Parser_Impl_Type_Mappings
     Parser_Utils
     Parser_Impl_Import_Scope
     Shallow_Micro_Rust.Semantic_Navigation
+    Shallow_Micro_Rust.Micro_Rust_Notations
     Shallow_Micro_Rust.Tuple
     Shallow_Micro_Rust.Global_Store
     Misc.Array
@@ -23,7 +24,12 @@ lifetime, to the same \<open>Global_Store.ref\<close> model as raw pointers, sha
 address/global backend parameters. Lifetimes are checked against the function's declared lifetime
 parameters and then erased; they never change the resolved type. Shared references \<open>&T\<close>, and
 references in datatype fields, aliases and cast targets, remain rejected. A function with a
-declared HOL type resolves no signature type and checks only these lifetime scope rules.
+declared HOL type resolves no signature type while retaining these lifetime scope rules and the
+lexical restrictions on Self and self in Rust type paths.
+
+An impl target resolves like a signature type, expanding type aliases to their nominal target; its
+canonical registry key and HOL Self type form the context of the impl's members, in which every
+type resolution reads \<open>Self\<close> as that type. Outside such a context \<open>Self\<close> is rejected.
 \<close>
 
 ML\<open>
@@ -44,6 +50,7 @@ sig
     Proof.context -> function_channels -> URust_AST.rust_lifetime list ->
       URust_AST.rust_type list -> URust_AST.rust_type -> typ
   val check_lifetimes: URust_AST.rust_lifetime list -> URust_AST.rust_type list -> unit
+  val check_signature_syntax: Proof.context -> URust_AST.rust_type list -> unit
   val resolve_fields:
     Proof.context -> URust_AST.rust_type list ->
       {types: typ list, backend_parameters: (string * sort) list}
@@ -80,6 +87,14 @@ sig
      rhs: URust_AST.rust_type} -> local_theory -> local_theory
   val lookup: Proof.context -> string -> entry option
   val dump: Proof.context -> (string * entry) list
+
+  type impl_self =
+    {canonical_path: string, self_type: typ, target_pos: Position.T,
+     report_reference: Position.T -> unit}
+  val resolve_impl_target: Proof.context -> URust_AST.rust_type -> impl_self
+  val impl_target_key: Proof.context -> URust_AST.rust_type -> string option
+  val with_impl_self: impl_self -> Proof.context -> Proof.context
+  val impl_self: Proof.context -> impl_self option
 
   val entry_template: entry -> typ
   val entry_arities: entry -> int list
@@ -122,12 +137,14 @@ struct
      mutability, references versus raw pointers, and an arbitrary mapping to
      a word remain distinct. Alias
      dependencies are expanded once, when declared. Mapped nodes retain
-     the dependency scheme so locale morphisms also reach captured meaning. *)
+     the dependency scheme so locale morphisms also reach captured meaning,
+     and the exact registry key of the nominal type they denote, so an alias
+     expansion names its final target. *)
   datatype meaning =
       Meaning_Parameter of int
     | Meaning_Const_Parameter of int
     | Meaning_Primitive of rust_primitive_type
-    | Meaning_Mapped of typ * sort list * sort list * meaning list
+    | Meaning_Mapped of string * typ * sort list * sort list * meaning list
     | Meaning_Tuple of meaning list
     | Meaning_Pointer of raw_pointer_mutability * meaning
     | Meaning_Reference of borrow_mode * meaning
@@ -399,6 +416,12 @@ struct
                   if at_end () then ()
                   else fail "unexpected trailing input")
                val names = map fst segments
+               val _ =
+                 (case
+                   Micro_Rust_Names.reserved_key_segment {bare_self = false}
+                     (space_implode "::" names) of
+                    SOME segment => fail (Micro_Rust_Names.reserved_key_message segment)
+                  | NONE => ())
                val parameter_rows = map snd segments
              in
                (space_implode "::" names,
@@ -444,7 +467,7 @@ struct
     (case primitive_meaning base of
        SOME primitive => Meaning_Primitive primitive
      | NONE =>
-         Meaning_Mapped (template, parameter_sorts, backend_sorts,
+         Meaning_Mapped (base, template, parameter_sorts, backend_sorts,
            map_index (fn (index, _) => Meaning_Parameter index)
              parameter_sorts))
 
@@ -453,9 +476,9 @@ struct
       fun morph (Meaning_Parameter index) = Meaning_Parameter index
         | morph (Meaning_Const_Parameter index) = Meaning_Const_Parameter index
         | morph (Meaning_Primitive primitive) = Meaning_Primitive primitive
-        | morph (Meaning_Mapped (template, sorts, backend_sorts, arguments)) =
+        | morph (Meaning_Mapped (base, template, sorts, backend_sorts, arguments)) =
             Meaning_Mapped
-              (Morphism.typ phi template, sorts, backend_sorts,
+              (base, Morphism.typ phi template, sorts, backend_sorts,
                map morph arguments)
         | morph (Meaning_Tuple types) = Meaning_Tuple (map morph types)
         | morph (Meaning_Pointer (mutability, typ)) =
@@ -471,9 +494,9 @@ struct
         | instantiate (Meaning_Const_Parameter index) = nth arguments index
         | instantiate (Meaning_Primitive primitive) =
             Meaning_Primitive primitive
-        | instantiate (Meaning_Mapped (template, sorts, backend_sorts, types)) =
+        | instantiate (Meaning_Mapped (base, template, sorts, backend_sorts, types)) =
             Meaning_Mapped
-              (template, sorts, backend_sorts, map instantiate types)
+              (base, template, sorts, backend_sorts, map instantiate types)
         | instantiate (Meaning_Tuple types) =
             Meaning_Tuple (map instantiate types)
         | instantiate (Meaning_Pointer (mutability, typ)) =
@@ -732,18 +755,80 @@ struct
   datatype resolution_kind =
       Datatype_Fields
     | Function_Signature
+    | Impl_Target
     | Alias_Declaration
     | Cast_Target
 
   fun command_label Datatype_Fields = "urust_datatype"
     | command_label Function_Signature = "urust_fn"
+    | command_label Impl_Target = "urust"
     | command_label Alias_Declaration = "urust_type_alias"
     | command_label Cast_Target = "urust_expr"
 
   fun type_context Datatype_Fields = "datatype fields"
     | type_context Function_Signature = "function signatures"
+    | type_context Impl_Target = "impl targets"
     | type_context Alias_Declaration = "type aliases"
     | type_context Cast_Target = "cast targets"
+
+  (* An impl header is resolved like a signature, so its generic arguments accept exactly the
+     types that member signatures accept. *)
+  fun signature_kind Function_Signature = true
+    | signature_kind Impl_Target = true
+    | signature_kind _ = false
+
+  (* The Self type of an impl member's elaboration context. Only that context carries it: the
+     installed local theory, later members and later commands never see it. *)
+  type impl_self =
+    {canonical_path: string, self_type: typ, target_pos: Position.T,
+     report_reference: Position.T -> unit}
+
+  structure Impl_Self = Proof_Data
+  (
+    type T = impl_self option
+    fun init _ = NONE
+  )
+
+  fun with_impl_self self = Impl_Self.put (SOME self)
+  val impl_self = Impl_Self.get
+
+  fun self_outside_impl pos =
+    error ("urust: Self is only available inside an impl block" ^ Position.here pos)
+
+  (* Self names the implementing type in every type position of a member: a reference to the
+     entity that the target head denotes, with the canonical target in its tooltip. *)
+  fun resolve_self ctxt base arities pos =
+    if base <> "Self" then NONE
+    else
+      (case impl_self ctxt of
+         NONE => self_outside_impl pos
+       | SOME {canonical_path, self_type, report_reference, ...} =>
+           let
+             val _ =
+               if arities = [0] then ()
+               else error ("urust: Self cannot take generic arguments" ^ Position.here pos)
+             val _ = Navigation.defer_report ctxt pos Markup.keyword3
+             val _ =
+               (case self_type of
+                  Type (name, _) => Navigation.defer_type ctxt pos name
+                | _ => ())
+             val _ = report_reference pos
+             val _ =
+               Navigation.defer_report_text ctxt pos Markup.typing ("Self = " ^ canonical_path)
+           in SOME {typ = self_type, meaning = Meaning_HOL self_type} end)
+
+  (* This path-shape rule applies even when a declared HOL signature skips type resolution. *)
+  fun check_type_path_start kind segments =
+    (case segments of
+       _ :: rest =>
+         List.app
+           (fn Rust_Type_Path_Segment (name, pos, _, _) =>
+             if name = "Self" orelse name = "self" then
+               error (command_label kind ^ ": `" ^ name ^
+                 "` in paths can only be used in start position" ^ Position.here pos)
+             else ())
+           rest
+     | [] => ())
 
   (* A type-namespace import binds the first segment of a source type path. It is consulted after
      generic parameters and before exact registry keys; the canonical prefix segments carry no
@@ -815,6 +900,9 @@ struct
       error (command_label kind ^ ": automatic PhantomData field handling is deferred; " ^
         "provide an explicit HOL type and urust_type mapping to store the field, " ^
         "or omit it explicitly from a documented proof-source mirror" ^ Position.here pos)
+    else if kind = Impl_Target then
+      error ("urust: unknown impl target type " ^ quote base ^
+        "; declare it with urust_type, urust_datatype or urust_type_alias" ^ Position.here pos)
     else error
       (command_label kind ^ ": unknown Rust type " ^ quote base ^
         "; declare it with urust_type or use \<tau>\<open>...\<close>" ^
@@ -1054,6 +1142,7 @@ struct
               (rust_primitive_name primitive) [pos] [0] [] pos true
         | resolve_type (Path_Type (segments, layout)) =
             let
+              val _ = check_type_path_start kind segments
               val rows = path_rows segments
               val {base, positions, arities, arguments} = row_information rows
               val pos = source_span layout
@@ -1066,7 +1155,10 @@ struct
                       unsupported kind "const expression generic arguments" (Input.pos_of source)
                   | _ => ()) arguments
             in
-              (case parameter base arities pos of
+              (case
+                 (case resolve_self ctxt base arities pos of
+                    NONE => parameter base arities pos
+                  | self => self) of
                  SOME value => value
                | NONE =>
                    (case imported_type_path ctxt kind rows of
@@ -1097,14 +1189,14 @@ struct
         (* Function_Signature also resolves constructor turbofish arguments, but the generic lexer
            has no reference syntax, so only function signatures reach the mutable case. *)
         | resolve_type (Reference_Type (BM_Mut, _, target, layout)) =
-            if kind = Function_Signature then
+            if signature_kind kind then
               let val target_type = resolve_type target in
                 {typ = reference_typ (#typ target_type),
                  meaning = Meaning_Reference (BM_Mut, #meaning target_type)}
               end
             else unsupported kind "Rust reference types" (source_span layout)
         | resolve_type (Reference_Type (BM_Imm, _, _, layout)) =
-            if kind = Function_Signature then
+            if signature_kind kind then
               error
                 ("urust_fn: shared Rust references (&T) are not supported in function signatures; " ^
                   "use &mut T or \<tau>\<open>...\<close>" ^ Position.here (source_span layout))
@@ -1282,6 +1374,38 @@ struct
     | rust_type_operands (Primitive_Type _) = []
     | rust_type_operands (HOL_Type_Source _) = []
 
+  (* Check lexical Rust restrictions without interpreting any retained type. The operand walk
+     includes function-pointer types, impl Trait and associated-type binding values. Const-expression
+     and HOL source escapes retain their own syntax and are not Rust type paths. *)
+  fun check_signature_syntax ctxt rust_types =
+    let
+      fun key name pos =
+        (case Micro_Rust_Names.reserved_key_segment {bare_self = false} name of
+           SOME segment =>
+             error ("urust_fn: " ^ Micro_Rust_Names.reserved_key_message segment ^ Position.here pos)
+         | NONE => ())
+      fun binding (Rust_Associated_Type_Argument (name, pos, _)) = key name pos
+        | binding _ = ()
+      fun segment (Rust_Type_Path_Segment (_, _, arguments, _)) =
+        List.app binding (the_default [] arguments)
+      fun check (typ as Path_Type (segments, _)) =
+            let
+              val _ = check_type_path_start Function_Signature segments
+              val _ =
+                (case segments of
+                   Rust_Type_Path_Segment ("Self", pos, arguments, _) :: _ =>
+                     (case impl_self ctxt of
+                        NONE => self_outside_impl pos
+                      | SOME _ =>
+                          if null (the_default [] arguments) then ()
+                          else error ("urust: Self cannot take generic arguments" ^ Position.here pos))
+                 | Rust_Type_Path_Segment (name, pos, _, _) :: _ => key name pos
+                 | [] => ())
+              val _ = List.app segment segments
+            in List.app check (rust_type_operands typ) end
+        | check typ = List.app check (rust_type_operands typ)
+    in List.app check rust_types end
+
   fun hol_sources (HOL_Type_Source source) = [source]
     | hol_sources typ = maps hol_sources (rust_type_operands typ)
 
@@ -1345,12 +1469,14 @@ struct
   fun labelled NONE message = message
     | labelled (SOME label) message = label ^ ": " ^ message
 
-  fun resolve_signature_with ctxt leading lifetimes rust_types assemble =
+  (* assemble receives the resolved leading HOL sources and the resolved Rust types, and returns
+     the types to finish. *)
+  fun resolve_signature_with kind ctxt leading lifetimes rust_types assemble =
     let
       val _ = check_lifetimes lifetimes rust_types
       val reads = leading @ map authored_read (maps hol_sources rust_types)
       fun parse read_ctxt ({source, cited, label}: signature_read) =
-        positioned_result Function_Signature cited
+        positioned_result kind cited
           (fn () =>
             Syntax.parse_typ read_ctxt (Syntax.implode_input source)
               handle ERROR message => error (labelled label message))
@@ -1359,14 +1485,14 @@ struct
       val checked =
         URust_Report_Transaction.native ctxt (fn read_ctxt =>
           let val parsed = map (parse read_ctxt) reads in
-            positioned_result Function_Signature (maps #cited reads)
+            positioned_result kind (maps #cited reads)
               (fn () => Syntax.check_typs read_ctxt parsed)
           end)
 
       (* Keep sort inference shared across the whole signature. Only fresh
          signature variables are flexible; ambient variables remain rigid. *)
       val {fresh, normalize, check_sort, backend, ...} =
-        inference_state Function_Signature ctxt checked
+        inference_state kind ctxt checked
       val named_parameters: typ Symtab.table Unsynchronized.ref =
         Unsynchronized.ref Symtab.empty
 
@@ -1423,17 +1549,17 @@ struct
         end
 
       val resolved =
-        resolve_values Function_Signature ctxt read_escape check_sort normalize
+        resolve_values kind ctxt read_escape check_sort normalize
           backend no_parameter no_dependency rust_types
       val _ =
         if null (!pending) then ()
         else
           raise Fail
             "uRust type registry: unconsumed signature HOL escape"
-    in finish (assemble leading_types (map #typ resolved)) end
+    in finish (assemble leading_types resolved) end
 
   fun resolve_signature ctxt rust_types =
-    resolve_signature_with ctxt [] [] rust_types (K I)
+    resolve_signature_with Function_Signature ctxt [] [] rust_types (K (map #typ))
 
   (* Supplied channels, authored or inherited from a scoped default, and Rust escapes share native
      type/sort checking and import. Rust alone supplies parameter/result types, including the
@@ -1443,9 +1569,10 @@ struct
     let
       val channels = [state, abort, input, output]
       val leading = map channel_read (map_filter I channels)
-      fun assemble supplied rust_signature =
+      fun assemble supplied resolved =
         let
-          val (parameter_types, result_types) = chop (length parameters) rust_signature
+          val (parameter_types, result_types) =
+            chop (length parameters) (map #typ resolved)
           fun channel NONE types = (dummyT, types)
             | channel (SOME _) (typ :: types) = (typ, types)
             | channel (SOME _) [] =
@@ -1462,8 +1589,118 @@ struct
         end
     in
       the_single
-        (resolve_signature_with ctxt leading lifetimes (parameters @ [result]) assemble)
+        (resolve_signature_with Function_Signature ctxt leading lifetimes (parameters @ [result])
+          assemble)
     end
+
+  (* Impl targets. The written head may name a type through a chunk import or a type alias; the
+     alias expansion decides the canonical path and the Self type, and every rejection applies to
+     the expansion. *)
+  fun non_path_description (Tuple_Type _) = "a tuple type"
+    | non_path_description (Group_Type _) = "a parenthesized type"
+    | non_path_description (Reference_Type (BM_Imm, _, _, _)) = "a shared reference type"
+    | non_path_description (Reference_Type (BM_Mut, _, _, _)) = "a mutable reference type"
+    | non_path_description (Raw_Pointer_Type _) = "a raw pointer type"
+    | non_path_description (Slice_Type _) = "a slice type"
+    | non_path_description (Array_Type _) = "an array type"
+    | non_path_description (Const_Array_Type _) = "an array type"
+    | non_path_description _ = "a type without a Rust path"
+
+  fun meaning_description _ (Meaning_Tuple _) = "a tuple type"
+    | meaning_description _ (Meaning_Pointer _) = "a raw pointer type"
+    | meaning_description _ (Meaning_Reference _) = "a reference type"
+    | meaning_description ctxt (Meaning_HOL typ) =
+        "the HOL type " ^ quote (Syntax.string_of_typ ctxt typ)
+    | meaning_description _ _ = "a type without a Rust path"
+
+  fun primitive_target_error name via pos =
+    error
+      ("urust: cannot define an inherent impl for the primitive type " ^ quote name ^ via ^
+        Position.here pos)
+
+  (* The exact registry key that a written target head denotes, without reports: a type import
+     on the only segment denotes its target key, as in type resolution. *)
+  fun written_target_key ctxt rows =
+    (case rows of
+       [(name, _, _)] =>
+         (case URust_Import_Scope.lookup ctxt URust_Import_Scope.Type_Namespace name of
+            SOME binding => #key binding
+          | NONE => name)
+     | _ => #base (row_information rows))
+
+  fun target_rows (Path_Type (segments, _)) = SOME (path_rows segments)
+    | target_rows _ = NONE
+
+  fun resolve_impl_target ctxt target =
+    let
+      val pos = rust_type_position target
+      val rows =
+        (case (target_rows target, target) of
+           (SOME rows, _) => rows
+         | (NONE, Primitive_Type (primitive, primitive_pos)) =>
+             primitive_target_error (rust_primitive_name primitive) "" primitive_pos
+         | (NONE, HOL_Type_Source source) =>
+             error
+               ("urust: a \<tau>\<open>...\<close> HOL type cannot be an impl target; " ^
+                 "impl targets must be Rust type paths" ^ Position.here (Input.pos_of source))
+         | (NONE, _) =>
+             error
+               ("urust: impl targets must be Rust type paths, not " ^
+                 non_path_description target ^ Position.here pos))
+      val written_key = written_target_key ctxt rows
+      val written_entry = lookup ctxt written_key
+      val via =
+        (case written_entry of
+           SOME entry =>
+             if alias_origin (#origin entry)
+             then " (through the type alias " ^ quote written_key ^ ")"
+             else ""
+         | NONE => "")
+      val meaning = Unsynchronized.ref NONE
+      fun assemble _ resolved =
+        (case resolved of
+           [{typ, meaning = resolved_meaning}] => (meaning := SOME resolved_meaning; [typ])
+         | _ => raise Fail "uRust type registry: impl target resolution is not one type")
+      val self_type =
+        the_single (resolve_signature_with Impl_Target ctxt [] [] [target] assemble)
+      val canonical_path =
+        (case the (!meaning) of
+           Meaning_Mapped (base, _, _, _, _) => base
+         | Meaning_Primitive primitive =>
+             primitive_target_error (rust_primitive_name primitive) via pos
+         | other =>
+             error
+               ("urust: impl target " ^ quote written_key ^ " is a type alias of " ^
+                 meaning_description ctxt other ^ "; impl targets must be Rust type paths" ^
+                 Position.here pos))
+      val _ =
+        if null (Term.add_tvarsT self_type []) then ()
+        else
+          error
+            ("urust: an impl target must not contain inference holes; " ^
+              "write every type argument explicitly" ^ Position.here pos)
+      fun report_target_reference use_pos =
+        Option.app (report_reference ctxt use_pos written_key) written_entry
+    in
+      {canonical_path = canonical_path, self_type = self_type, target_pos = pos,
+       report_reference = report_target_reference}
+    end
+
+  (* The canonical path of an impl target, without reports or errors: the expansion of an alias
+     or import when the head is registered, the written path when it is not (yet), and NONE for a
+     head that cannot be an impl target. *)
+  fun impl_target_key ctxt target =
+    (case target_rows target of
+       NONE => NONE
+     | SOME rows =>
+         let val key = written_target_key ctxt rows in
+           (case lookup ctxt key of
+              NONE => SOME key
+            | SOME entry =>
+                (case #meaning entry of
+                   Meaning_Mapped (base, _, _, _, _) => SOME base
+                 | _ => NONE))
+         end)
 
   fun instantiate_constructor ctxt rust_name arguments constructor =
     let
@@ -1491,11 +1728,12 @@ struct
     in split (Substring.full raw) end
 
   val alias_reserved_segments =
+    Micro_Rust_Names.reserved_key_segments @
     ["true", "false", "as", "let", "const", "return", "if", "else",
      "fuel", "while", "loop", "for", "in", "unsafe", "match",
      "match_switch", "match_case", "mut", "type", "struct", "enum", "fn",
      "async", "await", "break", "continue", "crate", "dyn", "extern",
-     "impl", "mod", "move", "pub", "ref", "self", "Self", "static",
+     "impl", "mod", "move", "pub", "ref", "static",
      "super", "trait", "use", "where"] @
     map rust_primitive_name
       [DPT_U8, DPT_U16, DPT_U32, DPT_U64, DPT_U128, DPT_Usize,

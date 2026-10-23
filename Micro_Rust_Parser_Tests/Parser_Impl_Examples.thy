@@ -1,0 +1,1121 @@
+(* Readable examples of inherent impl blocks in urust chunks. The ML audits are in
+   Parser_Impl_ML_Tests. *)
+
+theory Parser_Impl_Examples
+  imports
+    Parser_Chunk_Use_Examples
+begin
+
+declare [[urust_pp_test = true, urust_pretty = false, urust_verbosity = 0, urust_abbrev = false,
+  urust_application_def = false, urust_register_notation = true]]
+
+chapter\<open> Impl block parsing \<close>
+
+text\<open>
+An inherent impl block is a member of a \<open>urust\<close> chunk, such as
+\<open>impl Counter { fn get(self) -> u32 { self.value } }\<close>. Its header is \<open>impl PATH {\<close>,
+where the target path may carry concrete or HOL-escaped generic arguments, and its members are
+complete \<open>fn\<close> items, each optionally preceded by an annotation on its own line. The first
+parameter of a member may be a receiver shorthand: \<open>self\<close>, \<open>mut self\<close>, \<open>&self\<close>
+or \<open>&mut self\<close>, the references optionally with a lifetime. The syntax, its source positions
+and printing are audited in \<open>Parser_Impl_ML_Tests\<close>; the chapters "Impl block declarations"
+and "Impl block resolution" below show elaboration.
+\<close>
+
+section\<open> Impl blocks are not expressions \<close>
+
+text\<open>
+An impl block outside a chunk is rejected at its \<open>impl\<close> keyword, in an expression and inside
+a block body alike. Like the other item rejections, it applies to input that parses completely.
+\<close>
+
+urust_expr_rejects
+  \<open> impl Counter {} \<close>
+  \<open> uRust impl declarations are not expressions; use a urust chunk \<close>
+
+urust_expr_rejects
+  \<open> { impl Counter { fn get(self) -> u32 { 0 } }; 1 } \<close>
+  \<open> uRust impl declarations are not expressions; use a urust chunk \<close>
+
+urust_expr_rejects
+  \<open> let value = 1; impl Counter {} \<close>
+  \<open> uRust impl declarations are not expressions; use a urust chunk \<close>
+
+urust_expr_rejects
+  \<open> if true { impl Counter {} } else { () } \<close>
+  \<open> uRust impl declarations are not expressions; use a urust chunk \<close>
+
+chapter\<open> Impl block declarations \<close>
+
+text\<open>
+Every member of an impl block is declared exactly as the equivalent \<open>urust_fn\<close> with the
+member's HOL name and a typed receiver, and registers its associated path \<open>Type::f\<close>. A member
+whose first parameter is a \<open>self\<close> receiver additionally registers a method entry under its
+bare name. \<open>Self\<close> names the target type in every type position of a member. The default HOL
+binding is the snake case of the target's final written segment, an underscore, and the snake case
+of the member name; an \<open>\<omega>\<close> \<open>name\<close> on the member overrides it.
+\<close>
+
+section\<open> Members and their typed equivalents \<close>
+
+urust \<open>
+  struct Counter { value: u32 }
+
+  impl Counter {
+    fn new() -> Self { Counter { value: 0_u32 } }
+
+    fn with_value(value: u32) -> Counter { Counter { value: value } }
+
+    fn get(self) -> u32 { self.value }
+
+    fn plus(self, step: u32) -> u32 { self.value + step }
+
+    fn merge(self, other: Self) -> Self { Counter { value: self.value + other.value } }
+
+    fn split(self) -> (Self, u32) { (self, self.value) }
+  }
+\<close>
+
+urust \<open>
+  \<omega>\<open>name = "control_counter_new", register_notation = false\<close>
+  fn new() -> Counter { Counter { value: 0_u32 } }
+
+  \<omega>\<open>name = "control_counter_with_value", register_notation = false\<close>
+  fn with_value(value: u32) -> Counter { Counter { value: value } }
+
+  \<omega>\<open>name = "control_counter_get", register_notation = false\<close>
+  fn get(self: Counter) -> u32 { self.value }
+
+  \<omega>\<open>name = "control_counter_plus", register_notation = false\<close>
+  fn plus(self: Counter, step: u32) -> u32 { self.value + step }
+
+  \<omega>\<open>name = "control_counter_merge", register_notation = false\<close>
+  fn merge(self: Counter, other: Counter) -> Counter {
+    Counter { value: self.value + other.value }
+  }
+
+  \<omega>\<open>name = "control_counter_split", register_notation = false\<close>
+  fn split(self: Counter) -> (Counter, u32) { (self, self.value) }
+\<close>
+
+lemma counter_members_match_controls:
+  shows \<open>counter_new = control_counter_new\<close>
+    and \<open>counter_with_value = control_counter_with_value\<close>
+    and \<open>counter_get = control_counter_get\<close>
+    and \<open>counter_plus = control_counter_plus\<close>
+    and \<open>counter_merge = control_counter_merge\<close>
+    and \<open>counter_split = control_counter_split\<close>
+  unfolding counter_new_def control_counter_new_def counter_with_value_def
+    control_counter_with_value_def counter_get_def control_counter_get_def counter_plus_def
+    control_counter_plus_def counter_merge_def control_counter_merge_def counter_split_def
+    control_counter_split_def
+  by (rule refl)+
+
+section\<open> Receivers \<close>
+
+text\<open>
+Each receiver shorthand is its typed spelling: \<open>self\<close> is \<open>self: Self\<close>, \<open>mut self\<close> is
+\<open>mut self: Self\<close>, and \<open>&mut self\<close> and \<open>&'a mut self\<close> are \<open>self: &mut Self\<close> with the
+lifetime erased. Typed receivers stay available inside impls.
+\<close>
+
+urust \<open>
+  struct Gauge { level: u32 }
+
+  impl Gauge {
+    fn read(self) -> u32 { self.level }
+
+    fn read_mut(mut self) -> u32 { self.level }
+
+    fn touch(&mut self) -> u32 { \<llangle>0 :: 32 word\<rrangle> }
+
+    fn touch_for<'a>(&'a mut self, step: u32) -> u32 { step }
+
+    fn read_typed(self: Gauge) -> u32 { self.level }
+
+    fn read_typed_self(mut self: Self) -> u32 { self.level }
+
+    fn touch_typed(self: &mut Self) -> u32 { \<llangle>0 :: 32 word\<rrangle> }
+  }
+\<close>
+
+urust \<open>
+  \<omega>\<open>name = "control_gauge_read", register_notation = false\<close>
+  fn read(self: Gauge) -> u32 { self.level }
+
+  \<omega>\<open>name = "control_gauge_read_mut", register_notation = false\<close>
+  fn read_mut(mut self: Gauge) -> u32 { self.level }
+
+  \<omega>\<open>name = "control_gauge_touch", register_notation = false\<close>
+  fn touch(self: &mut Gauge) -> u32 { \<llangle>0 :: 32 word\<rrangle> }
+
+  \<omega>\<open>name = "control_gauge_touch_for", register_notation = false\<close>
+  fn touch_for(self: &mut Gauge, step: u32) -> u32 { step }
+\<close>
+
+lemma gauge_receivers_match_typed_spellings:
+  shows \<open>gauge_read = control_gauge_read\<close>
+    and \<open>gauge_read_mut = control_gauge_read_mut\<close>
+    and \<open>gauge_touch = control_gauge_touch\<close>
+    and \<open>gauge_touch_for = control_gauge_touch_for\<close>
+    and \<open>gauge_read_typed = control_gauge_read\<close>
+    and \<open>gauge_read_typed_self = control_gauge_read_mut\<close>
+    and \<open>gauge_touch_typed = control_gauge_touch\<close>
+  unfolding gauge_read_def control_gauge_read_def gauge_read_mut_def control_gauge_read_mut_def
+    gauge_touch_def control_gauge_touch_def gauge_touch_for_def control_gauge_touch_for_def
+    gauge_read_typed_def control_gauge_read_def gauge_read_typed_self_def
+    control_gauge_read_mut_def gauge_touch_typed_def control_gauge_touch_def
+  by (rule refl)+
+
+section\<open> Calls \<close>
+
+text\<open>
+A path call \<open>Counter::f(..)\<close>, a method call \<open>x.f(..)\<close> and the function-style call
+\<open>Counter::f(x, ..)\<close> of a method elaborate to the same term as a call of the member's constant
+through an explicit call notation, here registered under control names. Arguments follow the
+receiver, and calls work inside closures and nested blocks.
+\<close>
+
+micro_rust_notation (call) counter_new ("ControlCounterNew")
+micro_rust_notation (call) counter_get ("ControlCounterGet")
+micro_rust_notation (call) counter_plus ("ControlCounterPlus")
+
+urust \<open>
+  fn CounterPathNew() -> Counter { Counter::new() }
+
+  fn CounterControlNew() -> Counter { ControlCounterNew() }
+
+  fn CounterMethodGet(c: Counter) -> u32 { c.get() }
+
+  fn CounterPathGet(c: Counter) -> u32 { Counter::get(c) }
+
+  fn CounterControlGet(c: Counter) -> u32 { ControlCounterGet(c) }
+
+  fn CounterMethodPlus(c: Counter) -> u32 { c.plus(1_u32) }
+
+  fn CounterPathPlus(c: Counter) -> u32 { Counter::plus(c, 1_u32) }
+
+  fn CounterControlPlus(c: Counter) -> u32 { ControlCounterPlus(c, 1_u32) }
+
+  fn CounterNestedCalls(c: Counter) -> u32 {
+    let read = |d| { d.get() };
+    { let fresh = Counter::new(); read(fresh) + { c.plus(2_u32) } }
+  }
+
+  fn CounterNestedControl(c: Counter) -> u32 {
+    let read = |d| { ControlCounterGet(d) };
+    { let fresh = ControlCounterNew(); read(fresh) + { ControlCounterPlus(c, 2_u32) } }
+  }
+\<close>
+
+lemma counter_calls_match_control_calls:
+  shows \<open>counter_path_new = counter_control_new\<close>
+    and \<open>counter_method_get = counter_control_get\<close>
+    and \<open>counter_path_get = counter_control_get\<close>
+    and \<open>counter_method_plus = counter_control_plus\<close>
+    and \<open>counter_path_plus = counter_control_plus\<close>
+    and \<open>counter_nested_calls = counter_nested_control\<close>
+  unfolding counter_path_new_def counter_control_new_def counter_method_get_def
+    counter_control_get_def counter_path_get_def counter_control_get_def counter_method_plus_def
+    counter_control_plus_def counter_path_plus_def counter_control_plus_def
+    counter_nested_calls_def counter_nested_control_def
+  by (rule refl)+
+
+subsection\<open> Receiver dispatch across types \<close>
+
+text\<open>
+Methods of different types share their bare name; a method call dispatches by receiver type.
+\<close>
+
+urust \<open>
+  impl Counter {
+    fn describe(self) -> u32 { self.value }
+  }
+
+  impl Gauge {
+    fn describe(self) -> u32 { self.level }
+  }
+
+  fn DescribeBoth(c: Counter, g: Gauge) -> u32 { c.describe() + g.describe() }
+\<close>
+
+micro_rust_notation (call) counter_describe ("ControlCounterDescribe")
+micro_rust_notation (call) gauge_describe ("ControlGaugeDescribe")
+
+urust \<open>
+  fn DescribeBothControl(c: Counter, g: Gauge) -> u32 {
+    ControlCounterDescribe(c) + ControlGaugeDescribe(g)
+  }
+\<close>
+
+lemma receiver_dispatch_matches_control:
+  shows \<open>describe_both = describe_both_control\<close>
+  unfolding describe_both_def describe_both_control_def
+  by (rule refl)
+
+subsection\<open> Maximum arity \<close>
+
+text\<open>
+A method takes up to thirteen arguments after its receiver, fourteen parameters in all.
+\<close>
+
+urust \<open>
+  impl Counter {
+    fn wide(self, a: u32, b: u32, c: u32, d: u32, e: u32, f: u32, g: u32, h: u32, i: u32,
+        j: u32, k: u32, l: u32, m: u32) -> u32 {
+      self.value + m
+    }
+  }
+
+  fn CounterWideMethod(c: Counter) -> u32 {
+    c.wide(1_u32, 2_u32, 3_u32, 4_u32, 5_u32, 6_u32, 7_u32, 8_u32, 9_u32, 10_u32, 11_u32,
+      12_u32, 13_u32)
+  }
+
+  fn CounterWidePath(c: Counter) -> u32 {
+    Counter::wide(c, 1_u32, 2_u32, 3_u32, 4_u32, 5_u32, 6_u32, 7_u32, 8_u32, 9_u32, 10_u32,
+      11_u32, 12_u32, 13_u32)
+  }
+\<close>
+
+lemma counter_wide_calls_match:
+  shows \<open>counter_wide_method = counter_wide_path\<close>
+  unfolding counter_wide_method_def counter_wide_path_def
+  by (rule refl)+
+
+section\<open> Targets \<close>
+
+text\<open>
+A target is a generated datatype, a \<open>urust_type\<close> mapping, optionally with concrete or
+\<open>\<tau>\<open>...\<close>\<close> generic arguments, or a type alias of one. An alias target expands to its final
+target: its members register under that target's path, and \<open>Self\<close> is the expansion.
+\<close>
+
+urust \<open>
+  enum Mode { Off, On }
+
+  impl Mode {
+    fn flipped(self) -> Self { match self { Mode::Off => Mode::On, Mode::On => Mode::Off } }
+  }
+
+  fn UseModeFlip(mode: Mode) -> Mode { mode.flipped() }
+\<close>
+
+urust_type "Meter" = \<open> nat \<close>
+
+urust_type "Slot<'t>" = \<open> 't list \<close>
+
+urust \<open>
+  impl Meter {
+    fn doubled(self) -> Self { \<llangle>2 * self\<rrangle> }
+  }
+
+  impl Slot<\<tau>\<open>'a\<close>> {
+    fn items(self) -> \<tau>\<open>'a list\<close> { self }
+  }
+
+  fn UseMeterDoubled(m: Meter) -> Meter { m.doubled() }
+
+  fn UseSlotItems(s: Slot<\<tau>\<open>nat\<close>>) -> \<tau>\<open>nat list\<close> { s.items() }
+\<close>
+
+urust \<open>
+  \<omega>\<open>name = "control_meter_doubled", register_notation = false\<close>
+  fn doubled(self: Meter) -> Meter { \<llangle>2 * self\<rrangle> }
+
+  \<omega>\<open>name = "control_slot_items", register_notation = false\<close>
+  fn items(self: Slot<\<tau>\<open>'a\<close>>) -> \<tau>\<open>'a list\<close> { self }
+\<close>
+
+lemma mapped_targets_match_controls:
+  shows \<open>meter_doubled = control_meter_doubled\<close>
+    and \<open>slot_items = control_slot_items\<close>
+  unfolding meter_doubled_def control_meter_doubled_def slot_items_def control_slot_items_def
+  by (rule refl)+
+
+subsection\<open> Concrete instances of one type constructor \<close>
+
+text\<open>
+Impls of different instances of one generic type may define the same member name; method calls
+dispatch between them by receiver type. Their HOL names must differ.
+\<close>
+
+urust \<open>
+  struct Pair<T> { left: T, right: T }
+
+  impl Pair<u8> {
+    \<omega>\<open>name = "pair_byte_total"\<close>
+    fn total(self) -> u8 { self.left + self.right }
+  }
+
+  impl Pair<u16> {
+    \<omega>\<open>name = "pair_word_total"\<close>
+    fn total(self) -> u16 { self.left + self.right }
+  }
+
+  fn UsePairByteTotal(p: Pair<u8>) -> u8 { p.total() }
+
+  fn UsePairWordTotal(p: Pair<u16>) -> u16 { p.total() }
+\<close>
+
+micro_rust_notation (call) pair_byte_total ("ControlPairByteTotal")
+micro_rust_notation (call) pair_word_total ("ControlPairWordTotal")
+
+urust \<open>
+  fn UsePairByteControl(p: Pair<u8>) -> u8 { ControlPairByteTotal(p) }
+
+  fn UsePairWordControl(p: Pair<u16>) -> u16 { ControlPairWordTotal(p) }
+\<close>
+
+lemma instance_dispatch_matches_control:
+  shows \<open>use_pair_byte_total = use_pair_byte_control\<close>
+    and \<open>use_pair_word_total = use_pair_word_control\<close>
+  unfolding use_pair_byte_total_def use_pair_byte_control_def use_pair_word_total_def
+    use_pair_word_control_def
+  by (rule refl)+
+
+subsection\<open> Type alias targets \<close>
+
+text\<open>
+An impl of a type alias, plain, generic or chained, registers its members under the final
+target's path, here \<open>Counter\<close> and \<open>Pair\<close>, with the expansion as Self type. Default HOL
+names use the alias as written. Calls through the alias head itself are covered with the type
+heads.
+\<close>
+
+urust_type_alias \<open> type CounterAlias = Counter; \<close>
+
+urust_type_alias \<open> type Twin<T> = Pair<T>; \<close>
+
+urust_type_alias \<open> type ByteTwin = Twin<u8>; \<close>
+
+urust \<open>
+  impl CounterAlias {
+    fn doubled_value(self) -> u32 { self.value + self.value }
+  }
+
+  impl Twin<u32> {
+    fn left_of(self) -> u32 { self.left }
+  }
+
+  impl ByteTwin {
+    fn right_of(self) -> Self { self }
+  }
+
+  fn UseAliasMembers(c: Counter, wide: Pair<u32>) -> u32 {
+    Counter::doubled_value(c) + wide.left_of() + Pair::left_of(wide)
+  }
+
+  fn UseChainedAlias(narrow: Pair<u8>) -> Pair<u8> { narrow.right_of() }
+\<close>
+
+urust \<open>
+  \<omega>\<open>name = "control_counter_doubled_value", register_notation = false\<close>
+  fn doubled_value(self: Counter) -> u32 { self.value + self.value }
+
+  \<omega>\<open>name = "control_twin_left_of", register_notation = false\<close>
+  fn left_of(self: Pair<u32>) -> u32 { self.left }
+
+  \<omega>\<open>name = "control_byte_twin_right_of", register_notation = false\<close>
+  fn right_of(self: Pair<u8>) -> Pair<u8> { self }
+\<close>
+
+lemma alias_targets_match_controls:
+  shows \<open>counter_alias_doubled_value = control_counter_doubled_value\<close>
+    and \<open>twin_left_of = control_twin_left_of\<close>
+    and \<open>byte_twin_right_of = control_byte_twin_right_of\<close>
+  unfolding counter_alias_doubled_value_def control_counter_doubled_value_def twin_left_of_def
+    control_twin_left_of_def byte_twin_right_of_def control_byte_twin_right_of_def
+  by (rule refl)+
+
+section\<open> Locales \<close>
+
+text\<open>
+An impl inside a locale may mention the locale's type parameters. Each interpretation registers
+the members of its instance, and method calls dispatch between differently typed instances.
+\<close>
+
+locale impl_store =
+  fixes impl_store_witness :: \<open>'a itself\<close>
+begin
+
+urust \<open>
+  impl Slot<\<tau>\<open>'a\<close>> {
+    fn stored(self) -> \<tau>\<open>'a list\<close> { self }
+
+    fn stored_twice(self) -> \<tau>\<open>'a list\<close> { self.stored() }
+  }
+\<close>
+
+urust \<open>
+  \<omega>\<open>name = "control_slot_stored", register_notation = false\<close>
+  fn stored(self: Slot<\<tau>\<open>'a\<close>>) -> \<tau>\<open>'a list\<close> { self }
+\<close>
+
+lemma slot_stored_matches_control:
+  shows \<open>slot_stored = control_slot_stored\<close>
+  unfolding slot_stored_def control_slot_stored_def
+  by (rule refl)
+
+end
+
+interpretation impl_store_nat: impl_store \<open>TYPE(nat)\<close> .
+
+interpretation impl_store_bool: impl_store \<open>TYPE(bool)\<close> .
+
+urust \<open>
+  fn UseStoredNat(s: Slot<\<tau>\<open>nat\<close>>) -> \<tau>\<open>nat list\<close> { s.stored() }
+
+  fn UseStoredBool(s: Slot<\<tau>\<open>bool\<close>>) -> \<tau>\<open>bool list\<close> { Slot::stored(s) }
+\<close>
+
+chapter\<open> Impl block resolution \<close>
+
+text\<open>
+Inside an impl member, a leading \<open>Self\<close> path segment names the implementing type in calls,
+values, struct expressions, tuple constructors, enum variants and patterns, keeping the
+\<open>Self\<close> token's position. A path call \<open>T::f(..)\<close> follows Rust's E0034 rule: with two or
+more impls of \<open>T::f\<close>, the call must select an instance through type-segment generic arguments
+\<open>T::<A>::f(..)\<close>, a type alias or an imported type head; \<open>Self::f(..)\<close> selects the impl's own
+instance. A direct call \<open>f(..)\<close> never reaches a method entry. The rejections are audited in
+\<open>Parser_Impl_ML_Tests\<close>.
+\<close>
+
+section\<open> Self paths \<close>
+
+urust \<open>
+  struct Tally { count: u32 }
+
+  struct Twofold(u32, u32);
+
+  struct Beacon;
+
+  enum Light { Dark, Lit(u32), Glow { level: u32 } }
+
+  impl Tally {
+    fn new() -> Self { Self { count: 0_u32 } }
+
+    fn read(self) -> u32 { self.count }
+
+    fn fresh() -> Self { Self::new() }
+
+    fn reread(self) -> u32 { Self::read(self) }
+
+    fn count_of(self) -> u32 { match self { Self { count } => count } }
+  }
+
+  impl Twofold {
+    fn twin(value: u32) -> Self { Self(value, value) }
+
+    fn first(self) -> u32 { match self { Self(first, _) => first } }
+  }
+
+  impl Beacon {
+    fn make() -> Self { Self }
+
+    fn is_beacon(self) -> bool { match self { Self => true } }
+  }
+
+  impl Light {
+    fn dim() -> Self { Self::Dark }
+
+    fn lit(level: u32) -> Self { Self::Lit(level) }
+
+    fn glow(level: u32) -> Self { Self::Glow { level: level } }
+
+    fn level_of(self) -> u32 {
+      match self { Self::Dark => 0_u32, Self::Lit(level) | Self::Glow { level } => level }
+    }
+
+    fn wrapped_level(self) -> u32 {
+      match Some(self) { Some(Self::Lit(level)) => level, _ => 0_u32 }
+    }
+  }
+\<close>
+
+urust \<open>
+  \<omega>\<open>name = "control_tally_new", register_notation = false\<close>
+  fn new() -> Tally { Tally { count: 0_u32 } }
+
+  \<omega>\<open>name = "control_tally_fresh", register_notation = false\<close>
+  fn fresh() -> Tally { Tally::new() }
+
+  \<omega>\<open>name = "control_tally_reread", register_notation = false\<close>
+  fn reread(self: Tally) -> u32 { self.read() }
+
+  \<omega>\<open>name = "control_tally_count_of", register_notation = false\<close>
+  fn count_of(self: Tally) -> u32 { match self { Tally { count } => count } }
+
+  \<omega>\<open>name = "control_twofold_twin", register_notation = false\<close>
+  fn twin(value: u32) -> Twofold { Twofold(value, value) }
+
+  \<omega>\<open>name = "control_twofold_first", register_notation = false\<close>
+  fn first(self: Twofold) -> u32 { match self { Twofold(first, _) => first } }
+
+  \<omega>\<open>name = "control_beacon_make", register_notation = false\<close>
+  fn make() -> Beacon { Beacon }
+
+  \<omega>\<open>name = "control_beacon_is_beacon", register_notation = false\<close>
+  fn is_beacon(self: Beacon) -> bool { match self { Beacon => true } }
+
+  \<omega>\<open>name = "control_light_dim", register_notation = false\<close>
+  fn dim() -> Light { Light::Dark }
+
+  \<omega>\<open>name = "control_light_lit", register_notation = false\<close>
+  fn lit(level: u32) -> Light { Light::Lit(level) }
+
+  \<omega>\<open>name = "control_light_glow", register_notation = false\<close>
+  fn glow(level: u32) -> Light { Light::Glow { level: level } }
+
+  \<omega>\<open>name = "control_light_level_of", register_notation = false\<close>
+  fn level_of(self: Light) -> u32 {
+    match self { Light::Dark => 0_u32, Light::Lit(level) | Light::Glow { level } => level }
+  }
+
+  \<omega>\<open>name = "control_light_wrapped_level", register_notation = false\<close>
+  fn wrapped_level(self: Light) -> u32 {
+    match Some(self) { Some(Light::Lit(level)) => level, _ => 0_u32 }
+  }
+\<close>
+
+lemma self_paths_match_controls:
+  shows \<open>tally_new = control_tally_new\<close>
+    and \<open>tally_fresh = control_tally_fresh\<close>
+    and \<open>tally_reread = control_tally_reread\<close>
+    and \<open>tally_count_of = control_tally_count_of\<close>
+    and \<open>twofold_twin = control_twofold_twin\<close>
+    and \<open>twofold_first = control_twofold_first\<close>
+    and \<open>beacon_make = control_beacon_make\<close>
+    and \<open>beacon_is_beacon = control_beacon_is_beacon\<close>
+    and \<open>light_dim = control_light_dim\<close>
+    and \<open>light_lit = control_light_lit\<close>
+    and \<open>light_glow = control_light_glow\<close>
+    and \<open>light_level_of = control_light_level_of\<close>
+    and \<open>light_wrapped_level = control_light_wrapped_level\<close>
+  unfolding tally_new_def control_tally_new_def tally_fresh_def control_tally_fresh_def
+    tally_reread_def control_tally_reread_def tally_count_of_def control_tally_count_of_def
+    twofold_twin_def control_twofold_twin_def twofold_first_def control_twofold_first_def
+    beacon_make_def control_beacon_make_def beacon_is_beacon_def control_beacon_is_beacon_def
+    light_dim_def control_light_dim_def light_lit_def control_light_lit_def light_glow_def
+    control_light_glow_def light_level_of_def control_light_level_of_def
+    light_wrapped_level_def control_light_wrapped_level_def
+  by (rule refl)+
+
+subsection\<open> Self patterns \<close>
+
+text\<open>
+In a pattern, \<open>Self\<close> is a path. For a unit struct it matches the unit value in \<open>let\<close>,
+parameters and closure formals, as the struct's own name does in \<open>let\<close> and in closure
+formals.
+\<close>
+
+urust \<open>
+  impl Beacon {
+    fn binds_self(self) -> bool { let Self = self; true }
+
+    fn takes_self(Self: Beacon) -> bool { true }
+
+    fn closes_self(self) -> bool { let check = |Self| { true }; check(self) }
+  }
+\<close>
+
+urust \<open>
+  \<omega>\<open>name = "control_beacon_binds_self", register_notation = false\<close>
+  fn binds_self(self: Beacon) -> bool { let Beacon = self; true }
+
+  \<omega>\<open>name = "control_beacon_takes_self", register_notation = false\<close>
+  fn takes_self(_: Beacon) -> bool { true }
+
+  \<omega>\<open>name = "control_beacon_closes_self", register_notation = false\<close>
+  fn closes_self(self: Beacon) -> bool { let check = |Beacon| { true }; check(self) }
+\<close>
+
+lemma self_patterns_match_controls:
+  shows \<open>beacon_binds_self = control_beacon_binds_self\<close>
+    and \<open>beacon_takes_self = control_beacon_takes_self\<close>
+    and \<open>beacon_closes_self = control_beacon_closes_self\<close>
+  unfolding beacon_binds_self_def control_beacon_binds_self_def beacon_takes_self_def
+    control_beacon_takes_self_def beacon_closes_self_def control_beacon_closes_self_def
+  by (rule refl)+
+
+subsection\<open> Total Self and alias patterns at case sites \<close>
+
+text\<open>
+At \<open>if let\<close>, \<open>while let\<close> and \<open>let \<dots> else\<close>, a total pattern through a \<open>Self\<close>,
+alias or turbofish head is total like its written path: the constructor at its instance type is
+still its family's member, so case compilation adds no fallback clause. Each member equals its
+written-path control. (\<open>matches!\<close> with a total pattern is rejected at the base, written or
+through \<open>Self\<close>; see \<open>Parser_Impl_ML_Tests\<close>.)
+\<close>
+
+urust \<open>
+  enum Solitary { Only }
+
+  struct Pocket { v: u32 }
+
+  struct Sheath(u32);
+
+  struct Bin<X> { x: X }
+\<close>
+
+urust_type_alias \<open> type BinByte = Bin<u8>; \<close>
+
+urust \<open>
+  impl Beacon {
+    fn if_self(self) -> u32 { if let Self = self { 1_u32 } else { 2_u32 } }
+
+    fn while_self(self) -> u32 {
+      #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Self = self { }; 1_u32
+    }
+
+    fn else_self(self) -> u32 { let Self = self else { return 2_u32; }; 1_u32 }
+  }
+
+  impl Solitary {
+    fn if_only(self) -> u32 { if let Self::Only = self { 1_u32 } else { 2_u32 } }
+
+    fn while_only(self) -> u32 {
+      #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Self::Only = self { }; 1_u32
+    }
+  }
+
+  impl Pocket {
+    fn if_fields(self) -> u32 { if let Self { v } = self { v } else { 2_u32 } }
+  }
+
+  impl Sheath {
+    fn while_inner(self) -> u32 {
+      #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Self(_a) = self { }; 1_u32
+    }
+  }
+
+  impl Bin<u8> {
+    fn if_any(self) -> u32 { if let Self { x: _ } = self { 1_u32 } else { 2_u32 } }
+  }
+
+  fn BinAliasHead(p: Bin<u8>) -> u32 { if let BinByte { x: _ } = p { 1_u32 } else { 2_u32 } }
+
+  fn BinTurbofish(p: Bin<u8>) -> u32 { if let Bin::<u8> { x: _ } = p { 1_u32 } else { 2_u32 } }
+\<close>
+
+urust \<open>
+  \<omega>\<open>name = "control_beacon_if_self", register_notation = false\<close>
+  fn if_self(self: Beacon) -> u32 { if let Beacon = self { 1_u32 } else { 2_u32 } }
+
+  \<omega>\<open>name = "control_beacon_while_self", register_notation = false\<close>
+  fn while_self(self: Beacon) -> u32 {
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Beacon = self { }; 1_u32
+  }
+
+  \<omega>\<open>name = "control_beacon_else_self", register_notation = false\<close>
+  fn else_self(self: Beacon) -> u32 { let Beacon = self else { return 2_u32; }; 1_u32 }
+
+  \<omega>\<open>name = "control_solitary_if_only", register_notation = false\<close>
+  fn if_only(self: Solitary) -> u32 { if let Solitary::Only = self { 1_u32 } else { 2_u32 } }
+
+  \<omega>\<open>name = "control_solitary_while_only", register_notation = false\<close>
+  fn while_only(self: Solitary) -> u32 {
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Solitary::Only = self { }; 1_u32
+  }
+
+  \<omega>\<open>name = "control_pocket_if_fields", register_notation = false\<close>
+  fn if_fields(self: Pocket) -> u32 { if let Pocket { v } = self { v } else { 2_u32 } }
+
+  \<omega>\<open>name = "control_sheath_while_inner", register_notation = false\<close>
+  fn while_inner(self: Sheath) -> u32 {
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Sheath(_a) = self { }; 1_u32
+  }
+
+  \<omega>\<open>name = "control_bin_if_any", register_notation = false\<close>
+  fn if_any(self: Bin<u8>) -> u32 { if let Bin { x: _ } = self { 1_u32 } else { 2_u32 } }
+\<close>
+
+lemma total_head_patterns_match_controls:
+  shows \<open>beacon_if_self = control_beacon_if_self\<close>
+    and \<open>beacon_while_self = control_beacon_while_self\<close>
+    and \<open>beacon_else_self = control_beacon_else_self\<close>
+    and \<open>solitary_if_only = control_solitary_if_only\<close>
+    and \<open>solitary_while_only = control_solitary_while_only\<close>
+    and \<open>pocket_if_fields = control_pocket_if_fields\<close>
+    and \<open>sheath_while_inner = control_sheath_while_inner\<close>
+    and \<open>bin_if_any = control_bin_if_any\<close>
+    and \<open>bin_alias_head = control_bin_if_any\<close>
+    and \<open>bin_turbofish = control_bin_if_any\<close>
+  unfolding beacon_if_self_def control_beacon_if_self_def beacon_while_self_def
+    control_beacon_while_self_def beacon_else_self_def control_beacon_else_self_def
+    solitary_if_only_def
+    control_solitary_if_only_def solitary_while_only_def control_solitary_while_only_def
+    pocket_if_fields_def control_pocket_if_fields_def sheath_while_inner_def
+    control_sheath_while_inner_def
+    bin_if_any_def control_bin_if_any_def bin_alias_head_def bin_turbofish_def
+  by (rule refl)+
+
+subsection\<open> Self in closure formals \<close>
+
+text\<open>
+A closure formal is a pattern at a binding site, so \<open>Self\<close> in it is a path, inside a tuple
+too, and a nullary sole constructor binds it, as the written path does.
+\<close>
+
+urust \<open>
+  impl Beacon {
+    fn closes_pair(self) -> u32 { let first = |(Self, x)| { x }; first((self, 1_u32)) }
+  }
+
+  impl Solitary {
+    fn closes_only(self) -> bool { let check = |Self::Only| { true }; check(self) }
+  }
+\<close>
+
+urust \<open>
+  \<omega>\<open>name = "control_beacon_closes_pair", register_notation = false\<close>
+  fn closes_pair(self: Beacon) -> u32 { let first = |(Beacon, x)| { x }; first((self, 1_u32)) }
+
+  \<omega>\<open>name = "control_solitary_closes_only", register_notation = false\<close>
+  fn closes_only(self: Solitary) -> bool { let check = |Solitary::Only| { true }; check(self) }
+\<close>
+
+lemma closure_self_patterns_match_controls:
+  shows \<open>beacon_closes_pair = control_beacon_closes_pair\<close>
+    and \<open>solitary_closes_only = control_solitary_closes_only\<close>
+  unfolding beacon_closes_pair_def control_beacon_closes_pair_def solitary_closes_only_def
+    control_solitary_closes_only_def
+  by (rule refl)+
+
+section\<open> Path selection across instantiations \<close>
+
+text\<open>
+\<open>Duo::sum\<close> is defined in two impls, so each path call selects its instance; \<open>Self::sum\<close>
+in each impl selects that impl's own. \<open>Solo::only\<close> has one impl, so its unannotated path
+call is accepted. The interpretations of one locale impl are one impl (\<open>Slot::stored\<close> above).
+\<close>
+
+urust \<open>
+  struct Duo<T> { first: T, second: T }
+
+  struct Solo<T> { inner: T }
+
+  impl Duo<u8> {
+    \<omega>\<open>name = "duo_byte_sum"\<close>
+    fn sum(self) -> u8 { self.first + self.second }
+
+    \<omega>\<open>name = "duo_byte_own"\<close>
+    fn own(self) -> u8 { Self::sum(self) }
+  }
+
+  impl Duo<u16> {
+    \<omega>\<open>name = "duo_word_sum"\<close>
+    fn sum(self) -> u16 { self.first + self.second }
+
+    \<omega>\<open>name = "duo_word_own"\<close>
+    fn own(self) -> u16 { Self::sum(self) }
+  }
+
+  impl Duo<\<tau>\<open>nat\<close>> {
+    \<omega>\<open>name = "duo_nat_sum"\<close>
+    fn sum(self) -> \<tau>\<open>nat\<close> { \<llangle>0 :: nat\<rrangle> }
+  }
+
+  impl Solo<u8> {
+    fn only(self) -> u8 { self.inner }
+  }
+
+  fn SelectByte(d: Duo<u8>) -> u8 { Duo::<u8>::sum(d) }
+
+  fn SelectWord(d: Duo<u16>) -> u16 { Duo::<u16>::sum(d) }
+
+  fn SelectNat(d: Duo<\<tau>\<open>nat\<close>>) -> \<tau>\<open>nat\<close> { Duo::<\<tau>\<open>nat\<close>>::sum(d) }
+
+  fn SelectMethod(d: Duo<u16>) -> u16 { d.sum() }
+
+  fn UseSoloOnly(s: Solo<u8>) -> u8 { Solo::only(s) }
+
+  fn StoredNat(s: Slot<\<tau>\<open>nat\<close>>) -> \<tau>\<open>nat list\<close> { Slot::stored(s) }
+\<close>
+
+micro_rust_notation (call) duo_byte_sum ("ControlDuoByteSum")
+micro_rust_notation (call) duo_word_sum ("ControlDuoWordSum")
+micro_rust_notation (call) duo_nat_sum ("ControlDuoNatSum")
+micro_rust_notation (call) solo_only ("ControlSoloOnly")
+
+urust \<open>
+  fn SelectByteControl(d: Duo<u8>) -> u8 { ControlDuoByteSum(d) }
+
+  fn SelectWordControl(d: Duo<u16>) -> u16 { ControlDuoWordSum(d) }
+
+  fn SelectNatControl(d: Duo<\<tau>\<open>nat\<close>>) -> \<tau>\<open>nat\<close> { ControlDuoNatSum(d) }
+
+  fn UseSoloOnlyControl(s: Solo<u8>) -> u8 { ControlSoloOnly(s) }
+
+  \<omega>\<open>name = "control_duo_byte_own", register_notation = false\<close>
+  fn own(self: Duo<u8>) -> u8 { ControlDuoByteSum(self) }
+
+  \<omega>\<open>name = "control_duo_word_own", register_notation = false\<close>
+  fn own(self: Duo<u16>) -> u16 { ControlDuoWordSum(self) }
+\<close>
+
+lemma path_selection_matches_controls:
+  shows \<open>select_byte = select_byte_control\<close>
+    and \<open>select_word = select_word_control\<close>
+    and \<open>select_nat = select_nat_control\<close>
+    and \<open>select_method = select_word_control\<close>
+    and \<open>use_solo_only = use_solo_only_control\<close>
+    and \<open>duo_byte_own = control_duo_byte_own\<close>
+    and \<open>duo_word_own = control_duo_word_own\<close>
+  unfolding select_byte_def select_byte_control_def select_word_def select_word_control_def
+    select_nat_def select_nat_control_def select_method_def use_solo_only_def
+    use_solo_only_control_def duo_byte_own_def control_duo_byte_own_def duo_word_own_def
+    control_duo_word_own_def
+  by (rule refl)+
+
+section\<open> Type heads through aliases and imports \<close>
+
+text\<open>
+A leading type head written as a type alias or a chunk or block import denotes its target: its
+associated items resolve under the target's canonical path, and the alias expansion, with any
+generic arguments written on the head, selects the instance. The same holds for variants and
+struct heads in values and patterns.
+\<close>
+
+urust_type_alias \<open> type ByteDuo = Duo<u8>; \<close>
+
+urust_type_alias \<open> type AnyDuo<T> = Duo<T>; \<close>
+
+urust_type_alias \<open> type ByteDuoAgain = ByteDuo; \<close>
+
+urust_type_alias \<open> type Lamp = Light; \<close>
+
+urust_type_alias \<open> type TallyAlias = Tally; \<close>
+
+urust \<open>
+  impl demo::Width {
+    fn bits(self) -> u32 { self }
+  }
+
+  fn AliasSelect(d: Duo<u8>) -> u8 { ByteDuo::sum(d) }
+
+  fn GenericAliasSelect(d: Duo<u16>) -> u16 { AnyDuo::<u16>::sum(d) }
+
+  fn ChainedAliasSelect(d: Duo<u8>) -> u8 { ByteDuoAgain::sum(d) }
+
+  fn ImportedHeadSelect(d: Duo<u8>) -> u8 {
+    use Duo as Both;
+    Both::<u8>::sum(d)
+  }
+
+  fn ImportedAliasSelect(d: Duo<u8>) -> u8 {
+    use ByteDuo as Bytes;
+    Bytes::sum(d)
+  }
+
+  fn CanonicalWidthBits(w: demo::Width) -> u32 { demo::Width::bits(w) }
+
+  fn ImportedWidthBits(w: demo::Width) -> u32 {
+    use demo::Width as Word32;
+    Word32::bits(w)
+  }
+
+  fn LampValue() -> Light { Lamp::Lit(3_u32) }
+
+  fn LampLevel(light: Light) -> u32 {
+    match light { Lamp::Lit(level) => level, Lamp::Glow { level } => level, Lamp::Dark => 0_u32 }
+  }
+
+  fn TallyAliasValue() -> Tally { TallyAlias { count: 1_u32 } }
+
+  fn TallyAliasCount(tally: Tally) -> u32 { match tally { TallyAlias { count } => count } }
+
+  fn ImportedLamp() -> Light {
+    use Lamp as Signal;
+    Signal::Glow { level: 2_u32 }
+  }
+\<close>
+
+urust \<open>
+  fn LampValueControl() -> Light { Light::Lit(3_u32) }
+
+  fn LampLevelControl(light: Light) -> u32 {
+    match light { Light::Lit(level) => level, Light::Glow { level } => level, Light::Dark => 0_u32 }
+  }
+
+  fn TallyAliasValueControl() -> Tally { Tally { count: 1_u32 } }
+
+  fn TallyAliasCountControl(tally: Tally) -> u32 { match tally { Tally { count } => count } }
+
+  fn ImportedLampControl() -> Light { Light::Glow { level: 2_u32 } }
+\<close>
+
+lemma type_heads_match_canonical_paths:
+  shows \<open>alias_select = select_byte\<close>
+    and \<open>generic_alias_select = select_word\<close>
+    and \<open>chained_alias_select = select_byte\<close>
+    and \<open>imported_head_select = select_byte\<close>
+    and \<open>imported_alias_select = select_byte\<close>
+    and \<open>imported_width_bits = canonical_width_bits\<close>
+    and \<open>lamp_value = lamp_value_control\<close>
+    and \<open>lamp_level = lamp_level_control\<close>
+    and \<open>tally_alias_value = tally_alias_value_control\<close>
+    and \<open>tally_alias_count = tally_alias_count_control\<close>
+    and \<open>imported_lamp = imported_lamp_control\<close>
+  unfolding alias_select_def generic_alias_select_def chained_alias_select_def
+    imported_head_select_def imported_alias_select_def select_byte_def select_word_def
+    imported_width_bits_def canonical_width_bits_def lamp_value_def lamp_value_control_def lamp_level_def
+    lamp_level_control_def tally_alias_value_def tally_alias_value_control_def
+    tally_alias_count_def tally_alias_count_control_def imported_lamp_def
+    imported_lamp_control_def
+  by (rule refl)+
+
+subsection\<open> Generic arguments of type heads \<close>
+
+text\<open>
+A head that fixes an instance (\<open>Self\<close>, a type alias with its expansion's and its written
+arguments, an imported alias) instantiates the constructors it reaches, in values, calls, struct
+expressions and patterns, exactly like the canonical path with type-segment arguments.
+\<close>
+
+urust \<open>
+  enum Hold<T> { Empty, Holding(T) }
+
+  struct Parcel<T> { inner: T }
+
+  impl Hold<u8> {
+    \<omega>\<open>name = "hold_byte_wrap"\<close>
+    fn wrap(value: u8) -> Self { Self::Holding(value) }
+  }
+
+  impl Parcel<u8> {
+    \<omega>\<open>name = "parcel_byte_unwrap"\<close>
+    fn unwrap(self) -> u8 { match self { Self { inner } => inner } }
+  }
+\<close>
+
+urust_type_alias \<open> type ByteHold = Hold<u8>; \<close>
+
+urust_type_alias \<open> type AnyHold<T> = Hold<T>; \<close>
+
+urust_type_alias \<open> type ByteParcel = Parcel<u8>; \<close>
+
+urust \<open>
+  fn AliasHolding() -> bool { let held = ByteHold::Holding(1); true }
+
+  fn AliasEmpty() -> bool { let held = ByteHold::Empty; true }
+
+  fn GenericAliasHolding() -> bool { let held = AnyHold::<u8>::Holding(1); true }
+
+  fn ImportedAliasHolding() -> bool {
+    use ByteHold as Held;
+    let held = Held::Holding(1);
+    true
+  }
+
+  fn AliasHoldLevel(held: Hold<u8>) -> u8 {
+    match held { ByteHold::Holding(value) => value, ByteHold::Empty => 0_u8 }
+  }
+
+  fn AliasParcel() -> bool { let parcel = ByteParcel { inner: 1 }; true }
+
+  fn AliasParcelInner(parcel: Parcel<u8>) -> u8 { match parcel { ByteParcel { inner } => inner } }
+\<close>
+
+urust \<open>
+  fn CanonicalHolding() -> bool { let held = Hold::<u8>::Holding(1); true }
+
+  fn CanonicalEmpty() -> bool { let held = Hold::<u8>::Empty; true }
+
+  fn CanonicalHoldLevel(held: Hold<u8>) -> u8 {
+    match held { Hold::Holding(value) => value, Hold::Empty => 0_u8 }
+  }
+
+  fn CanonicalParcel() -> bool { let parcel = Parcel { inner: 1_u8 }; true }
+
+  fn CanonicalParcelInner(parcel: Parcel<u8>) -> u8 { match parcel { Parcel { inner } => inner } }
+
+  \<omega>\<open>name = "control_hold_byte_wrap", register_notation = false\<close>
+  fn wrap(value: u8) -> Hold<u8> { Hold::<u8>::Holding(value) }
+
+  \<omega>\<open>name = "control_parcel_byte_unwrap", register_notation = false\<close>
+  fn unwrap(self: Parcel<u8>) -> u8 { match self { Parcel { inner } => inner } }
+\<close>
+
+lemma type_head_arguments_match_canonical_paths:
+  shows \<open>alias_holding = canonical_holding\<close>
+    and \<open>alias_empty = canonical_empty\<close>
+    and \<open>generic_alias_holding = canonical_holding\<close>
+    and \<open>imported_alias_holding = canonical_holding\<close>
+    and \<open>alias_hold_level = canonical_hold_level\<close>
+    and \<open>alias_parcel = canonical_parcel\<close>
+    and \<open>alias_parcel_inner = canonical_parcel_inner\<close>
+    and \<open>hold_byte_wrap = control_hold_byte_wrap\<close>
+    and \<open>parcel_byte_unwrap = control_parcel_byte_unwrap\<close>
+  unfolding alias_holding_def canonical_holding_def alias_empty_def canonical_empty_def
+    generic_alias_holding_def imported_alias_holding_def alias_hold_level_def
+    canonical_hold_level_def alias_parcel_def canonical_parcel_def alias_parcel_inner_def
+    canonical_parcel_inner_def hold_byte_wrap_def control_hold_byte_wrap_def
+    parcel_byte_unwrap_def control_parcel_byte_unwrap_def
+  by (rule refl)+
+
+subsection\<open> Exact keys under alias heads \<close>
+
+text\<open>
+A written key with an exact registration resolves as written (D133), before its head is expanded
+through an alias: here an explicit call key and an explicit literal key spelled with the alias.
+\<close>
+
+definition tally_limit :: \<open>32 word\<close> where
+  \<open> tally_limit = 3 \<close>
+
+micro_rust_notation (call) tally_new ("TallyAlias::spawn")
+
+micro_rust_notation (literal) tally_limit ("TallyAlias::LIMIT")
+
+micro_rust_notation (literal) tally_limit ("ControlTallyLimit")
+
+micro_rust_notation (call) tally_new ("ControlTallySpawn")
+
+urust \<open>
+  fn AliasExactCall() -> Tally { TallyAlias::spawn() }
+
+  fn AliasExactLiteral() -> u32 { TallyAlias::LIMIT }
+
+  fn AliasExactCallControl() -> Tally { ControlTallySpawn() }
+
+  fn AliasExactLiteralControl() -> u32 { ControlTallyLimit }
+\<close>
+
+lemma exact_keys_under_alias_heads:
+  shows \<open>alias_exact_call = alias_exact_call_control\<close>
+    and \<open>alias_exact_literal = alias_exact_literal_control\<close>
+  unfolding alias_exact_call_def alias_exact_call_control_def alias_exact_literal_def
+    alias_exact_literal_control_def
+  by (rule refl)+
+
+section\<open> Direct calls and method entries \<close>
+
+text\<open>
+A direct call does not reach a method entry. Beside the method \<open>describe\<close> of
+\<open>Counter\<close> and \<open>Gauge\<close>, the free function \<open>describe\<close> is the only target of a direct
+call, while method calls keep dispatching by receiver.
+\<close>
+
+urust_fn \<open> fn describe(value: u32) -> u32 { value + 1_u32 } \<close>
+
+urust \<open>
+  fn DescribeDirect(value: u32) -> u32 { describe(value) }
+
+  fn DescribeMethods(c: Counter, g: Gauge) -> u32 { c.describe() + g.describe() }
+\<close>
+
+micro_rust_notation (call) describe ("ControlDescribe")
+
+urust \<open>
+  fn DescribeDirectControl(value: u32) -> u32 { ControlDescribe(value) }
+\<close>
+
+lemma direct_calls_skip_methods:
+  shows \<open>describe_direct = describe_direct_control\<close>
+    and \<open>describe_methods = describe_both_control\<close>
+  unfolding describe_direct_def describe_direct_control_def describe_methods_def
+    describe_both_control_def
+  by (rule refl)+
+
+end

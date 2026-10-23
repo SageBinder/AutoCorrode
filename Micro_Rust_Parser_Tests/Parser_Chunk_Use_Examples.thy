@@ -525,7 +525,7 @@ urust_expr_rejects \<open> use UseChoice::{self as Selection, Empty, Value as Pr
 
 urust_expr_rejects \<open> use UseChoice::{self as Selection, Empty, Value as Present, Named as NamedVariant}; Selection::Missing(1) \<close> \<open> resolves to "UseChoice::Missing", which cannot be used as a call \<close>
 
-urust_expr_rejects \<open> use demo::{Width as Word32, Short, Cell, Pointer}; Word32::Value(1) \<close> \<open> is not a generated enum and cannot qualify a path \<close>
+urust_expr_rejects \<open> use demo::{Width as Word32, Short, Cell, Pointer}; Word32::Value(1) \<close> \<open> resolves to "demo::Width::Value", which cannot be used as a call \<close>
 
 urust_expr_rejects \<open> use use_increment as bump; bump::<u8>(1) \<close> \<open> generic arguments are not supported on generated Rust function paths \<close>
 

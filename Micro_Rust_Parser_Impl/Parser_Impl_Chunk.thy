@@ -7,7 +7,7 @@ section\<open> Source-ordered item chunks \<close>
 
 text\<open>
 The chunk surface is \<open>urust [OPTIONS] src\<close>, whose cartouche contains a nonempty source-ordered
-list of complete \<open>fn\<close>, \<open>struct\<close>, \<open>enum\<close> and \<open>use\<close> items. An optional annotation
+list of complete \<open>fn\<close>, \<open>struct\<close>, \<open>enum\<close>, \<open>impl\<close> and \<open>use\<close> items. An optional annotation
 \<open>\<omega>\<open>OPTION, OPTION = VALUE, ...\<close>\<close> occupies its own line or lines immediately before the line
 on which its item starts; a leading \<open>#[repr(...)]\<close> line belongs to its enum. Its payload uses
 the entry syntax of the bracketed lists with the function or datatype schema of the single-item
@@ -26,6 +26,17 @@ in the context that the next command of the equivalent single-item sequence woul
 earlier items are available to later ones and forward references are not resolved. Type alias
 items are rejected as chunk members. With \<open>pp_test\<close>, each member's annotation and item
 roundtrip through the serialized chunk printer before any declaration.
+
+An inherent \<open>impl PATH { fn ... }\<close> member resolves its target, which may be a type declared
+earlier in the chunk, an imported type or a type alias (expanded to its target), when it is
+declared; primitive, non-path and \<open>\<tau>\<open>...\<close>\<close> targets are rejected. Each member
+\<open>fn\<close> is one declaration of the equivalent command sequence, in source order, so later members
+see earlier ones. Its options follow the precedence member annotation, impl annotation, outer
+default, scoped configuration; \<open>name\<close> and \<open>pp_test\<close> are rejected in the respective
+annotation that cannot carry them. Its default HOL name is the snake case of the target's final
+written segment and of the member name. It registers the associated path \<open>T::f\<close> and, with a
+\<open>self\<close> receiver first, the method entry \<open>f\<close>; neither is an import entity. \<open>Self\<close>
+names the target in types and path heads, and the shorthand receivers are its typed spellings.
 
 A use member is one complete Rust use item; it takes no options, so
 an annotation before it is rejected. The chunk's imports form one batch, validated as a whole
@@ -66,6 +77,7 @@ datatype member =
     Function_Member of URust_Command.prepared_function
   | Datatype_Member of URust_Command.prepared_datatype
   | Use_Member of URust_AST.use_item
+  | Impl_Member of URust_Command.prepared_impl
 
 fun prepare_member lthy interactive outer envelope =
   let
@@ -105,12 +117,20 @@ fun prepare_member lthy interactive outer envelope =
               error
                 ("urust: an \<omega> annotation cannot precede a use item; use items take no options" ^
                   Position.here (URust_AST.annotation_position annotation))
-          | NONE => (URust_Command.configured_pp_test lthy outer, Use_Member item)))
+          | NONE => (URust_Command.configured_pp_test lthy outer, Use_Member item))
+     | URust_AST.Impl_Item_Node impl =>
+         let val options = options URust_Command.Impl_Annotation in
+           (URust_Command.configured_pp_test lthy options,
+            Impl_Member
+              (URust_Command.prepare_impl_item lthy
+                {interactive = interactive, options = options, impl = impl}))
+         end)
   end
 
 fun declare_member (Function_Member prepared) = URust_Command.declare_prepared_function prepared
   | declare_member (Datatype_Member prepared) = URust_Command.declare_prepared_datatype prepared
   | declare_member (Use_Member _) = raise Fail "urust: use members are not declarations"
+  | declare_member (Impl_Member _) = raise Fail "urust: impl members declare member by member"
 
 fun use_member (_, Use_Member item) = SOME item
   | use_member _ = NONE
@@ -122,7 +142,8 @@ fun member_entities ctxt member =
     (case member of
        Function_Member prepared => URust_Command.prepared_function_registrations prepared
      | Datatype_Member prepared => URust_Command.prepared_datatype_registrations ctxt prepared
-     | Use_Member _ => URust_Imports.no_registrations)
+     | Use_Member _ => URust_Imports.no_registrations
+     | Impl_Member prepared => URust_Command.prepared_impl_registrations prepared)
 
 fun first_differing_token_index left right =
   let
@@ -189,7 +210,8 @@ fun define (outer, source) interactive lthy =
                SOME chunk => chunk
              | NONE =>
                  error
-                   ("urust: empty chunk; expected at least one fn, struct, enum, or use item" ^
+                   ("urust: empty chunk; expected at least one fn, struct, enum, impl, " ^
+                     "or use item" ^
                      Position.here (Input.pos_of source)))
           val envelopes = URust_AST.chunk_items chunk
           val members = map (prepare_member lthy interactive outer) envelopes
@@ -214,17 +236,32 @@ fun define (outer, source) interactive lthy =
              context replaces by a target context, so it never outlives its declaration. A failing
              member releases its own queued markup with its error; markup of earlier members stays
              queued and is discarded with the transaction. *)
-          fun declare ((_, (_, member)), later) lthy' =
-            let
-              val member_lthy =
-                URust_Imports.prepare_batch_unreported (URust_Imports.Declared_Later later)
-                  lthy' batch
-            in
-              URust_Report_Transaction.release_on_failure member_lthy
-                (fn () => declare_member member member_lthy)
-              ||> next_command_context
-            end
-          val (outputs, completed) = fold_map declare (declarations ~~ later_entities) lthy
+          fun enter later associated lthy' =
+            URust_Imports.prepare_batch_unreported
+              (URust_Imports.Declared_Later {entities = later, associated_functions = associated})
+              lthy' batch
+          (* Checked-only impl members declare nothing; their owners are carried through the rest
+             of the chunk so that overlap is checked in every order. *)
+          fun declare ((_, (_, Impl_Member prepared)), (later, associated)) state =
+                (* Each impl member is one declaration of the equivalent command sequence. *)
+                URust_Command.declare_prepared_impl
+                  {enter = enter later associated, leave = next_command_context} prepared state
+            | declare ((_, (_, member)), (later, associated)) (lthy', checked) =
+                let val member_lthy = enter later associated lthy' in
+                  URust_Report_Transaction.release_on_failure member_lthy
+                    (fn () => declare_member member member_lthy)
+                  ||> (fn completed => (next_command_context completed, checked))
+                end
+          (* The associated-function keys of impl members at or after each declaration. *)
+          val later_associated =
+            fold_rev
+              (fn (_, (_, member)) => fn later =>
+                ((case member of
+                    Impl_Member prepared => URust_Command.prepared_impl_associated_keys lthy prepared
+                  | _ => []) @ (case later of [] => [] | next :: _ => next)) :: later)
+              declarations []
+          val (outputs, (completed, _)) =
+            fold_map declare (declarations ~~ (later_entities ~~ later_associated)) (lthy, [])
           val _ = URust_Imports.conclude_batch
             {declared = maps (member_entities lthy o #2 o #2) declarations} completed batch
         in (outputs, completed) end)

@@ -136,7 +136,11 @@ end
 text\<open>
 Resolution owns every effectful name operation: binder IDs and navigation, local shadowing,
 antiquotation capture, notation dispatch, constructor reports, and struct metadata. Its environment is
-abstract so downstream modules cannot depend on the underlying binder record.
+abstract so downstream modules cannot depend on the underlying binder record. It also resolves the
+heads of impl-related paths: \<open>Self\<close> inside an impl member, type aliases and imported types
+name their target, a path call \<open>T::f(..)\<close> follows Rust's rule for several inherent impls
+(select the instance with \<open>T::<A>::f\<close>, \<open>Self\<close> or an alias), and a direct call never
+reaches a method entry.
 \<close>
 
 ML\<open>
@@ -256,8 +260,11 @@ ML\<open>
   - Rust imports. Before its ordinary route, every value, call, struct-expression, pattern,
     struct-pattern, repeat-length and report-free classification consumer consults
     URust_Import_Scope. A single-segment name bound in the requested namespace, or a multi-segment
-    path whose head is a type-namespace import of a generated enum, is rewritten to its canonical
-    exact key: the bound segment becomes the key segments, with the occurrence position and
+    path whose head is a type-namespace import of a type, is rewritten to its canonical
+    exact key; the same head routes rewrite a leading Self inside an impl member and a type alias
+    head (unless the written key has an exact registration, D133), both carrying the instance they
+    fix, which selects impls for associated-function path calls and instantiates constructors in
+    every other role: the bound segment becomes the key segments, with the occurrence position and
     generic arguments on the final key segment and no position on synthetic prefix segments. The
     canonical path then follows only the exact branch of the owning resolver; a binding unusable
     in the requested role is rejected without any lexical, HOL, basename or unqualified fallback.
@@ -307,10 +314,17 @@ struct
       ({locals, ...} : environment) source =
     Parser_Utils.parse_antiq variable_entity_kind ctxt locals source
 
+  (* Self is a keyword naming the implementing type; Rust rejects it as a binding name. *)
+  fun reject_self_binder (name, pos) =
+    if name = "Self" then
+      error ("urust: Self is a keyword and cannot name a binding" ^ Position.here pos)
+    else ()
+
   fun bind_ordinary_local ctxt
       ({locals, local_frames} : environment)
       (binding as (name, _)) =
     let
+      val _ = reject_self_binder binding
       val (free, locals') = bind_local ctxt locals binding
     in
       (free,
@@ -320,8 +334,9 @@ struct
 
   fun bind_declaration_argument ctxt
       ({locals, local_frames} : environment)
-      (parameter as ((name, _), _)) =
+      (parameter as (binding as (name, _), _)) =
     let
+      val _ = reject_self_binder binding
       val (free, locals') = bind_typed_local ctxt locals parameter
     in
       (free,
@@ -343,7 +358,11 @@ struct
         #2 (bind_ordinary_local ctxt env binding)
     in fold allocate signatures environment end
 
-  fun allocate_parameters command role ctxt environment parameters =
+  (* Self in a pattern position is a path, never a binder: self_pattern gives the type of the unit
+     value it matches, or rejects it as a path pattern. The parameter allocators are completed
+     with that resolution at the end of this structure; closure formals are patterns
+     (URust_Patterns.prepare_closure_formals), which resolve Self as a path directly. *)
+  fun gen_allocate_parameters self_pattern command role ctxt environment parameters =
     let
       fun validate ((name, pos), _) seen =
         if name = "_" then seen
@@ -365,6 +384,20 @@ struct
               val (abstraction, env') =
                 if name = "_" then
                   ((fn body => Abs (Name.uu, T, body)), env)
+                else if name = "Self" then
+                  let
+                    val pattern_type = self_pattern ctxt pos
+                    val _ =
+                      if can (Sign.typ_unify (Proof_Context.theory_of ctxt) (T, pattern_type))
+                          (Vartab.empty, Int.max (maxidx_of_typ T, maxidx_of_typ pattern_type) + 1)
+                      then ()
+                      else
+                        error
+                          ("urust_expr: mismatched types: the pattern Self has type " ^
+                            quote (Syntax.string_of_typ ctxt pattern_type) ^
+                            ", but the " ^ role ^ " has type " ^
+                            quote (Syntax.string_of_typ ctxt T) ^ Position.here pos)
+                  in ((fn body => Abs (Name.uu, T, body)), env) end
                 else
                   let
                     val (free, env') =
@@ -373,11 +406,6 @@ struct
             in allocate rest env' (abstraction :: abstractions) end
     in allocate parameters environment [] end
 
-  fun allocate_expression_arguments ctxt environment arguments =
-    allocate_parameters "urust_expr" "argument" ctxt environment arguments
-
-  fun allocate_function_parameters ctxt environment parameters =
-    allocate_parameters "urust_fn" "parameter" ctxt environment parameters
 
   fun use_local ctxt environment (name, pos) =
     (case Symtab.lookup (#locals environment) name of
@@ -812,15 +840,37 @@ struct
     |> (if item_has_generics path then I else Term.map_types Logic.varifyT_global)
     |> Term.map_types (Logic.incr_tvar (serial ()) #> Type_Infer.paramify_vars)
 
-  fun source_constructor_scheme ctxt path entry =
-    item_constructor_instance ctxt path entry
-      (I.constructor_scheme entry |> Term.map_types Type.legacy_freeze_type)
+  (* A head that fixes an instance (Self, a type alias, an imported alias) supplies the HOL type
+     that the constructor builds: the scheme's result type is matched against it, so the head's
+     generic arguments, including those of the alias expansion, instantiate the constructor in
+     every role. Inference holes of omitted alias arguments stay open. *)
+  fun instantiated_scheme ctxt path entry instance =
+    let
+      val native =
+        I.constructor_scheme entry |> Term.map_types (Logic.varifyT_global o Type.legacy_freeze_type)
+      val result = body_type (fastype_of native)
+      val substitution =
+        Sign.typ_match (Proof_Context.theory_of ctxt) (result, instance) Vartab.empty
+          handle Type.TYPE_MATCH =>
+            error
+              ("urust_expr: generated Rust constructor " ^ quote (render_path path) ^
+                " does not construct " ^ quote (Syntax.string_of_typ ctxt instance) ^
+                Position.here (path_position path))
+    in Term.map_types (Envir.subst_type substitution) native end
 
-  fun source_constructor ctxt path entry =
-    if not (item_has_generics path) then I.constructor_term entry
-    else fresh_item_instance path (source_constructor_scheme ctxt path entry)
+  fun source_constructor_scheme ctxt (SOME instance) path entry =
+        instantiated_scheme ctxt path entry instance
+    | source_constructor_scheme ctxt NONE path entry =
+        item_constructor_instance ctxt path entry
+          (I.constructor_scheme entry |> Term.map_types Type.legacy_freeze_type)
 
-  fun item_value_path ctxt path entry =
+  fun source_constructor ctxt (SOME instance) path entry =
+        instantiated_scheme ctxt path entry instance
+    | source_constructor ctxt NONE path entry =
+        if not (item_has_generics path) then I.constructor_term entry
+        else fresh_item_instance path (source_constructor_scheme ctxt NONE path entry)
+
+  fun item_value_path ctxt instance path entry =
     let
 
       val _ =
@@ -841,7 +891,7 @@ struct
       val _ = report_item_constructor ctxt path entry
     in
       T.source_position (#2 (path_terminal path))
-        (source_constructor ctxt path entry)
+        (source_constructor ctxt instance path entry)
     end
 
   fun generic_sources (Generic_Args (arguments, _)) =
@@ -903,51 +953,236 @@ struct
       val _ = URust_Report_Transaction.report ctxt pos Markup.free
     in Free (render_path path, dummyT) end
 
-  (* An import binding routes a source path to its canonical exact key. The bound segment becomes
-     the canonical key segments: its occurrence position and generic arguments move to the final
-     key segment, while synthetic prefix segments have no source position and therefore produce no
-     reports. A multi-segment path is routed through its head only in the type namespace, and only
-     a generated enum may own the remaining variant segment. *)
+  (* A head route rewrites a source path to its canonical exact key: through an import binding,
+     through the Self type of the impl member being elaborated, or through a type alias. The routed
+     head segment becomes the canonical key segments: its occurrence position (and, for an import,
+     its generic arguments) moves to the final key segment, while synthetic prefix segments have no
+     source position and therefore produce no reports. A multi-segment path is routed through its
+     head only in the type namespace: an imported generated enum may own the remaining variant
+     segment, and every imported mapped type, Self and every type alias the remaining associated
+     item segment. A route through a type that fixes an instance carries the selection of that
+     instance for associated-function path calls, as a lazily resolved HOL type with its written
+     spelling. *)
+  (* A selection type, its written spelling, and whether inference holes stand for omitted
+     generic arguments. *)
+  type selection = {typ: typ, written: string, inferred: bool}
+
+  datatype route_origin =
+      Import_Origin of S.binding
+    | Self_Origin of URust_Type_Mappings.impl_self
+    | Alias_Origin of string
+
   type import_route =
-    {binding: S.binding, canonical: ur_path, occurrence: Position.T}
+    {origin: route_origin, canonical: ur_path, occurrence: Position.T,
+     selection: (unit -> selection) option}
+
+  fun route_instance (SOME ({selection = SOME select, ...}: import_route)) =
+        SOME (#typ (select ()))
+    | route_instance _ = NONE
+
+  fun canonical_segments key pos arguments =
+    let val (prefix, final) = split_last (S.key_segments key) in
+      map (fn name => Path_Segment (name, Position.none, NONE)) prefix @
+        [Path_Segment (final, pos, arguments)]
+    end
 
   fun import_route binding (UR_Path (head, Path_Segment (_, pos, arguments) :: rest, span)) =
-        let
-          val (prefix, final) = split_last (S.key_segments (#key binding))
-          val segments =
-            map (fn name => Path_Segment (name, Position.none, NONE)) prefix @
-            [Path_Segment (final, pos, arguments)] @ rest
-        in {binding = binding, canonical = UR_Path (head, segments, span), occurrence = pos} end
+        {origin = Import_Origin binding,
+         canonical = UR_Path (head, canonical_segments (#key binding) pos arguments @ rest, span),
+         occurrence = pos, selection = NONE}
     | import_route _ (UR_Path (_, [], pos)) =
         error ("urust_expr: internal empty imported path" ^ Position.here pos)
 
   val same_scope_item = URust_Imports.same_scope_item
 
+  fun no_layout () = make_source_layout Position.none []
+
+  fun generic_argument_types ctxt (Generic_Args (arguments, _)) =
+    map (URust_Parser.parse_generic_argument_source ctxt o generic_argument_source) arguments
+
+  fun written_type_name name arguments =
+    name ^
+      (case arguments of
+         NONE => ""
+       | SOME (Generic_Args (written, _)) =>
+           "<" ^ commas (map (fn Generic_Arg (canonical, _) => canonical) written) ^ ">")
+
+  (* The HOL type that a type key with written generic arguments denotes, resolved like a
+     signature type. A generic type written without arguments selects among all its instances:
+     each omitted argument is an inference hole. *)
+  fun selection_type ctxt key pos arguments =
+    let
+      val hole = Rust_Type_Argument (HOL_Type_Source (Input.string "_"))
+      val arities =
+        (case URust_Type_Mappings.lookup ctxt key of
+           SOME entry => URust_Type_Mappings.entry_arities entry
+         | NONE => map (K 0) (S.key_segments key))
+      val names = S.key_segments key
+      val final_index = length names - 1
+      fun segment (index, (name, arity)) =
+        let
+          val written =
+            if index = final_index then Option.map (generic_argument_types ctxt) arguments
+            else NONE
+          val supplied =
+            (case written of
+               SOME types => SOME types
+             | NONE => if arity = 0 then NONE else SOME (replicate arity hole))
+        in
+          Rust_Type_Path_Segment
+            (name, if index = final_index then pos else Position.none, supplied, no_layout ())
+        end
+      val arities = if length arities = length names then arities else map (K 0) names
+      (* The type is positioned at the written head, so resolution errors cite it. *)
+      val typ = Path_Type (map_index segment (names ~~ arities), make_source_layout pos [])
+      val inferred =
+        is_none arguments andalso List.last arities > 0
+    in (the_single (URust_Type_Mappings.resolve_signature ctxt [typ]), inferred) end
+
+  (* The canonical nominal key that a type alias key expands to. *)
+  fun alias_expansion ctxt key =
+    let
+      val segments =
+        map (fn name => Rust_Type_Path_Segment (name, Position.none, NONE, no_layout ()))
+          (S.key_segments key)
+    in
+      (case URust_Type_Mappings.impl_target_key ctxt (Path_Type (segments, no_layout ())) of
+         SOME base => if base <> key then SOME base else NONE
+       | NONE => NONE)
+    end
+
+  fun self_outside_impl pos =
+    error ("urust: Self is only available inside an impl block" ^ Position.here pos)
+
+  (* Self denotes the full Self type of the impl, so a call through it selects the impl's own
+     instance without resolving the type again. *)
+  (* As in Rust (E0433), `Self` and `self` may only start a path; no later segment can name them,
+     whatever a registry holds. Every path role routes through self_route first. *)
+  fun reject_late_keyword_segments path =
+    (case path_segments path of
+       _ :: rest =>
+         List.app
+           (fn Path_Segment (name, pos, _) =>
+             if name = "Self" orelse name = "self" then
+               error ("urust_expr: `" ^ name ^ "` in paths can only be used in start position" ^
+                 Position.here pos)
+             else ())
+           rest
+     | [] => ())
+
+  fun self_route ctxt path =
+    (reject_late_keyword_segments path;
+    case path_segments path of
+       Path_Segment ("Self", pos, arguments) :: rest =>
+         (case URust_Type_Mappings.impl_self ctxt of
+            NONE => self_outside_impl pos
+          | SOME (self as {canonical_path, self_type, ...}) =>
+              let
+                val _ =
+                  (case arguments of
+                     NONE => ()
+                   | SOME (Generic_Args (_, generic_pos)) =>
+                       error ("urust: Self cannot take generic arguments" ^
+                         Position.here generic_pos))
+                val UR_Path (head, _, span) = path
+              in
+                SOME
+                  {origin = Self_Origin self,
+                   canonical = UR_Path (head, canonical_segments canonical_path pos NONE @ rest, span),
+                   occurrence = pos,
+                   selection =
+                     SOME (fn () => {typ = self_type, written = "Self", inferred = false})}
+              end)
+     | _ => NONE)
+
+  (* A head that denotes a type through an alias: the alias expands to its nominal target, and the
+     alias with its written arguments selects the instance. *)
+  fun alias_route ctxt (UR_Path (head, Path_Segment (name, pos, arguments) :: rest, span)) =
+        (case alias_expansion ctxt name of
+           SOME base =>
+             SOME
+               {origin = Alias_Origin name,
+                canonical = UR_Path (head, canonical_segments base pos NONE @ rest, span),
+                occurrence = pos,
+                selection =
+                  SOME (fn () =>
+                    let val (typ, inferred) = selection_type ctxt name pos arguments
+                    in {typ = typ, written = written_type_name name arguments, inferred = inferred}
+                    end)}
+         | NONE => NONE)
+    | alias_route _ _ = NONE
+
+  (* An imported type head: a generated enum keeps its variant route; any other mapped type, or a
+     type alias, routes its associated items, the alias through its expansion. *)
+  fun imported_type_route binding path =
+    if exists (S.has_role binding) [S.Generated_Enum, S.Generated_Struct, S.Mapped_Type]
+    then SOME (import_route binding path)
+    else NONE
+
+  fun imported_head_route ctxt binding
+        (path as UR_Path (head, Path_Segment (name, pos, arguments) :: rest, span)) =
+        (case alias_expansion ctxt (#key binding) of
+           SOME base =>
+             SOME
+               {origin = Import_Origin binding,
+                canonical = UR_Path (head, canonical_segments base pos NONE @ rest, span),
+                occurrence = pos,
+                selection =
+                  SOME (fn () =>
+                    let val (typ, inferred) = selection_type ctxt (#key binding) pos arguments
+                    in {typ = typ, written = written_type_name name arguments, inferred = inferred}
+                    end)}
+         | NONE => imported_type_route binding path)
+    | imported_head_route _ _ _ = NONE
+
+  (* D133: a written key with an exact call or literal registration resolves as written, so an
+     alias head, or an imported type head that is not an enum, routes only paths whose written key
+     has none. An imported enum head routes its variants as at the base. *)
+  fun exact_written_key ctxt path =
+    exists
+      (fn key =>
+        exists (fn kind => not (null (Micro_Rust_Names.lookups ctxt kind key)))
+          [Micro_Rust_Names.NFunction, Micro_Rust_Names.NLiteral])
+      (distinct (op =) [render_path path, render_path (remove_final_generic_args path)])
+
   fun head_import_route ctxt path =
+    (case self_route ctxt path of
+       SOME route => SOME route
+     | NONE =>
     (case path_segments path of
        Path_Segment (name, pos, _) :: _ :: _ =>
          (case S.lookup ctxt S.Type_Namespace name of
-            NONE => NONE
+            NONE => if exact_written_key ctxt path then NONE else alias_route ctxt path
           | SOME binding =>
-              if (S.require_available pos binding; S.has_role binding S.Generated_Enum) then
-                SOME (import_route binding path)
-              else
-                error
-                  ("urust_expr: imported " ^ quote name ^ " (" ^ quote (#key binding) ^
-                    ") is not a generated enum and cannot qualify a path" ^ Position.here pos))
-     | _ => NONE)
+              (S.require_available pos binding;
+               if not (S.has_role binding S.Generated_Enum) andalso exact_written_key ctxt path
+               then NONE
+               else
+               case imported_head_route ctxt binding path of
+                 SOME route => SOME route
+               | NONE =>
+                   error
+                     ("urust_expr: imported " ^ quote name ^ " (" ^ quote (#key binding) ^
+                       ") is not a generated enum and cannot qualify a path" ^ Position.here pos)))
+     | _ => NONE))
 
+  (* A single-segment struct head may also name a struct through a type alias, as in Rust; values,
+     calls and patterns cannot name a tuple or unit struct through one. *)
   fun namespace_import_route ctxt namespace path =
     if is_primitive_path path then NONE
     else
+      (case self_route ctxt path of
+         SOME route => SOME route
+       | NONE =>
       (case path_segments path of
          [Path_Segment (name, pos, _)] =>
-           Option.map
-             (fn binding =>
-               (S.require_available pos binding;
-                import_route binding path))
-             (S.lookup ctxt namespace name)
-       | _ => head_import_route ctxt path)
+           (case S.lookup ctxt namespace name of
+              SOME binding => (S.require_available pos binding; SOME (import_route binding path))
+            | NONE =>
+                if namespace = S.Type_Namespace andalso not (exact_written_key ctxt path)
+                then alias_route ctxt path
+                else NONE)
+       | _ => head_import_route ctxt path))
 
   (* Rust block scoping for value and call occurrences: the use items of a block take effect at its
      entry. An import therefore shadows a lexical local, including a declaration argument, exactly
@@ -965,20 +1200,24 @@ struct
               SOME (_, import_depth) => import_depth > local_depth
             | NONE => false))
 
+  (* Self is a keyword, never a lexical local. *)
   fun value_import_route ctxt environment path =
+    (case self_route ctxt path of
+       SOME route => SOME route
+     | NONE =>
     (case path_segments path of
        [Path_Segment (name, _, _)] =>
          if import_shadows_local ctxt environment S.Value_Namespace name
          then namespace_import_route ctxt S.Value_Namespace path
          else NONE
-     | _ => namespace_import_route ctxt S.Value_Namespace path)
+     | _ => namespace_import_route ctxt S.Value_Namespace path))
 
   val pattern_import_route = fn ctxt => namespace_import_route ctxt S.Value_Namespace
 
   (* Struct heads resolve in the type namespace, as in Rust. The uRust struct-call and literal-struct
      registrations are exact notation keys, which imports place in the value namespace. Such a
      value binding may supply a single-segment head only when its key has the notation role the
-     existing struct syntax accepts and neither a type-namespace import nor an unimported Rust type
+     existing struct syntax uses and neither a type-namespace import nor an unimported Rust type
      resolves the head; a value import therefore never changes a Rust struct head. *)
   fun struct_import_route ctxt extension_role path =
     (case namespace_import_route ctxt S.Type_Namespace path of
@@ -996,8 +1235,24 @@ struct
                  | NONE => NONE)
           | _ => NONE))
 
-  fun report_import_use ctxt ({binding, occurrence, ...}: import_route) =
-    S.defer_use_reference ctxt occurrence binding
+  (* The head of a routed path keeps its source token: an import occurrence references its
+     import, Self references the entity its target head denotes with the canonical target as
+     tooltip, and an alias head references the alias. *)
+  fun report_import_use ctxt ({origin, occurrence, ...}: import_route) =
+    (case origin of
+       Import_Origin binding => S.defer_use_reference ctxt occurrence binding
+     | Self_Origin {canonical_path, self_type, report_reference, ...} =>
+         (Micro_Rust_Semantic_Navigation.defer_report ctxt occurrence Markup.keyword3;
+          (case self_type of
+             Type (name, _) => Micro_Rust_Semantic_Navigation.defer_type ctxt occurrence name
+           | _ => ());
+          report_reference occurrence;
+          Micro_Rust_Semantic_Navigation.defer_report_text ctxt occurrence Markup.typing
+            ("Self = " ^ canonical_path))
+     | Alias_Origin key =>
+         (Micro_Rust_Semantic_Navigation.defer_report ctxt occurrence Markup.keyword3;
+          Option.app (URust_Type_Mappings.report_reference ctxt occurrence key)
+            (URust_Type_Mappings.lookup ctxt key)))
 
   (* The roles that make a target usable in each import use. A use that its target supports only
      once a later declaration adds one of them reports that declaration as unavailable. *)
@@ -1005,14 +1260,22 @@ struct
   val value_import_roles = [S.Generated_Constructor, S.Literal_Notation]
   val repeat_length_import_roles = [S.Literal_Notation]
 
-  fun unusable_import ctxt usable role ({binding, canonical, occurrence}: import_route) =
-    if exists (member (op =) usable) (S.pending_roles ctxt binding) then
-      S.unavailable_use_error occurrence binding role
-    else
-      error
-        ("urust_expr: imported name " ^ quote (#alias binding) ^ " resolves to " ^
-          quote (render_path (item_lookup_path canonical)) ^ ", which cannot be used as " ^ role ^
-          Position.here occurrence)
+  fun unusable_import ctxt usable role ({origin, canonical, occurrence, ...}: import_route) =
+    let
+      val target = quote (render_path (item_lookup_path canonical))
+      fun unusable written =
+        error
+          ("urust_expr: " ^ written ^ " resolves to " ^ target ^ ", which cannot be used as " ^
+            role ^ Position.here occurrence)
+    in
+      (case origin of
+         Import_Origin binding =>
+           if exists (member (op =) usable) (S.pending_roles ctxt binding) then
+             S.unavailable_use_error occurrence binding role
+           else unusable ("imported name " ^ quote (#alias binding))
+       | Self_Origin _ => unusable "the Self path"
+       | Alias_Origin key => unusable ("the type alias path " ^ quote key))
+    end
 
   fun qualified_registration_error kind path displayed_name pos =
     error
@@ -1169,7 +1432,7 @@ struct
     let
       val value =
         (case exact_item_constructor ctxt canonical of
-           SOME entry => item_value_path ctxt canonical entry
+           SOME entry => item_value_path ctxt (route_instance (SOME route)) canonical entry
          | NONE =>
              (case exact_registered_path ctxt Micro_Rust_Names.NLiteral canonical of
                 SOME registered => registered
@@ -1197,14 +1460,14 @@ struct
             SOME local_term => local_term
           | NONE =>
               (case exact_item_constructor ctxt path of
-                 SOME entry => item_value_path ctxt path entry
+                 SOME entry => item_value_path ctxt NONE path entry
                | NONE =>
                    (generated_basename_error ctxt "value" path;
                     resolve_identifier ctxt
                       Micro_Rust_Names.NLiteral name pos)))
      | _ =>
          (case exact_item_constructor ctxt path of
-            SOME entry => item_value_path ctxt path entry
+            SOME entry => item_value_path ctxt NONE path entry
           | NONE =>
               (case exact_registered_path ctxt
                   Micro_Rust_Names.NLiteral path of
@@ -1239,12 +1502,174 @@ struct
   fun literal_identifier ctxt environment identifier =
     T.literal (literal_identifier_value ctxt environment identifier)
 
+  (* Rust E0034: the impls of an associated-function key are its owners grouped by identity, so the
+     differently typed instances of one locale impl count as one impl. A path call through a type
+     that fixes an instance (type-segment generic arguments, Self, an alias or imported type head)
+     dispatches only to the path entries of the impls whose Self type unifies with it; without
+     one, a key with two or more impls is ambiguous whatever the argument and expected types. *)
+  fun unifying_self_types (selected, self_type) =
+    let val shifted = Logic.incr_tvar (Term.maxidx_of_typ selected + 1) self_type
+    in can (Type.raw_unify (selected, shifted)) Vartab.empty end
+
+  (* One position per impl, in declaration order: identities are allocated in that order. *)
+  fun impl_positions owners =
+    fold
+      (fn {identity, pos, ...} => fn seen =>
+        if AList.defined (op =) seen identity then seen else seen @ [(identity, pos)])
+      owners []
+    |> sort (int_ord o apply2 #1)
+
+  fun associated_selection ctxt route_selection path =
+    (case path_segments path of
+       segments as _ :: _ :: _ =>
+         let
+           val UR_Path (head, _, span) = path
+           val (type_segments, final as Path_Segment (name, pos, _)) = split_last segments
+           val (outer_segments, Path_Segment (type_name, type_pos, type_arguments)) =
+             split_last type_segments
+           val type_key = space_implode "::" (map (#1 o segment_identifier) type_segments)
+           val key = type_key ^ "::" ^ name
+           val owners = Micro_Rust_Names.associated_functions ctxt key
+         in
+           if null owners orelse is_primitive_path path then NONE
+           else
+             let
+               val _ =
+                 (case find_first (is_some o segment_generic_args) outer_segments of
+                    SOME segment =>
+                      error
+                        ("urust_expr: generic arguments on an intermediate path segment " ^
+                          "require an exact registration" ^
+                          Position.here (#2 (segment_identifier segment)))
+                  | NONE => ())
+               val stripped =
+                 UR_Path
+                   (head,
+                    map (fn Path_Segment (n, p, _) => Path_Segment (n, p, NONE)) type_segments @
+                      [final],
+                    span)
+               val impls = impl_positions owners
+               val selection : (unit -> selection) option =
+                 (case route_selection of
+                    SOME select => SOME select
+                  | NONE =>
+                      Option.map
+                        (fn arguments => fn () =>
+                          {typ = #1 (selection_type ctxt type_key type_pos (SOME arguments)),
+                           written = written_type_name type_name (SOME arguments),
+                           inferred = false})
+                        type_arguments)
+               fun ambiguous candidates =
+                 error
+                   ("urust: multiple applicable items in scope: " ^ key ^
+                     " is defined in more than one impl; write `" ^ type_key ^
+                     "::<\<dots>>::" ^ name ^ "`" ^ Position.here pos ^
+                     implode (map (Position.here o #2) candidates))
+             in
+               (case selection of
+                  NONE => if length impls >= 2 then ambiguous impls else SOME (stripped, [])
+                | SOME select =>
+                    let
+                      val {typ = selected_type, written, inferred} = select ()
+                      val selected =
+                        owners
+                        |> filter (fn {self_type, ...} =>
+                            unifying_self_types (selected_type, self_type))
+                        |> map #identity |> distinct (op =)
+                    in
+                      if null selected then
+                        error
+                          ("urust: no associated function " ^ name ^ " in impls of " ^ written ^
+                            Position.here pos)
+                      (* Omitted generic arguments of a type head leave the instance open. *)
+                      else if inferred andalso length selected >= 2 then
+                        ambiguous (filter (fn (identity, _) => member (op =) selected identity) impls)
+                      else SOME (stripped, [Micro_Rust_Names.Only_Sources selected])
+                    end)
+             end
+         end
+     | _ => NONE)
+
+  (* An exact call registration seen through backend filters: a key without an eligible entry
+     behaves as unregistered. *)
+  fun exact_registered_call ctxt filters path =
+    if Micro_Rust_Names.has_eligible_entries ctxt filters Micro_Rust_Names.NFunction
+        (render_path path)
+    then
+      Option.map
+        (fn registered =>
+          if null filters then registered
+          else Micro_Rust_Dispatch.restrict_backends filters registered)
+        (exact_registered_path ctxt Micro_Rust_Names.NFunction path)
+    else NONE
+
+  (* A direct call does not reach the method entries of impl members. *)
+  fun call_filters direct = if direct then [Micro_Rust_Names.Exclude_Method_Only] else []
+
+  fun registered_call ctxt environment direct route_selection path =
+    (case associated_selection ctxt route_selection path of
+       SOME (stripped, selection) =>
+         let val base = remove_final_generic_args stripped in
+           Option.map
+             (fn registered =>
+               (reject_generated_function_generics ctxt stripped;
+                apply_generic_arguments ctxt environment registered
+                  (segment_generic_args (final_segment stripped))))
+             (exact_registered_call ctxt (call_filters direct @ selection) base)
+         end
+     | NONE => exact_registered_call ctxt (call_filters direct) path)
+
+  fun method_only_key ctxt name =
+    not (null (Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NFunction name)) andalso
+      not (Micro_Rust_Names.has_eligible_entries ctxt [Micro_Rust_Names.Exclude_Method_Only]
+        Micro_Rust_Names.NFunction name)
+
+  (* The associated paths that register the backends of a bare method key, for the hint. *)
+  fun method_paths ctxt name =
+    let
+      val backends =
+        map (identifier_leaf o #hol_term) (Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NFunction name)
+      fun same_backend ({hol_term, ...}: Micro_Rust_Names.entry) =
+        exists (fn backend => Term.aconv_untyped (identifier_leaf hol_term, backend)) backends
+    in
+      Micro_Rust_Names.dump ctxt
+      |> map_filter (fn (kind, key, entry) =>
+          if kind = Micro_Rust_Names.NFunction andalso key <> name andalso
+             String.isSuffix ("::" ^ name) key andalso same_backend entry
+          then SOME key else NONE)
+      |> distinct (op =) |> sort_strings
+    end
+
+  (* A key whose every entry is a method entry is unregistered for a direct call: an existing HOL
+     constant or fixed variable of that name is called; otherwise the call is rejected with a
+     hint naming the method call forms. *)
+  fun method_only_call ctxt name pos =
+    let
+      val term = resolve_hol_identifier ctxt name pos
+      val paths =
+        (case method_paths ctxt name of
+           [] => ["T::" ^ name]
+         | paths => paths)
+      val hint =
+        name ^ " is a method; call it as `x." ^ name ^ "(..)` or " ^
+          space_implode " or " (map (fn path => "`" ^ path ^ "(x, ..)`") paths)
+    in
+      (case identifier_leaf term of
+         Const _ =>
+           (constrain_call_head ctxt name pos term
+             handle ERROR message => error (message ^ "\n" ^ hint))
+       | Free (free_name, _) =>
+           if Variable.is_fixed ctxt free_name then term
+           else error ("urust_expr: " ^ hint ^ Position.here pos)
+       | _ => term)
+    end
+
   datatype item_call_role =
       Ordinary_Item_Call
     | Struct_Item_Call
     | No_Item_Call
 
-  fun item_function_path role ctxt path actual_arity entry =
+  fun item_function_path role ctxt instance path actual_arity entry =
     let
 
       val name = render_path path
@@ -1299,7 +1724,7 @@ struct
               string_of_int actual_arity ^
               Position.here pos)
       val _ = report_item_constructor ctxt path entry
-      val constructor = source_constructor ctxt path entry
+      val constructor = source_constructor ctxt instance path entry
     in
       T.source_position pos
         (if arity = 0 then T.function_body (T.literal constructor)
@@ -1315,15 +1740,17 @@ struct
          | _ => "a call")
       val function =
              (case exact_item_constructor ctxt canonical of
-                SOME entry => item_function_path item_role ctxt canonical actual_arity entry
+                SOME entry =>
+                  item_function_path item_role ctxt (route_instance (SOME route)) canonical
+                    actual_arity entry
               | NONE =>
-                  (case exact_registered_path ctxt Micro_Rust_Names.NFunction canonical of
+                  (case registered_call ctxt environment true (#selection route) canonical of
                      SOME registered => registered
                    | NONE =>
                        (case segment_generic_args (final_segment canonical) of
                           NONE => unusable_import ctxt call_import_roles role route
                         | SOME arguments =>
-                            (case exact_registered_path ctxt Micro_Rust_Names.NFunction
+                            (case exact_registered_call ctxt (call_filters true)
                                 (remove_final_generic_args canonical) of
                                SOME registered =>
                                  (reject_generated_function_generics ctxt canonical;
@@ -1362,11 +1789,10 @@ struct
                 else exact_item_constructor ctxt path
               of
                 SOME entry =>
-                  item_function_path item_role ctxt path
+                  item_function_path item_role ctxt NONE path
                     actual_arity entry
               | NONE =>
-                  (case exact_registered_path ctxt
-                      Micro_Rust_Names.NFunction path of
+                  (case registered_call ctxt environment (item_role <> No_Item_Call) NONE path of
                      SOME registered => registered
                    | NONE =>
                        if is_primitive_path path then
@@ -1380,10 +1806,20 @@ struct
                              generated_basename_error
                                ctxt "call" path
                          val _ = reject_intermediate_generics path
-                         val _ = reject_generated_function_generics ctxt path
                          val base = remove_final_generic_args path
+                         (* Method entries are not callable directly, with or without a
+                            turbofish. *)
+                         val method_only =
+                           item_role <> No_Item_Call andalso not (is_qualified_path base) andalso
+                             method_only_key ctxt (render_path base)
+                         val _ =
+                           if method_only then () else reject_generated_function_generics ctxt path
                          val function =
-                           if item_role = No_Item_Call andalso
+                           if method_only
+                           then
+                             let val (name, pos) = path_terminal base
+                             in method_only_call ctxt name pos end
+                           else if item_role = No_Item_Call andalso
                               not (is_qualified_path base)
                            then
                              let val (name, pos) = path_terminal base
@@ -1443,9 +1879,10 @@ struct
         val _ = report_item_constructor ctxt path entry
         val unchanged = names = map I.field_rust_name source_fields
         val arity = length names
-        val function = if unchanged then source_constructor ctxt path entry else
+        val instance = route_instance route
+        val function = if unchanged then source_constructor ctxt instance path entry else
           let
-            val pure = source_constructor_scheme ctxt path entry
+            val pure = source_constructor_scheme ctxt instance path entry
             val field_types = map I.field_rust_name source_fields ~~ binder_types (fastype_of pure)
             val variables = map_index (fn (index, name) =>
               let
@@ -1454,7 +1891,7 @@ struct
             val arguments = map (fn field =>
               the (AList.lookup (op =) variables (I.field_rust_name field))) source_fields
             val wrapper = fold_rev (lambda o snd) variables (list_comb (pure, arguments))
-          in fresh_item_instance path wrapper end
+          in if is_some instance then wrapper else fresh_item_instance path wrapper end
       in if arity = 0 then T.literal function else T.lift_function pos arity function end)
       (exact_item_constructor ctxt path)
     end
@@ -1507,30 +1944,48 @@ struct
   fun registered_function ctxt identifier =
     registered_identifier ctxt Micro_Rust_Names.NFunction identifier
 
-  fun registered_macro_path ctxt path
-      {complete_name, complete_pos, bang_pos} =
-    if null
-        (Micro_Rust_Names.lookups
-          ctxt Micro_Rust_Names.NFunction complete_name)
-    then
-      if is_qualified_path path
+  (* A macro path is a path role like any other: self_route rejects a later Self or self and
+     substitutes a leading Self inside an impl (rejecting it outside one), so the lookup, and a
+     missing-registration hint, use the canonical key. Self alone is a type, never a macro. *)
+  fun registered_macro_path ctxt written_path
+      {complete_name = written_name, complete_pos, bang_pos} =
+    let
+      val route = self_route ctxt written_path
+      val _ =
+        (case (route, path_segments written_path) of
+           (SOME _, [Path_Segment (_, pos, _)]) =>
+             error ("urust_expr: cannot find macro `Self`: Self names a type, not a macro" ^
+               Position.here pos)
+         | _ => ())
+      val (path, complete_name) =
+        (case route of
+           SOME {canonical, ...} => (canonical, render_path canonical ^ "!")
+         | NONE => (written_path, written_name))
+    in
+      if null
+          (Micro_Rust_Names.lookups
+            ctxt Micro_Rust_Names.NFunction complete_name)
       then
-        qualified_registration_error Micro_Rust_Names.NFunction path
-          complete_name complete_pos
-      else NONE
-    else
-      let
-        val terminal_pos =
-          #2 (segment_identifier (final_segment path))
-        val registered =
-          Micro_Rust_Dispatch.mk_marker_positions_with_backend_targets
-            Micro_Rust_Names.NFunction complete_name terminal_pos
-            (path_qualifier_positions path) [bang_pos]
-            (Free (complete_name, dummyT))
-        val _ =
-          report_registered_path_qualifiers ctxt
-            Micro_Rust_Names.NFunction complete_name path
-      in SOME registered end
+        if is_qualified_path path
+        then
+          qualified_registration_error Micro_Rust_Names.NFunction path
+            complete_name complete_pos
+        else NONE
+      else
+        let
+          val terminal_pos =
+            #2 (segment_identifier (final_segment path))
+          val registered =
+            Micro_Rust_Dispatch.mk_marker_positions_with_backend_targets
+              Micro_Rust_Names.NFunction complete_name terminal_pos
+              (path_qualifier_positions path) [bang_pos]
+              (Free (complete_name, dummyT))
+          val _ =
+            report_registered_path_qualifiers ctxt
+              Micro_Rust_Names.NFunction complete_name path
+          val _ = Option.app (report_import_use ctxt) route
+        in SOME registered end
+    end
 
   fun registered_function_path ctxt path =
     exact_registered_path ctxt Micro_Rust_Names.NFunction path
@@ -1545,6 +2000,21 @@ struct
   fun is_nullary_function_type T =
     function_body_arity T = SOME 0
 
+  (* The entries a direct call may reach, also through a type segment that selects impls. *)
+  fun direct_call_entries ctxt path =
+    let
+      fun eligible key =
+        Micro_Rust_Names.eligible_entries ctxt (call_filters true)
+          (Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NFunction key)
+    in
+      (case eligible (render_path path) of
+         [] =>
+           (case path_segments path of
+              _ :: _ :: _ => eligible (render_path (item_lookup_path path))
+            | _ => [])
+       | entries => entries)
+    end
+
   fun is_nullary_function_path ctxt
       (environment as {locals, ...} : environment) source_path =
     (case value_import_route ctxt environment source_path of
@@ -1552,13 +2022,12 @@ struct
          exists
            (fn ({hol_term, ...} : Micro_Rust_Names.entry) =>
              is_nullary_function_type (fastype_of hol_term))
-           (Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NFunction (render_path canonical))
+           (direct_call_entries ctxt canonical)
      | NONE =>
     let
       val path = source_path
       fun registered () =
-        Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NFunction
-          (render_path path)
+        direct_call_entries ctxt path
         |> exists
             (fn ({hol_term, ...} : Micro_Rust_Names.entry) =>
               is_nullary_function_type (fastype_of hol_term))
@@ -1976,7 +2445,7 @@ struct
     end
 
   fun item_constructor_candidates ctxt
-      (Constructor_Resolver {registered_by_identity, ...}) path entry =
+      (Constructor_Resolver {registered_by_identity, ...}) instance path entry =
     let
       val backend = identifier_leaf (I.constructor_term entry)
       val sugar_matches =
@@ -1992,11 +2461,15 @@ struct
       val selectors = map snd (I.constructor_fields entry)
       fun source_selectors ({identity, constructor, arity, family, ...}: constructor_info) =
         {identity = identity,
-         constructor = if null (map_filter segment_generic_args (path_segments path))
-           then constructor
-           else item_constructor_instance ctxt path entry
-             (I.constructor_scheme entry |> Term.map_types Type.legacy_freeze_type)
-             |> fresh_item_instance path,
+         constructor =
+           (case instance of
+              SOME typ => instantiated_scheme ctxt path entry typ
+            | NONE =>
+                if null (map_filter segment_generic_args (path_segments path))
+                then constructor
+                else item_constructor_instance ctxt path entry
+                  (I.constructor_scheme entry |> Term.map_types Type.legacy_freeze_type)
+                  |> fresh_item_instance path),
          arity = arity,
          family = family, selectors = selectors}: constructor_info
     in distinct_constructor_infos (map source_selectors candidates) end
@@ -2038,7 +2511,7 @@ struct
 
   (* An imported pattern path is exact: only the canonical generated item or exact literal
      registration can supply a constructor, and absence is not a basename fallback. *)
-  fun resolve_imported_constructor ctxt resolver ({canonical, ...}: import_route) =
+  fun resolve_imported_constructor ctxt resolver (route as {canonical, ...}: import_route) =
     let
       val name = render_path canonical
       val pos = #2 (path_terminal canonical)
@@ -2046,7 +2519,8 @@ struct
       val registrations = exact_literal_registrations ctxt canonical
       val candidates =
         (case item of
-           SOME entry => item_constructor_candidates ctxt resolver canonical entry
+           SOME entry =>
+             item_constructor_candidates ctxt resolver (route_instance (SOME route)) canonical entry
          | NONE => registered_constructor_candidates ctxt resolver registrations)
     in
       (case candidates of
@@ -2079,7 +2553,7 @@ struct
       val candidates =
         (case item of
            SOME entry =>
-             item_constructor_candidates ctxt resolver path entry
+             item_constructor_candidates ctxt resolver NONE path entry
          | NONE =>
              if null registrations
              then
@@ -2265,7 +2739,7 @@ struct
       (resolver as
         Constructor_Resolver
           {type_fallbacks, record_types, ...})
-      exact head_path =
+      exact instance head_path =
     let
       val theory = Proof_Context.theory_of ctxt
       val identifier_name = render_path head_path
@@ -2290,7 +2764,7 @@ struct
       val direct_candidates =
         (case item of
            SOME entry =>
-             item_constructor_candidates ctxt resolver head_path entry
+             item_constructor_candidates ctxt resolver instance head_path entry
          | NONE =>
              if qualified
              then
@@ -2446,7 +2920,7 @@ struct
                    Position.here pos)
              else ())
       val candidate =
-        resolve_struct_constructor ctxt resolver (is_some route) head_path
+        resolve_struct_constructor ctxt resolver (is_some route) (route_instance route) head_path
       val (display_name, selectors) =
         (case candidate of
            Constructor_Candidate {info, selectors} =>
@@ -2547,6 +3021,39 @@ struct
        | Record_Candidate {record_name, ...} =>
            Resolved_Record_Struct (record_name, ordered))
     end
+
+  (* Self as a parameter pattern: inside an impl of a unit struct it matches
+     the unit value, of the Self type; otherwise it gets the path-pattern errors of a binding
+     site, and outside impls the outside-impl message. *)
+  fun self_pattern ctxt pos =
+    let val path = make_single_path ("Self", pos) in
+      (case self_route ctxt path of
+         SOME (route as {canonical, ...}) =>
+           (case exact_item_constructor ctxt canonical of
+              SOME entry =>
+                if I.constructor_shape entry = I.Unit_Constructor andalso
+                   I.constructor_origin entry = I.Struct_Constructor
+                then
+                  (report_item_constructor ctxt canonical entry; report_import_use ctxt route;
+                   (case route_instance (SOME route) of SOME typ => typ | NONE => dummyT))
+                else
+                  error
+                    ("urust_expr: constructor " ^ quote "Self" ^ " expects " ^
+                      string_of_int (item_constructor_arity ctxt entry) ^
+                      " pattern argument(s), but got 0" ^ Position.here pos)
+            | NONE =>
+                error
+                  ("urust_expr: unsupported or refutable pattern in a binding position: Self (" ^
+                    quote (render_path (item_lookup_path canonical)) ^ ") is not a unit struct" ^
+                    Position.here pos))
+       | NONE => raise Fail "urust_expr: internal Self route")
+    end
+
+  fun allocate_expression_arguments ctxt environment arguments =
+    gen_allocate_parameters self_pattern "urust_expr" "argument" ctxt environment arguments
+
+  fun allocate_function_parameters ctxt environment parameters =
+    gen_allocate_parameters self_pattern "urust_fn" "parameter" ctxt environment parameters
 end
 \<close>
 
