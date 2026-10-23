@@ -1402,6 +1402,12 @@ datatype function_signature =
 fun function_parameter_types ctxt function =
   map (function_parameter_type ctxt) (URust_AST.function_parameters function)
 
+fun reject_function_type_generics function =
+  (case URust_AST.function_type_parameters function of
+     [] => ()
+   | URust_AST.Generic_Parameter (_, pos, _) :: _ =>
+       error ("urust_fn: type generics are not supported" ^ Position.here pos))
+
 (* A declared type is read like a urust_expr declaration type and alone supplies the parameter
    slots: the Rust parameter and return types are never resolved and do not constrain it. Lifetime
    scope and the lexical Self/self scope, path-start and keyword rules remain Rust rules of the item.
@@ -1411,6 +1417,7 @@ fun function_parameter_types ctxt function =
    complete type supplies the lexical parameter slots and the sole body-checking pipeline. *)
 fun prepare_function_signature lthy (Declared_Signature declared) function =
       let
+        val _ = reject_function_type_generics function
         val arguments = function_arguments lthy function
         val rust_types =
           function_parameter_types lthy function @
@@ -1431,6 +1438,7 @@ fun prepare_function_signature lthy (Declared_Signature declared) function =
       end
   | prepare_function_signature lthy (Rust_Signature channels) function =
       let
+        val _ = reject_function_type_generics function
         val arguments = function_arguments lthy function
         val parameter_types = function_parameter_types lthy function
         val return_type =

@@ -40,6 +40,7 @@ sig
   val annotation_layout_error: string -> Position.T -> 'a
   val use_error: string -> Position.T -> 'a
   val lifetime_error: string -> Position.T -> 'a
+  val function_generic_error: string -> Position.T -> 'a
   val match_arm_separator_error: Position.T -> 'a
   val impl_item_mode_error: Position.T -> 'a
   val impl_in_expression_error: Position.T -> 'a
@@ -198,6 +199,9 @@ struct
   fun lifetime_error message pos =
     error ("uRust lifetime: " ^ message ^ Position.here pos)
 
+  fun function_generic_error message pos =
+    error ("urust_fn: " ^ message ^ Position.here pos)
+
   fun match_arm_separator_error pos =
     error
       ("uRust match: syntax error: " ^ quote ";" ^
@@ -334,6 +338,8 @@ val signature_paren_depth = ref 0
 val signature_brace_depth = ref 0
 val signature_bracket_depth = ref 0
 val signature_angle_depth = ref 0
+val function_parameters_started = ref false
+val function_where_started = ref false
 (* Const arguments reuse the ordinary expression lexer until their balanced closing brace. *)
 val const_expression_depth = ref 0
 
@@ -503,6 +509,7 @@ fun reset_state () =
    input_mode := Expression_Input; brace_stack := []; last_token := "";
    impl_keyword := Position.none; impl_member_start := Position.none; last_token_args := (0, "");
    signature_brace_depth := 0; signature_bracket_depth := 0; signature_angle_depth := 0;
+   function_parameters_started := false; function_where_started := false;
    const_expression_depth := 0;
    signature_context := Function_Signature)
 fun start_aq kind open_pos open_text body_pos =
@@ -526,7 +533,9 @@ fun start_signature context =
    signature_paren_depth := 0;
    signature_brace_depth := 0;
    signature_bracket_depth := 0;
-   signature_angle_depth := 0)
+   signature_angle_depth := 0;
+   function_parameters_started := false;
+   function_where_started := false)
 
 (* A suffixed integer literal is deliberately NOT interpreted here: the lexer captures the raw lexeme and
    the elaboration term layer reads it against the single suffix table, so an unknown suffix is a
@@ -775,13 +784,54 @@ fun impl_header_top_level () =
     !signature_paren_depth = 0 andalso
     !signature_bracket_depth = 0
 
+(* Identifiers advance the function header's previous token too: a where clause may follow
+   a qualified result, but a path segment immediately after :: remains an identifier. *)
+fun tok_signature_ident args =
+  let
+    val token = tok_ident args
+    val _ =
+      if !signature_context = Function_Signature
+      then (last_token := "IDENT"; last_token_args := args)
+      else ()
+  in token end
+
 (* A trait impl's `for` and a where clause start at the header's own level. Nested inside the
-   target, and elsewhere in signatures, `for` and `where` remain identifiers, so a nested
-   higher-ranked type gets the ordinary type-position diagnostic. *)
+   target, and elsewhere in signatures, they remain identifiers. *)
 fun impl_header_keyword construct args =
   if impl_header_top_level ()
   then reject_impl_header construct args
-  else tok_ident args
+  else tok_signature_ident args
+
+(* A function clause starts outside parameter and retained-type groups. *)
+fun signature_where args =
+  if impl_header_top_level () then reject_impl_header "a where clause" args
+  else if !signature_context = Function_Signature andalso !function_parameters_started andalso
+      not (List.exists (fn token => token = !last_token)
+        ["TTHINARROW", "TAMP", "TSTAR", "TMUT", "TCONST", "TIMPL", "TCOLONCOLON"]) andalso
+      !signature_angle_depth = 0 andalso !signature_paren_depth = 0 andalso
+      !signature_bracket_depth = 0
+  then (function_where_started := true;
+    tokF (#1 args, #2 args, Markup.keyword1, "TWHERE", Tokens.TWHERE))
+  else tok_signature_ident args
+
+(* Bound punctuation is new only in the function header's generic list or where clause.
+   Other retained type positions, datatype/alias headers and impl targets keep their lexer. *)
+fun signature_bound_operator markup name constructor (yypos, text) =
+  if !signature_context = Function_Signature andalso
+      !signature_paren_depth = 0 andalso !signature_bracket_depth = 0 andalso
+      ((not (!function_parameters_started) andalso !signature_angle_depth = 1) orelse
+       (!function_where_started andalso !signature_angle_depth = 0))
+  then tokF (yypos, text, markup, name, constructor)
+  else URust_Grammar.lex_error text (fixed_pos yypos)
+
+fun signature_equals args =
+  if !signature_context = Function_Signature andalso
+      not (!function_parameters_started) andalso
+      !signature_angle_depth = 1 andalso !signature_paren_depth = 0 andalso
+      !signature_bracket_depth = 0
+  then URust_Grammar.function_generic_error
+    "defaults on function generic parameters are not supported" (source_position args)
+  else tokF (#1 args, #2 args, Markup.delimiter, "TEQ", Tokens.TEQ)
 
 fun tok_rust_type primitive (yypos, yytext) =
   tok_valF
@@ -885,7 +935,11 @@ fun take_pending_signature_token () =
    | [] => NONE)
 
 fun signature_left_paren (yypos, yytext) =
-  (signature_paren_depth := !signature_paren_depth + 1;
+  (if !signature_context = Function_Signature andalso
+       !signature_paren_depth = 0 andalso !signature_angle_depth = 0 andalso
+       !signature_bracket_depth = 0
+   then function_parameters_started := true else ();
+   signature_paren_depth := !signature_paren_depth + 1;
    tokF (yypos, yytext, Markup.delimiter, "LPAR", Tokens.LPAR))
 
 fun signature_right_paren (yypos, yytext) =
@@ -1465,11 +1519,11 @@ lex_rules\<open>
 <FNSIG>"impl"   => (tok_impl (yypos, yytext));
 <FNSIG>"for"    =>
     (impl_header_keyword "a trait impl (`impl Trait for T`)" (yypos, yytext));
-<FNSIG>"where"  => (impl_header_keyword "a where clause" (yypos, yytext));
+<FNSIG>"where"  => (signature_where (yypos, yytext));
 <FNSIG>"mut"    => (tokF (yypos, yytext, Markup.keyword1, "TMUT", Tokens.TMUT));
 <FNSIG>"const"  => (tokF (yypos, yytext, Markup.keyword1, "TCONST", Tokens.TCONST));
 <FNSIG>"->"     => (tokF (yypos, yytext, Markup.delimiter, "TTHINARROW", Tokens.TTHINARROW));
-<FNSIG>"="      => (tokF (yypos, yytext, Markup.delimiter, "TEQ", Tokens.TEQ));
+<FNSIG>"="      => (signature_equals (yypos, yytext));
 <FNSIG>"::"     => (tokF (yypos, yytext, Markup.delimiter, "TCOLONCOLON", Tokens.TCOLONCOLON));
 <FNSIG>"..="    => (tokF (yypos, yytext, Markup.operator, "TDOTDOTEQ", Tokens.TDOTDOTEQ));
 <FNSIG>".."     => (tokF (yypos, yytext, Markup.operator, "TDOTDOT", Tokens.TDOTDOT));
@@ -1517,6 +1571,10 @@ lex_rules\<open>
      else ();
      tokF (yypos, yytext, Markup.delimiter, "TSEMI", Tokens.TSEMI));
 <FNSIG>":"      => (tokF (yypos, yytext, Markup.delimiter, "TCOLON", Tokens.TCOLON));
+<FNSIG>"+"      =>
+    (signature_bound_operator Markup.operator "TPLUS" Tokens.TPLUS (yypos, yytext));
+<FNSIG>"?"      =>
+    (signature_bound_operator Markup.operator "TQUESTION" Tokens.TQUESTION (yypos, yytext));
 <FNSIG>"{"      =>
     (if !signature_angle_depth > 0 then
        (const_expression_depth := 1;
@@ -1541,7 +1599,7 @@ lex_rules\<open>
         then YYBEGIN INITIAL else ())
      else ();
      tokF (yypos, yytext, Markup.delimiter, "TRBRACE", Tokens.TRBRACE));
-<FNSIG>{idstart}{identchar}* => (tok_ident (yypos, yytext));
+<FNSIG>{idstart}{identchar}* => (tok_signature_ident (yypos, yytext));
 <FNSIG>"'"{idstart}{idchar}* => (tok_lifetime (yypos, yytext));
 <FNSIG>.        => (URust_Grammar.lex_error yytext (fixed_pos yypos));
 <LOGDATA>\n       => (lex());
@@ -1891,10 +1949,95 @@ fun rust_type_parameter mutable_pos pattern typ colon_pos =
          | NONE => []) @
         [(Delimiter_Token ":", colon_pos)]))
 
+fun check_function_generics parameters =
+  let
+    fun check _ _ [] = ()
+      | check named seen (Generic_Lifetime (Rust_Lifetime (_, pos)) :: rest) =
+          if named then URust_Grammar.function_generic_error
+            "lifetime parameters must be declared prior to type and const parameters" pos
+          else check false seen rest
+      | check _ seen (parameter :: rest) =
+          let
+            val (name, pos) =
+              (case parameter of
+                 Generic_Type (name, pos, _) => (name, pos)
+               | Generic_Const (name, pos, _) => (name, pos)
+               | Generic_Lifetime _ => raise Fail "uRust generic parameter classification")
+            val _ =
+              (case List.find (fn (earlier, _) => earlier = name) seen of
+                 NONE => ()
+               | SOME (_, original) =>
+                   URust_Grammar.function_generic_error
+                     ("duplicate generic parameter " ^ name ^ Position.here pos ^
+                       "; first declared") original)
+          in check true ((name, pos) :: seen) rest end
+  in check false [] parameters end
+
+fun function_parameter_markup parameters =
+  List.app
+    (fn Generic_Type (_, pos, _) => Position.report pos Markup.tfree
+      | Generic_Const (_, pos, _) => Position.report pos Markup.tfree
+      | Generic_Lifetime _ => ()) parameters
+
+fun function_trait_path (name, pos) =
+  Rust_Trait_Bound ([(name, pos)], single_token_layout Name_Token pos)
+
+fun append_function_trait_path (Rust_Trait_Bound (segments, layout), name, pos, separator) =
+  Rust_Trait_Bound
+    (segments @ [(name, pos)],
+     syntax_layout (source_span layout) pos
+       (source_tokens layout @ [(Delimiter_Token "::", separator), (Name_Token, pos)]))
+
+fun function_trait_tokens (Rust_Trait_Bound (_, layout)) = source_tokens layout
+
+fun function_const_parameter (name, pos, typ) =
+  (case typ of
+     Primitive_Type (DPT_Usize, _) => Generic_Const (name, pos, typ)
+   | _ => URust_Grammar.datatype_error "const parameters require usize" (rust_type_position typ))
+
+fun function_where_head typ =
+  let
+    fun layout_position layout =
+      (case source_tokens layout of (_, pos) :: _ => pos | [] => source_span layout)
+    fun head_position (Path_Type (Rust_Type_Path_Segment (_, pos, _, _) :: _, _)) = pos
+      | head_position (Tuple_Type (_, layout)) = layout_position layout
+      | head_position (Group_Type (_, layout)) = layout_position layout
+      | head_position (Reference_Type (_, _, _, layout)) = layout_position layout
+      | head_position (Raw_Pointer_Type (_, _, layout)) = layout_position layout
+      | head_position (Slice_Type (_, layout)) = layout_position layout
+      | head_position (Array_Type (_, _, layout)) = layout_position layout
+      | head_position (Const_Array_Type (_, _, layout)) = layout_position layout
+      | head_position (Function_Type (_, _, layout)) = layout_position layout
+      | head_position (Impl_Trait_Type (_, layout)) = layout_position layout
+      | head_position other = rust_type_position other
+  in
+    (case typ of
+       Path_Type ([Rust_Type_Path_Segment (name, pos, NONE, _)], _) => (name, pos)
+     | _ => URust_Grammar.function_generic_error
+         "where clauses may only bound this function's type parameters" (head_position typ))
+  end
+
 fun rust_function_item
-    (name, name_pos, (lifetimes, generic_tokens), parameters, return_type, body,
+    (name, name_pos, (generics, generic_layout), (where_clause, where_layout),
+     parameters, return_type, body,
      fn_pos, left_paren, right_paren, arrow_pos) =
   let
+    val _ = check_function_generics generics
+    val _ =
+      List.app (fn (head, pos, _) =>
+        if List.exists
+            (fn Generic_Type (name, _, _) => name = head | _ => false) generics
+        then ()
+        else URust_Grammar.function_generic_error
+          "where clauses may only bound this function's type parameters" pos) where_clause
+    val _ = function_parameter_markup generics
+    val generic_tokens = source_tokens generic_layout
+    val where_tokens = source_tokens where_layout
+    val layout =
+      if null generic_tokens then where_layout
+      else if null where_tokens then generic_layout
+      else syntax_layout (source_span generic_layout) (source_span where_layout)
+        (generic_tokens @ where_tokens)
     val body_layout = expression_source_layout body
     val signature_tokens =
       [(Keyword_Token "fn", fn_pos),
@@ -1903,10 +2046,11 @@ fun rust_function_item
        (Delimiter_Token ")", right_paren)] @
       (case arrow_pos of
          SOME pos => [(Delimiter_Token "->", pos)]
-       | NONE => [])
+        | NONE => []) @ where_tokens
   in
     Function_Item
-      (name, name_pos, lifetimes, parameters, return_type, body,
+      (name, name_pos, {parameters = generics, where_clause = where_clause, layout = layout},
+       parameters, return_type, body,
        syntax_layout fn_pos (source_span body_layout)
          (signature_tokens @ source_tokens body_layout))
   end
@@ -2079,6 +2223,7 @@ yacc_definitions\<open>
     | TIMPL of Parser_Lex_Util.source_layout
     | TDOLLAR
     | TCONSTOPEN of Parser_Lex_Util.source_layout
+    | TWHERE
 %nonterm ustart of URust_AST.parse_result option
        | uitem of URust_AST.urust_item
        | uchunk_items of
@@ -2093,9 +2238,26 @@ yacc_definitions\<open>
            (URust_AST.source_token * Position.T) list
        | ualias_parameter_names of URust_AST.generic_parameter list
        | ufn_generics of
-           URust_AST.rust_lifetime list * (URust_AST.source_token * Position.T) list
-       | ufn_lifetime_parameters of URust_AST.rust_lifetime list
-       | ufn_lifetime_parameter of URust_AST.rust_lifetime
+           URust_AST.function_generic list * URust_AST.source_layout
+       | ufn_generic_parameters of
+           URust_AST.function_generic list * (URust_AST.source_token * Position.T) list
+       | ufn_generic_parameter of
+           URust_AST.function_generic * (URust_AST.source_token * Position.T) list
+       | ufn_bounds of
+           URust_AST.rust_trait_bound list * (URust_AST.source_token * Position.T) list
+       | ufn_optional_bounds of
+           URust_AST.rust_trait_bound list * (URust_AST.source_token * Position.T) list
+       | ufn_lifetime_bounds of unit
+       | ufn_trait_bound of URust_AST.rust_trait_bound
+       | ufn_trait_path of URust_AST.rust_trait_bound
+       | ufn_where of
+           (string * Position.T * URust_AST.rust_trait_bound list) list * URust_AST.source_layout
+       | ufn_where_items of
+           (string * Position.T * URust_AST.rust_trait_bound list) list *
+           (URust_AST.source_token * Position.T) list
+       | ufn_where_item of
+           (string * Position.T * URust_AST.rust_trait_bound list) *
+           (URust_AST.source_token * Position.T) list
        | ufn_parameter_list of URust_AST.function_parameter list
        | ufn_parameters of URust_AST.function_parameter list
        | ufn_parameter of URust_AST.function_parameter
@@ -2403,25 +2565,99 @@ yacc_rules\<open>
           (Enum_Item (IDENT, IDENTleft, #1 uvariants,
             Position.range_position (TENUMleft, TRBRACEright))))
   ufunction :
-      TFN IDENT ufn_generics LPAR ufn_parameter_list RPAR ufn_return ublock
+       TFN IDENT ufn_generics LPAR ufn_parameter_list RPAR ufn_return ufn_where ublock
         (rust_function_item
-          (IDENT, IDENTleft, ufn_generics, ufn_parameter_list,
+           (IDENT, IDENTleft, ufn_generics, ufn_where, ufn_parameter_list,
            #1 ufn_return, ublock, TFNleft,
            LPARleft, RPARleft, #2 ufn_return))
   ufn_generics :
-      ([], [])
-    | TLT ufn_lifetime_parameters TGT
-        (ufn_lifetime_parameters,
-         [(Delimiter_Token "<", TLTleft), (Delimiter_Token ">", TGTleft)])
-  ufn_lifetime_parameters :
-      ufn_lifetime_parameter ([ufn_lifetime_parameter])
-    | ufn_lifetime_parameter COMMA ([ufn_lifetime_parameter])
-    | ufn_lifetime_parameter COMMA ufn_lifetime_parameters
-        (ufn_lifetime_parameter :: ufn_lifetime_parameters)
-  ufn_lifetime_parameter :
-      TLIFETIME (Rust_Lifetime (TLIFETIME, TLIFETIMEleft))
-    | TLIFETIME TCOLON TLIFETIME
-        (URust_Grammar.lifetime_error "lifetime bounds are not supported" TCOLONleft)
+       ([], make_source_layout Position.none [])
+     | TLT TGT
+         ([], syntax_layout TLTleft TGTright
+           [(Delimiter_Token "<", TLTleft), (Delimiter_Token ">", TGTleft)])
+     | TLT ufn_generic_parameters TGT
+         (#1 ufn_generic_parameters,
+          syntax_layout TLTleft TGTright
+            ((Delimiter_Token "<", TLTleft) :: #2 ufn_generic_parameters @
+             [(Delimiter_Token ">", TGTleft)]))
+   ufn_generic_parameters :
+       ufn_generic_parameter ([#1 ufn_generic_parameter], #2 ufn_generic_parameter)
+     | ufn_generic_parameter COMMA
+         ([#1 ufn_generic_parameter], #2 ufn_generic_parameter @ [(Delimiter_Token ",", COMMAleft)])
+     | ufn_generic_parameter COMMA ufn_generic_parameters
+         (#1 ufn_generic_parameter :: #1 ufn_generic_parameters,
+          #2 ufn_generic_parameter @ [(Delimiter_Token ",", COMMAleft)] @
+            #2 ufn_generic_parameters)
+   ufn_generic_parameter :
+       TLIFETIME
+         (Generic_Lifetime (Rust_Lifetime (TLIFETIME, TLIFETIMEleft)),
+          [(Name_Token, TLIFETIMEleft)])
+     | TLIFETIME TCOLON ufn_lifetime_bounds
+         (URust_Grammar.lifetime_error "lifetime bounds are not supported" TCOLONleft)
+     | IDENT ufn_optional_bounds
+         (Generic_Type (IDENT, IDENTleft, #1 ufn_optional_bounds),
+          [(Name_Token, IDENTleft)] @ #2 ufn_optional_bounds)
+     | TCONST IDENT TCOLON urust_type
+         (function_const_parameter (IDENT, IDENTleft, urust_type),
+          [(Keyword_Token "const", TCONSTleft), (Name_Token, IDENTleft),
+           (Delimiter_Token ":", TCOLONleft)])
+     | TCONST IDENT TCOLON urust_type TCOLON ufn_bounds
+         (URust_Grammar.function_generic_error
+           "bounds on const parameters are not supported" TCOLON2left)
+     | TCONST IDENT TCOLON urust_type TPLUS ufn_bounds
+         (URust_Grammar.function_generic_error
+           "bounds on const parameters are not supported" TPLUSleft)
+   ufn_optional_bounds :
+       ([], [])
+     | TCOLON ufn_bounds
+         (#1 ufn_bounds, (Delimiter_Token ":", TCOLONleft) :: #2 ufn_bounds)
+   ufn_bounds :
+       ufn_trait_bound ([ufn_trait_bound], function_trait_tokens ufn_trait_bound)
+     | ufn_trait_bound TPLUS ufn_bounds
+         (ufn_trait_bound :: #1 ufn_bounds,
+          function_trait_tokens ufn_trait_bound @ [(Operator_Token, TPLUSleft)] @ #2 ufn_bounds)
+   ufn_lifetime_bounds :
+       TLIFETIME (())
+     | TLIFETIME TPLUS ufn_lifetime_bounds (())
+   ufn_trait_bound :
+       ufn_trait_path (ufn_trait_path)
+     | TQUESTION ufn_trait_path
+         (URust_Grammar.function_generic_error
+           "optional trait bounds are not supported" TQUESTIONleft)
+     | TLIFETIME
+         (URust_Grammar.lifetime_error "lifetime bounds are not supported" TLIFETIMEleft)
+     | ufn_trait_path TLT urust_generic_arguments TGT
+         (URust_Grammar.function_generic_error
+           "generic trait bounds are not supported" TLTleft)
+     | ufn_trait_path TLT TGT
+         (URust_Grammar.function_generic_error
+           "generic trait bounds are not supported" TLTleft)
+     | ufn_trait_path LPAR urust_optional_types RPAR ufn_return
+         (URust_Grammar.function_generic_error
+           "Fn trait bounds are not supported" LPARleft)
+   ufn_trait_path :
+       IDENT (function_trait_path (IDENT, IDENTleft))
+     | ufn_trait_path TCOLONCOLON IDENT
+         (append_function_trait_path (ufn_trait_path, IDENT, IDENTleft, TCOLONCOLONleft))
+   ufn_where :
+       ([], make_source_layout Position.none [])
+     | TWHERE ufn_where_items
+         (#1 ufn_where_items,
+          syntax_layout TWHEREleft ufn_where_itemsright
+            ((Keyword_Token "where", TWHEREleft) :: #2 ufn_where_items))
+   ufn_where_items :
+       ufn_where_item ([#1 ufn_where_item], #2 ufn_where_item)
+     | ufn_where_item COMMA
+         ([#1 ufn_where_item], #2 ufn_where_item @ [(Delimiter_Token ",", COMMAleft)])
+     | ufn_where_item COMMA ufn_where_items
+         (#1 ufn_where_item :: #1 ufn_where_items,
+          #2 ufn_where_item @ [(Delimiter_Token ",", COMMAleft)] @ #2 ufn_where_items)
+   ufn_where_item :
+       urust_type TCOLON ufn_bounds
+         (let val (head, pos) = function_where_head urust_type in
+            ((head, pos, #1 ufn_bounds),
+             [(Name_Token, pos), (Delimiter_Token ":", TCOLONleft)] @ #2 ufn_bounds)
+          end)
   ufn_return :
       (NONE, NONE)
     | TTHINARROW urust_type
@@ -3876,7 +4112,8 @@ struct
      (103, "TLIFETIME", "<lifetime>"),
      (104, "TIMPL", "impl"),
      (105, "TDOLLAR", "$"),
-     (106, "TCONSTOPEN", "{")]
+     (106, "TCONSTOPEN", "{"),
+     (107, "TWHERE", "where")]
 
   val terminal_count = length terminal_specs
 
@@ -3982,7 +4219,8 @@ struct
        T.TAS (pos, pos), T.TYIELD (pos, pos), T.TLOG (pos, pos), T.TLOGDATACLOSE (pos, pos),
        T.TSTRUCT (pos, pos), T.TENUM (pos, pos), T.TFN (pos, pos), T.TTHINARROW (pos, pos),
        T.TEXPRSTART (pos, pos), T.TITEMSTART (pos, pos), T.TTYPE (pos, pos),
-       T.TCHUNKSTART (pos, pos), T.TUSE (pos, pos), T.TPUB (pos, pos), T.TDOLLAR (pos, pos)]
+       T.TCHUNKSTART (pos, pos), T.TUSE (pos, pos), T.TPUB (pos, pos), T.TDOLLAR (pos, pos),
+       T.TWHERE (pos, pos)]
   end
 
   fun token_terminal_id (LrParser.Token.TOKEN (term, _)) = terminal_id term

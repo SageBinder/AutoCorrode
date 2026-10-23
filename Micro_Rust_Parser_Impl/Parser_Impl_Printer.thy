@@ -1587,15 +1587,35 @@ fun receiver_document Receiver_Value = identifier "self"
 
 fun function_document options
     (Function_Item
-      (name, _, lifetimes, parameters, return_type, body, _)) =
+      (name, _, {parameters = generic_parameters, where_clause, layout},
+       parameters, return_type, body, _)) =
   let
     val name = require_identifier "function item" name
+    fun bound_document (Rust_Trait_Bound (segments, _)) =
+      flat (separate (delimiter "::")
+        (map (identifier o require_identifier "trait bound" o #1) segments))
+    fun bounds_document bounds =
+      flat (separate (space @ operator "+" @ space) (map bound_document bounds))
+    fun generic_document (Generic_Lifetime lifetime) =
+          lifetime_document "function item" lifetime
+      | generic_document (Generic_Type (name, _, bounds)) =
+          identifier (require_identifier "function type parameter" name) @
+          (if null bounds then []
+           else delimiter ":" @ space @ bounds_document bounds)
+      | generic_document (Generic_Const (name, _, typ)) =
+          keyword "const" @ space @
+          identifier (require_identifier "function const parameter" name) @
+          delimiter ":" @ space @ rust_type_document typ
     val generics =
-      if null lifetimes then []
+      if null generic_parameters andalso
+          null (source_token_positions layout (Delimiter_Token "<")) then []
       else
         delimiter "<" @
-        block 2 false (comma_documents (map (lifetime_document "function item") lifetimes)) @
+        block 2 false (comma_documents (map generic_document generic_parameters)) @
         delimiter ">"
+    fun where_document (name, _, bounds) =
+      identifier (require_identifier "where parameter" name) @
+      delimiter ":" @ space @ bounds_document bounds
     fun parameter_document
         (Function_Parameter (mutable_pos, pattern, typ, _)) =
           (case mutable_pos of
@@ -1611,7 +1631,10 @@ fun function_document options
       (case return_type of
          NONE => []
        | SOME typ =>
-           space @ delimiter "->" @ space @ rust_type_document typ)
+            space @ delimiter "->" @ space @ rust_type_document typ) @
+       (if null where_clause then []
+        else space @ keyword "where" @ space @
+          comma_documents (map where_document where_clause))
     val body_document =
       (case body of
          UE_Block _ =>

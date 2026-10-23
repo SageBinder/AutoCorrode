@@ -326,6 +326,16 @@ sig
   and ur_arm =
       UR_Arm of ur_pat * (ur_expr * Position.T) option * ur_expr * source_layout
 
+  datatype rust_trait_bound =
+    Rust_Trait_Bound of (string * Position.T) list * source_layout
+  datatype function_generic =
+      Generic_Lifetime of rust_lifetime
+    | Generic_Type of string * Position.T * rust_trait_bound list
+    | Generic_Const of string * Position.T * rust_type
+  type function_generics =
+    {parameters: function_generic list,
+     where_clause: (string * Position.T * rust_trait_bound list) list,
+     layout: source_layout}
   datatype receiver_form =
       Receiver_Value
     | Receiver_Mut_Value
@@ -336,7 +346,7 @@ sig
     | Receiver_Parameter of receiver_form * Position.T * source_layout
   datatype urust_function =
     Function_Item of
-      string * Position.T * rust_lifetime list * function_parameter list *
+      string * Position.T * function_generics * function_parameter list *
       rust_type option * ur_expr * source_layout
   datatype urust_type_alias =
     Type_Alias_Item of
@@ -366,7 +376,10 @@ sig
   val function_source_layout: urust_function -> source_layout
   val function_body: urust_function -> ur_expr
   val function_name: urust_function -> string * Position.T
+  val function_generics: urust_function -> function_generics
   val function_lifetime_parameters: urust_function -> rust_lifetime list
+  val function_type_parameters: urust_function -> generic_parameter list
+  val function_bounds: urust_function -> (string * rust_trait_bound list) list
   val function_parameters: urust_function -> function_parameter list
   val function_return_type: urust_function -> rust_type option
   val function_parameter_position: function_parameter -> Position.T
@@ -1220,6 +1233,16 @@ struct
   and ur_arm =
       UR_Arm of ur_pat * (ur_expr * Position.T) option * ur_expr * source_layout
 
+  datatype rust_trait_bound =
+    Rust_Trait_Bound of (string * Position.T) list * source_layout
+  datatype function_generic =
+      Generic_Lifetime of rust_lifetime
+    | Generic_Type of string * Position.T * rust_trait_bound list
+    | Generic_Const of string * Position.T * rust_type
+  type function_generics =
+    {parameters: function_generic list,
+     where_clause: (string * Position.T * rust_trait_bound list) list,
+     layout: source_layout}
   datatype receiver_form =
       Receiver_Value
     | Receiver_Mut_Value
@@ -1230,7 +1253,7 @@ struct
     | Receiver_Parameter of receiver_form * Position.T * source_layout
   datatype urust_function =
     Function_Item of
-      string * Position.T * rust_lifetime list * function_parameter list *
+      string * Position.T * function_generics * function_parameter list *
       rust_type option * ur_expr * source_layout
   datatype urust_type_alias =
     Type_Alias_Item of
@@ -1281,8 +1304,30 @@ struct
   fun function_name
       (Function_Item (name, pos, _, _, _, _, _)) = (name, pos)
 
-  fun function_lifetime_parameters
-      (Function_Item (_, _, lifetimes, _, _, _, _)) = lifetimes
+  fun function_generics
+      (Function_Item (_, _, generics, _, _, _, _)) = generics
+
+  fun function_lifetime_parameters function =
+    #parameters (function_generics function)
+    |> map_filter (fn Generic_Lifetime lifetime => SOME lifetime | _ => NONE)
+
+  fun function_type_parameters function =
+    #parameters (function_generics function)
+    |> map_filter
+      (fn Generic_Type (name, pos, _) =>
+            SOME (Generic_Parameter (name, pos, Type_Parameter))
+        | Generic_Const (name, pos, _) =>
+            SOME (Generic_Parameter (name, pos, Const_Parameter))
+        | Generic_Lifetime _ => NONE)
+
+  fun function_bounds function =
+    let
+      val {parameters, where_clause, ...} = function_generics function
+      fun bounds (Generic_Type (name, _, inline)) =
+            SOME (name, inline @
+              maps (fn (head, _, bounds) => if head = name then bounds else []) where_clause)
+        | bounds _ = NONE
+    in map_filter bounds parameters end
 
   fun function_parameters
       (Function_Item (_, _, _, parameters, _, _, _)) = parameters
