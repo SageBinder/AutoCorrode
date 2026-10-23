@@ -221,7 +221,16 @@ local
   open Generic_Syntax_Test
   val ctxt = Context_Position.set_visible true @{context}
   val text = "/* " ^ Symbol.open_ ^ " marker " ^ Symbol.close ^ " */ fn Mark<'a, T: outer::Scale + Copy, const N: usize>(value: T) -> T where T: Marker { value }"
-  val (function, events) = reports (fn () => parse ctxt "generic-markup" text)
+  val (function, captured) =
+    Parser_Test_Reports.chunks (fn () => parse ctxt "generic-markup" text)
+  val trees = maps YXML.parse_body captured
+  val events = map (fn (name, props) =>
+    (name, position_range (Position.of_properties props), props))
+    (fold Parser_Test_Reports.collect_markup trees [])
+  fun typing_texts range (XML.Elem ((name, props), body)) =
+        (if name = Markup.typingN andalso position_range (Position.of_properties props) = range
+         then [XML.content_of body] else []) @ maps (typing_texts range) body
+    | typing_texts _ (XML.Text _) = []
   fun role name token occurrence =
     require ("missing " ^ name ^ " at " ^ token)
       (has_role events name (range_of text token occurrence))
@@ -232,7 +241,12 @@ local
   val _ = role Markup.operatorN "+" 0
   val _ = List.app (fn (token, occurrence) => role Markup.tfreeN token occurrence)
     [("'a", 0), ("T", 0), ("N", 0)]
-  val _ = role Markup.typingN "'a" 0
+  val _ = List.app (fn (token, occurrence) => role Markup.typingN token occurrence)
+    [("'a", 0), ("T", 0), ("N", 0)]
+  val _ = List.app (fn (token, descriptor) =>
+    require ("missing native parameter tooltip at " ^ token)
+      (member (op =) (maps (typing_texts (range_of text token 0)) trees) descriptor))
+    [("T", "type parameter T"), ("N", "const parameter N")]
   val _ = List.app (fn token =>
     require ("syntax prematurely resolved bound " ^ token)
       (not (has_role events Markup.entityN (range_of text token 0)))) ["outer", "Scale", "Copy", "Marker"]

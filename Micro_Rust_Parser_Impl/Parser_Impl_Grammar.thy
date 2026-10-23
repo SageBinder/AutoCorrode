@@ -1974,10 +1974,16 @@ fun check_function_generics parameters =
   in check false [] parameters end
 
 fun function_parameter_markup parameters =
-  List.app
-    (fn Generic_Type (_, pos, _) => Position.report pos Markup.tfree
-      | Generic_Const (_, pos, _) => Position.report pos Markup.tfree
-      | Generic_Lifetime _ => ()) parameters
+  let
+    fun report kind (name, pos) =
+      (Position.report pos Markup.tfree;
+       Position.report_text pos Markup.typing (kind ^ " parameter " ^ name))
+  in
+    List.app
+      (fn Generic_Type (name, pos, _) => report "type" (name, pos)
+        | Generic_Const (name, pos, _) => report "const" (name, pos)
+        | Generic_Lifetime _ => ()) parameters
+  end
 
 fun function_trait_path (name, pos) =
   Rust_Trait_Bound ([(name, pos)], single_token_layout Name_Token pos)
