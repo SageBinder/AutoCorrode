@@ -16,12 +16,15 @@ section\<open> Extensible Rust-to-HOL type mappings \<close>
 text\<open>
 Named Rust types, including lexical primitive spellings, acquire HOL meanings only through this
 context-local registry. A mapping key may be qualified and may contain ordered generic
-placeholders. The placeholders are mapping parameters rather than Rust lifetimes, and must be
-exactly the free type variables of the checked HOL template.
+placeholders. The placeholders are mapping parameters rather than Rust lifetimes. Without options
+they must be exactly the checked HOL template's free type variables. The positioned
+\<open>implicit\<close> option instead assigns additional variables to the existing address/global
+backend roles; every variable must still be declared exactly once.
 
 Function signatures additionally resolve mutable references \<open>&mut T\<close>, optionally with a Rust
 lifetime, to the same \<open>Global_Store.ref\<close> model as raw pointers, sharing the signature's
-address/global backend parameters. Lifetimes are checked against the function's declared lifetime
+address/global backend roles. Manual mappings request zero, one or both roles from the same lazy
+environment, and generated datatype schemes preserve those roles explicitly. Lifetimes are checked against the function's declared lifetime
 parameters and then erased; they never change the resolved type. Shared references \<open>&T\<close>, and
 references in datatype fields, aliases and cast targets, remain rejected. A function with a
 declared HOL type resolves no signature type while retaining these lifetime scope rules and the
@@ -52,6 +55,7 @@ ML\<open>
 signature URUST_TYPE_MAPPINGS =
 sig
   type entry
+  datatype backend_role = Address | Global
 
   val resolve: Proof.context -> URust_AST.rust_type -> typ
   val resolve_signature:
@@ -76,6 +80,12 @@ sig
       URust_AST.rust_type list ->
       {types: typ list, source_parameters: (string * sort) list,
        backend_parameters: (string * sort) list}
+  val resolve_declaration_roles:
+    Proof.context -> URust_AST.generic_parameter list ->
+      ((string * Position.T) * (string * Position.T)) list ->
+      URust_AST.rust_type list ->
+      {types: typ list, source_parameters: (string * sort) list,
+       backend_parameters: (backend_role * (string * sort)) list}
   val instantiate_constructor:
     Proof.context -> string -> URust_AST.rust_generic_argument list -> term -> term
   val preflight_declaration_scheme:
@@ -88,6 +98,16 @@ sig
      hol_type: typ, source_parameters: (string * sort) list,
      parameter_kinds: URust_AST.generic_parameter_kind list,
      backend_parameters: (string * sort) list} -> local_theory -> local_theory
+  val preflight_declaration_role_scheme:
+    {rust_name: string, rust_pos: Position.T, hol_type_name: string,
+     hol_type: typ, source_parameters: (string * sort) list,
+     parameter_kinds: URust_AST.generic_parameter_kind list,
+     backend_parameters: (backend_role * (string * sort)) list} -> local_theory -> unit
+  val register_declaration_role_scheme:
+    {rust_name: string, rust_pos: Position.T, hol_type_name: string,
+     hol_type: typ, source_parameters: (string * sort) list,
+     parameter_kinds: URust_AST.generic_parameter_kind list,
+     backend_parameters: (backend_role * (string * sort)) list} -> local_theory -> local_theory
   val resolve_cast:
     Proof.context -> URust_AST.source_cast_target -> URust_AST.cast_target
   val declare_alias:
@@ -143,6 +163,9 @@ sig
   val entry_arities: entry -> int list
   val entry_parameter_sorts: entry -> sort list
   val entry_backend_parameter_sorts: entry -> sort list
+  (* Role-aware schemes preserve singleton identity. Legacy positional registration APIs accept
+     the empty scheme or the established address/global pair. *)
+  val entry_backend_roles: entry -> backend_role list
   val entry_declaration_position: entry -> Position.T
   val entry_origin: entry -> string
   val entry_identity: entry -> serial
@@ -171,6 +194,13 @@ struct
 
   val mappingN = "micro_rust_type_mapping"
 
+  datatype backend_role = Address | Global
+
+  fun role_index Address = 0 | role_index Global = 1
+  fun role_name Address = "address" | role_name Global = "global"
+  val backend_roles = [Address, Global]
+  fun role_order roles = filter (member (op =) roles) backend_roles
+
   datatype origin =
       Manual
     | Generated of string
@@ -187,7 +217,7 @@ struct
       Meaning_Parameter of int
     | Meaning_Const_Parameter of int
     | Meaning_Primitive of rust_primitive_type
-    | Meaning_Mapped of string * typ * sort list * sort list * meaning list
+    | Meaning_Mapped of string * typ * sort list * (backend_role * sort) list * meaning list
     | Meaning_Tuple of meaning list
     | Meaning_Pointer of raw_pointer_mutability * meaning
     | Meaning_Reference of borrow_mode * meaning
@@ -205,6 +235,7 @@ struct
      template: typ,
      parameter_kinds: generic_parameter_kind list,
      parameter_sorts: sort list,
+     backend_roles: backend_role list,
      backend_parameter_sorts: sort list,
      meaning: meaning,
      dependencies: string list,
@@ -219,6 +250,7 @@ struct
   fun entry_backend_parameter_sorts
       ({backend_parameter_sorts, ...}: entry) =
     backend_parameter_sorts
+  fun entry_backend_roles ({backend_roles, ...}: entry) = backend_roles
   fun entry_declaration_position ({declaration_pos, ...}: entry) =
     declaration_pos
   fun entry_identity ({identity, ...}: entry) = identity
@@ -248,6 +280,7 @@ struct
     left_template = right_template andalso
     #parameter_kinds left = #parameter_kinds right andalso
     left_sorts = right_sorts andalso
+    #backend_roles left = #backend_roles right andalso
     left_backend = right_backend andalso
     alias_origin left_origin = alias_origin right_origin andalso
     (not (alias_origin left_origin) orelse left_meaning = right_meaning)
@@ -498,6 +531,38 @@ struct
   fun canonical_backend_parameter index sort =
     TVar (("_urust_backend", index), sort)
 
+  (* A native locale export may rename schematic indexes and basenames. Transport the
+     template and all slot witnesses as one type, then restore canonical identities from
+     those transported witnesses. Transforming witnesses separately loses their sharing. *)
+  fun morph_scheme phi template parameter_sorts role_sorts =
+    let
+      val parameters = map_index (fn (index, sort) => canonical_parameter index sort)
+        parameter_sorts
+      val roles = map (fn (role, sort) => canonical_backend_parameter (role_index role) sort)
+        role_sorts
+      val transported =
+        Morphism.typ phi ((template :: parameters @ roles) ---> propT)
+        |> binder_types
+      val _ =
+        if length transported = 1 + length parameters + length roles then ()
+        else raise Fail "uRust type registry: malformed transported scheme"
+      val transformed = hd transported
+      val witnesses = tl transported
+      fun witness_sort (TFree (_, sort)) = sort
+        | witness_sort (TVar (_, sort)) = sort
+        | witness_sort _ =
+            raise Fail "uRust type registry: morphism specialized a scheme parameter"
+      val sorts = map witness_sort witnesses
+      val (parameter_sorts', backend_sorts') = chop (length parameters) sorts
+      val role_sorts' = map fst role_sorts ~~ backend_sorts'
+      val restored =
+        map_index (fn (index, sort) => canonical_parameter index sort) parameter_sorts' @
+        map (fn (role, sort) => canonical_backend_parameter (role_index role) sort) role_sorts'
+    in
+      (Term.typ_subst_atomic (witnesses ~~ restored) transformed,
+       parameter_sorts', role_sorts')
+    end
+
   fun primitive_meaning base =
     get_first
       (fn primitive =>
@@ -520,9 +585,10 @@ struct
         | morph (Meaning_Const_Parameter index) = Meaning_Const_Parameter index
         | morph (Meaning_Primitive primitive) = Meaning_Primitive primitive
         | morph (Meaning_Mapped (base, template, sorts, backend_sorts, arguments)) =
-            Meaning_Mapped
-              (base, Morphism.typ phi template, sorts, backend_sorts,
-               map morph arguments)
+            let val (template', sorts', backend_sorts') =
+              morph_scheme phi template sorts backend_sorts
+            in Meaning_Mapped
+              (base, template', sorts', backend_sorts', map morph arguments) end
         | morph (Meaning_Tuple types) = Meaning_Tuple (map morph types)
         | morph (Meaning_Pointer (mutability, typ)) =
             Meaning_Pointer (mutability, morph typ)
@@ -549,14 +615,47 @@ struct
         | instantiate (Meaning_HOL typ) = Meaning_HOL typ
     in instantiate end
 
+  fun read_implicit_roles lthy source =
+    let
+      fun read ctxt =
+        let
+          val keywords = Thy_Header.get_keywords' ctxt
+          val tokens =
+            Token.tokenize keywords {strict = true} (Input.source_explode source)
+            |> filter Token.is_proper
+          val _ = Context_Position.reports_text ctxt (maps (Token.reports keywords) tokens)
+          val parser =
+            Parse.enum ","
+              (Parse.position Parse.name --| Parse.$$$ "=" -- Parse.position Parse.type_ident)
+              --| Scan.ahead Parse.eof
+        in
+          (case Scan.read Token.stopper (Parse.!!! parser) tokens of
+             SOME bindings => bindings
+           | NONE => mapping_error "malformed implicit role bindings" (Input.pos_of source))
+        end
+      val bindings = URust_Report_Transaction.native lthy read
+      fun role (name, pos) =
+        (case name of "address" => Address | "global" => Global
+         | _ => mapping_error ("unknown implicit role " ^ quote name) pos)
+      val roles = map (fn (name, variable) => (role name, variable, snd name)) bindings
+      fun distinct_binding (role, (name, pos), role_pos) (seen_roles, seen_names) =
+        if member (op =) seen_roles role then
+          mapping_error ("duplicate implicit role " ^ quote (role_name role)) role_pos
+        else if member (op =) seen_names name then
+          mapping_error ("duplicate implicit template variable " ^ quote name) pos
+        else (role :: seen_roles, name :: seen_names)
+      val _ = fold distinct_binding roles ([], [])
+    in map (fn (role, variable, _) => (role, variable)) roles end
+
   fun checked_template lthy
-      ({parameters, ...}: key) source =
+      ({parameters, ...}: key) roles source =
     let
       val pos = Input.pos_of source
       val typ =
         (case Exn.result
             (fn () =>
-              Syntax.read_typ lthy (Syntax.implode_input source)) () of
+              URust_Report_Transaction.native lthy
+                (fn ctxt => Syntax.read_typ ctxt (Syntax.implode_input source))) () of
            Exn.Res typ => typ
          | Exn.Exn exn =>
              if Exn.is_interrupt exn then Exn.reraise exn
@@ -568,10 +667,17 @@ struct
           pos
       val tfrees = Term.add_tfreesT typ []
       val tfree_names = map fst tfrees
+      val role_variables = map (fst o snd) roles
+      val _ = List.app (fn (_, (name, pos)) =>
+        if member (op =) parameters name then
+          mapping_error ("implicit variable " ^ quote name ^ " is also a source placeholder") pos
+        else if member (op =) tfree_names name then ()
+        else mapping_error ("unused implicit variable " ^ quote name) pos) roles
+      val declared_variables = parameters @ role_variables
       val missing =
         filter_out (member (op =) tfree_names) parameters
       val extra =
-        filter_out (member (op =) parameters) tfree_names
+        filter_out (member (op =) declared_variables) tfree_names
       val _ =
         if null missing andalso null extra then ()
         else
@@ -590,23 +696,32 @@ struct
              raise Fail
                "uRust type registry: validated template parameter is absent")
       val parameter_sorts = map parameter_sort parameters
+      val ordered_roles = role_order (map fst roles)
+      val role_parameters = map (fn role =>
+        let val (name, _) = the (AList.lookup (op =) roles role)
+        in (role, (name, parameter_sort name)) end) ordered_roles
       val canonical =
         map_index
           (fn (index, (name, sort)) =>
             (TFree (name, sort), canonical_parameter index sort))
-          (parameters ~~ parameter_sorts)
+          (parameters ~~ parameter_sorts) @
+        map (fn (role, (name, sort)) =>
+          (TFree (name, sort), canonical_backend_parameter (role_index role) sort))
+          role_parameters
       val normalized = Term.typ_subst_atomic canonical typ
     in
-      (Proof_Context.cert_typ lthy normalized, parameter_sorts)
+      (Proof_Context.cert_typ lthy normalized, parameter_sorts,
+       map (apsnd snd) role_parameters)
     end
 
   fun make_entry origin declaration_pos segment_arities template
-      parameter_kinds parameter_sorts backend_parameter_sorts meaning dependencies =
+      parameter_kinds parameter_sorts role_sorts meaning dependencies =
     {segment_arities = segment_arities,
      template = template,
      parameter_kinds = parameter_kinds,
      parameter_sorts = parameter_sorts,
-     backend_parameter_sorts = backend_parameter_sorts,
+     backend_roles = map fst role_sorts,
+     backend_parameter_sorts = map snd role_sorts,
      meaning = meaning,
      dependencies = dependencies,
      declaration_pos = declaration_pos,
@@ -614,18 +729,24 @@ struct
      identity = serial ()}: entry
 
   fun morph_entry phi
-      ({segment_arities, template, parameter_kinds, parameter_sorts, backend_parameter_sorts,
+      ({segment_arities, template, parameter_kinds, parameter_sorts, backend_roles, backend_parameter_sorts,
         meaning, dependencies, declaration_pos, origin, identity}: entry) =
-    {segment_arities = segment_arities,
-     template = Morphism.typ phi template,
-     parameter_kinds = parameter_kinds,
-     parameter_sorts = parameter_sorts,
-     backend_parameter_sorts = backend_parameter_sorts,
-     meaning = morph_meaning phi meaning,
-     dependencies = dependencies,
-     declaration_pos = declaration_pos,
-     origin = origin,
-     identity = identity}: entry
+    let
+      val (template', parameter_sorts', role_sorts') =
+        morph_scheme phi template parameter_sorts (backend_roles ~~ backend_parameter_sorts)
+    in
+      {segment_arities = segment_arities,
+       template = template',
+       parameter_kinds = parameter_kinds,
+       parameter_sorts = parameter_sorts',
+       backend_roles = backend_roles,
+       backend_parameter_sorts = map snd role_sorts',
+       meaning = morph_meaning phi meaning,
+       dependencies = dependencies,
+       declaration_pos = declaration_pos,
+       origin = origin,
+       identity = identity}: entry
+    end
 
   datatype preflight =
       Existing of entry
@@ -673,18 +794,19 @@ struct
         Navigation.defer_report ctxt pos Markup.tfree)
       (parameters ~~ parameter_positions)
 
-  fun declare_mapping origin (key_source, source)
+  fun declare_mapping origin roles (key_source, source)
       lthy =
     let
       val key as {base, segment_arities, parameter_kinds, ...} =
         parse_mapping_key_source key_source
       val key_pos = Input.pos_of key_source
-      val (template, parameter_sorts) =
-        checked_template lthy key source
+      val (template, parameter_sorts, role_sorts) =
+        checked_template lthy key roles source
       val _ = report_parameters lthy key
       val candidate =
         make_entry origin key_pos segment_arities template
-          parameter_kinds parameter_sorts [] (mapped_meaning base template parameter_sorts []) []
+          parameter_kinds parameter_sorts role_sorts
+          (mapped_meaning base template parameter_sorts role_sorts) []
     in install_prepared base candidate lthy end
 
   fun generated_candidate
@@ -705,7 +827,7 @@ struct
          (mapped_meaning base (Type (hol_type_name, [])) [] []) [])
     end
 
-  fun declaration_scheme_candidate
+  fun declaration_role_scheme_candidate
       {rust_name, rust_pos, hol_type_name, hol_type,
        source_parameters, parameter_kinds, backend_parameters} =
     let
@@ -713,27 +835,46 @@ struct
         parse_mapping_key_text (rust_name, rust_pos)
       val _ = if null parameters then () else
         mapping_error "generated type names cannot contain mapping placeholders" rust_pos
-      val all_parameters = source_parameters @ backend_parameters
+      val all_parameters = source_parameters @ map snd backend_parameters
+      val roles = map fst backend_parameters
       val _ =
         if null (Term.add_tvarsT hol_type []) andalso
            length all_parameters = length (distinct (op =) (map fst all_parameters)) andalso
            eq_set (op =) (Term.add_tfreesT hol_type [], all_parameters) andalso
-           length source_parameters = length parameter_kinds
+           length source_parameters = length parameter_kinds andalso
+           length roles = length (distinct (op =) roles)
         then () else mapping_error "generated type scheme parameters are inconsistent" rust_pos
       val source_sorts = map snd source_parameters
-      val backend_sorts = map snd backend_parameters
+      val role_parameters = map (fn role =>
+        (role, the (AList.lookup (op =) backend_parameters role))) (role_order roles)
+      val role_sorts = map (apsnd snd) role_parameters
       val substitutions =
         map_index (fn (index, parameter as (_, sort)) =>
           (TFree parameter, canonical_parameter index sort)) source_parameters @
-        map_index (fn (index, parameter as (_, sort)) =>
-          (TFree parameter, canonical_backend_parameter index sort)) backend_parameters
+        map (fn (role, parameter as (_, sort)) =>
+          (TFree parameter, canonical_backend_parameter (role_index role) sort)) role_parameters
       val template = Term.typ_subst_atomic substitutions hol_type
       val arities = take (length segment_arities - 1) segment_arities @ [length source_parameters]
     in
       (base, make_entry (Generated hol_type_name) rust_pos arities template
-        parameter_kinds source_sorts backend_sorts
-        (mapped_meaning base template source_sorts backend_sorts) [])
+        parameter_kinds source_sorts role_sorts
+        (mapped_meaning base template source_sorts role_sorts) [])
     end
+
+  fun legacy_backend_parameters pos [] = []
+    | legacy_backend_parameters _ [address, global] = [(Address, address), (Global, global)]
+    | legacy_backend_parameters pos _ =
+        mapping_error "positional backend schemes require an address/global pair; use the role-aware API"
+          pos
+
+  fun declaration_scheme_candidate
+      {rust_name, rust_pos, hol_type_name, hol_type,
+       source_parameters, parameter_kinds, backend_parameters} =
+    declaration_role_scheme_candidate
+      {rust_name = rust_name, rust_pos = rust_pos, hol_type_name = hol_type_name,
+       hol_type = hol_type, source_parameters = source_parameters,
+       parameter_kinds = parameter_kinds,
+       backend_parameters = legacy_backend_parameters rust_pos backend_parameters}
 
   fun generated_scheme_candidate
       {rust_name, rust_pos, hol_type_name, hol_type, backend_parameters} =
@@ -748,6 +889,14 @@ struct
 
   fun register_declaration_scheme specification lthy =
     let val (base, candidate) = declaration_scheme_candidate specification
+    in install_prepared base candidate lthy end
+
+  fun preflight_declaration_role_scheme specification lthy =
+    let val (base, candidate) = declaration_role_scheme_candidate specification
+    in ignore (preflight lthy base candidate) end
+
+  fun register_declaration_role_scheme specification lthy =
+    let val (base, candidate) = declaration_role_scheme_candidate specification
     in install_prepared base candidate lthy end
 
   fun preflight_generated specification lthy =
@@ -1260,7 +1409,7 @@ struct
 
   type resolved = {typ: typ, meaning: meaning}
 
-  (* One inference environment and one lazy backend pair belong to a complete
+  (* One inference environment and one lazy role table belong to a complete
      signature or field batch. Canonical registry slots are never reused as
      flexible variables by two independent resolutions. *)
   fun inference_state kind ctxt initial_types =
@@ -1270,8 +1419,8 @@ struct
         Unsynchronized.ref
           (Vartab.empty,
            fold Term.maxidx_typ initial_types (Variable.maxidx_of ctxt))
-      val backend_slots: typ list option Unsynchronized.ref =
-        Unsynchronized.ref NONE
+      val backend_slots: (backend_role * typ) list Unsynchronized.ref =
+        Unsynchronized.ref []
 
       fun fresh sort =
         let
@@ -1293,42 +1442,39 @@ struct
               sort_error kind ctxt base (normalize argument) sort pos
         in unification := environment end
 
-      fun backend sorts =
-        if null sorts then []
-        else
-          let
-            val _ =
-              if length sorts = 2 then ()
-              else raise Fail
-                "uRust type registry: invalid backend parameter scheme"
-            val slots =
-              (case !backend_slots of
-                 SOME slots => slots
-               | NONE =>
-                   let
-                     val slots = map (fn _ => fresh []) sorts
-                     val _ = backend_slots := SOME slots
-                   in slots end)
-            val _ =
-              List.app
-                (fn (slot, sort) =>
-                  check_sort "implicit pointer backend" slot sort Position.none)
-                (slots ~~ sorts)
-          in map normalize slots end
+      fun backend role_sorts pos =
+        let
+          fun allocated (role, _) =
+            (case AList.lookup (op =) (!backend_slots) role of
+               SOME slot => slot
+             | NONE =>
+                 let
+                   val slot = fresh []
+                   val _ = backend_slots := (role, slot) :: !backend_slots
+                 in slot end)
+          (* Allocate the whole request before adding constraints, retaining the established
+             pair's fresh-variable order while allowing a later request to add one role. *)
+          val slots = map allocated role_sorts
+          val _ = List.app (fn (slot, (role, sort)) =>
+            check_sort ("implicit " ^ role_name role ^ " backend") slot sort pos)
+            (slots ~~ role_sorts)
+        in map normalize slots end
     in
       {fresh = fresh, normalize = normalize, check_sort = check_sort,
        backend = backend,
-       backend_slots = fn () => the_default [] (!backend_slots)}
+       backend_slots = fn () =>
+         map_filter (fn role =>
+           Option.map (pair role) (AList.lookup (op =) (!backend_slots) role)) backend_roles}
     end
 
   fun resolve_values kind ctxt read_escape check_sort normalize backend
       parameter dependency rust_types =
     let
       (* Raw pointers and mutable references share one reference model and one backend pair. *)
-      fun reference_typ target =
+      fun reference_typ target pos =
         let
           val [address, global] =
-            backend [\<^sort>\<open>type\<close>, \<^sort>\<open>type\<close>]
+            backend [(Address, \<^sort>\<open>type\<close>), (Global, \<^sort>\<open>type\<close>)] pos
         in
           Term.typ_subst_atomic
             [(\<^typ>\<open>'urust_address\<close>, address),
@@ -1382,6 +1528,7 @@ struct
                val resolved_arguments = map resolve_argument (arguments ~~ #parameter_kinds entry)
                val parameter_sorts = #parameter_sorts entry
                val backend_sorts = #backend_parameter_sorts entry
+               val roles = #backend_roles entry
                val _ =
                  if length resolved_arguments = length parameter_sorts then ()
                  else raise Fail
@@ -1393,16 +1540,16 @@ struct
                    (resolved_arguments ~~ parameter_sorts)
                val argument_types =
                  map (normalize o #typ o fst) resolved_arguments
-               val backend_types = backend backend_sorts
+               val backend_types = backend (roles ~~ backend_sorts) pos
                val substitutions =
                  map_index
                    (fn (index, (sort, argument)) =>
                      ((("_urust_type", index), sort), argument))
                    (parameter_sorts ~~ argument_types) @
-                 map_index
-                   (fn (index, (sort, argument)) =>
-                     ((("_urust_backend", index), sort), argument))
-                   (backend_sorts ~~ backend_types)
+                 map
+                   (fn (role, (sort, argument)) =>
+                     ((("_urust_backend", role_index role), sort), argument))
+                   (roles ~~ (backend_sorts ~~ backend_types))
                val result =
                  Term_Subst.instantiateT
                    (TVars.make substitutions) (#template entry)
@@ -1500,7 +1647,7 @@ struct
         | resolve_type_value _ (Reference_Type (BM_Mut, _, target, layout)) =
             if signature_kind kind then
               let val target_type = resolve_type NONE target in
-                {typ = reference_typ (#typ target_type),
+                {typ = reference_typ (#typ target_type) (source_span layout),
                  meaning = Meaning_Reference (BM_Mut, #meaning target_type)}
               end
             else unsupported kind "Rust reference types" (source_span layout)
@@ -1510,9 +1657,9 @@ struct
                 ("urust_fn: shared Rust references (&T) are not supported in function signatures; " ^
                   "use &mut T or \<tau>\<open>...\<close>" ^ Position.here (source_span layout))
             else unsupported kind "Rust reference types" (source_span layout)
-        | resolve_type_value _ (Raw_Pointer_Type (mutability, target, _)) =
+        | resolve_type_value _ (Raw_Pointer_Type (mutability, target, layout)) =
             let val target_type = resolve_type NONE target in
-              {typ = reference_typ (#typ target_type),
+              {typ = reference_typ (#typ target_type) (source_span layout),
                meaning = Meaning_Pointer (mutability, #meaning target_type)}
             end
         | resolve_type_value _ (Slice_Type (_, layout)) =
@@ -1556,10 +1703,11 @@ struct
         | parameter _ =
             raise Fail
               "uRust type registry: backend parameter became a concrete type"
-      val normalized = map (parameter o normalize) slots
-      val parameters = take (length normalized) names ~~ map snd normalized
+      val normalized = map (apsnd (parameter o normalize)) slots
+      val parameters = map (fn (role, (_, sort)) =>
+        (role, (nth names (role_index role), sort))) normalized
       val substitutions =
-        map2 (fn (typ, _) => fn parameter => (typ, TFree parameter))
+        map2 (fn (_, (typ, _)) => fn (_, parameter) => (typ, TFree parameter))
           normalized parameters
       val result =
         map
@@ -1609,7 +1757,7 @@ struct
   fun parameter_names ctxt parameters overrides =
     map #hol (read_parameter_names ctxt parameters overrides)
 
-  fun resolve_declaration ctxt parameters overrides rust_types =
+  fun resolve_declaration_roles ctxt parameters overrides rust_types =
     let
       fun descriptor (Generic_Parameter (name, pos, kind)) = (name, pos, kind)
       val descriptors = map descriptor parameters
@@ -1678,7 +1826,15 @@ struct
       val resolved =
         resolve_values Datatype_Fields ctxt (read_hol_escape ctxt)
           check_sort normalize backend no_parameter no_dependency rust_types
-    in finish_backend ctxt normalize (backend_slots ()) (map #typ resolved) end
+      val {types, backend_parameters} =
+        finish_backend ctxt normalize (backend_slots ()) (map #typ resolved)
+    in {types = types, backend_parameters = map snd backend_parameters} end
+
+  fun resolve_declaration ctxt parameters overrides rust_types =
+    let val {types, source_parameters, backend_parameters} =
+      resolve_declaration_roles ctxt parameters overrides rust_types
+    in {types = types, source_parameters = source_parameters,
+      backend_parameters = map snd backend_parameters} end
 
   fun resolve ctxt rust_type =
     the_single (#types (resolve_fields ctxt [rust_type]))
@@ -2240,17 +2396,17 @@ struct
              "uRust type registry: alias parameter became a concrete type")
       val normalized_parameters = map normalized_parameter parameter_types
       val normalized_backend =
-        map normalized_parameter (backend_slots ())
+        map (apsnd normalized_parameter) (backend_slots ())
       val parameter_sorts = map snd normalized_parameters
-      val backend_sorts = map snd normalized_backend
+      val role_sorts = map (apsnd snd) normalized_backend
       val substitutions =
         map_index
           (fn (index, (parameter, sort)) =>
             (parameter, canonical_parameter index sort))
           normalized_parameters @
-        map_index
-          (fn (index, (parameter, sort)) =>
-            (parameter, canonical_backend_parameter index sort))
+        map
+          (fn (role, (parameter, sort)) =>
+            (parameter, canonical_backend_parameter (role_index role) sort))
           normalized_backend
       val template =
         normalize (#typ result)
@@ -2259,8 +2415,8 @@ struct
       val expected_variables =
         map_index (fn (index, sort) => canonical_parameter index sort)
           parameter_sorts @
-        map_index (fn (index, sort) => canonical_backend_parameter index sort)
-          backend_sorts
+        map (fn (role, sort) => canonical_backend_parameter (role_index role) sort)
+          role_sorts
       val _ =
         if null (Term.add_tfreesT template []) andalso
             forall
@@ -2274,7 +2430,7 @@ struct
           [length parameters]
       val candidate =
         make_entry Alias declaration_pos arities template
-          parameter_kinds parameter_sorts backend_sorts (#meaning result) (!dependencies)
+          parameter_kinds parameter_sorts role_sorts (#meaning result) (!dependencies)
       val prepared = preflight lthy base candidate
       val _ =
         List.app
@@ -2325,16 +2481,40 @@ struct
                    Position.here (rust_type_position rust_type)))
         end
 
-  fun declare_manual payload =
-    declare_mapping Manual payload
+  fun unknown_mapping_option (name, pos) =
+    mapping_error ("unknown option " ^ quote name) pos
+
+  val mapping_option_configs = Symtab.make [("implicit", ())]
+
+  fun add_mapping_option ((name, pos), value) options =
+    if Symtab.defined options name then mapping_error ("duplicate option " ^ quote name) pos
+    else
+      (case value of
+         SOME source => Symtab.update (name, source) options
+       | NONE => mapping_error ("option " ^ quote name ^ " expects a cartouche payload") pos)
+
+  val parse_mapping_options =
+    URust_Option_Parser.command_list unknown_mapping_option mapping_option_configs
+      (K (Parse.token Parse.cartouche >> Parser_Lex_Util.cartouche_source))
+      add_mapping_option Symtab.empty
+
+  fun declare_manual (options, payload) lthy =
+    let
+      val (result, reports) = URust_Report_Transaction.capture (fn () =>
+        let val roles = case Symtab.lookup options "implicit" of
+          NONE => [] | SOME source => read_implicit_roles lthy source
+        in declare_mapping Manual roles payload lthy end)
+      val _ = URust_Report_Transaction.replay result reports
+    in result end
 
   val _ =
     Outer_Syntax.local_theory \<^command_keyword>\<open>urust_type\<close>
       "declare a context-local Rust-to-HOL type mapping"
-      ((Parse.token Parse.string --| \<^keyword>\<open>=\<close>) --
+      (parse_mapping_options --
+        ((Parse.token Parse.string --| \<^keyword>\<open>=\<close>) --
         Parse.embedded_input >>
           (fn (token, source) =>
-            declare_manual (Token.input_of token, source)))
+            (Token.input_of token, source))) >> declare_manual)
 end
 \<close>
 

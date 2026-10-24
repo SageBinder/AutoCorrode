@@ -5814,4 +5814,152 @@ ML_val\<open>
   in val _ = () end
 \<close>
 
+section\<open> Implicit mapping signature sharing and complete types \<close>
+
+ML_val\<open>
+local
+  open URust_AST
+  structure Types = URust_Type_Mappings
+  val ctxt = \<^context>
+  val thy = \<^theory>
+  fun require label ok = if ok then () else error ("implicit signature audit: " ^ label)
+  val layout = make_source_layout Position.none []
+  fun named name =
+    Path_Type ([Rust_Type_Path_Segment (name, Position.none, NONE, layout)], layout)
+  val primitive = Primitive_Type (DPT_U8, Position.none)
+  val pointer = Raw_Pointer_Type (RPM_Mut, primitive, layout)
+  val reference = Reference_Type (BM_Mut, NONE, primitive, layout)
+  fun captured action = #1 (Micro_Rust_Semantic_Navigation.capture action)
+  fun resolved_signature rust = captured (fn () => Types.resolve_signature ctxt rust)
+  fun check_order rust =
+    let
+      val types = resolved_signature rust
+      val address = get_first (fn Type (name, [slot]) =>
+          if name = \<^type_name>\<open>function_address_model\<close> then SOME slot else NONE
+        | _ => NONE) types |> the
+      val global = get_first (fn Type (name, [slot]) =>
+          if name = \<^type_name>\<open>function_global_model\<close> then SOME slot else NONE
+        | _ => NONE) types |> the
+      val pair = get_first (fn Type (name, [Type (gref, [a, g]), global, _]) =>
+          if name = \<^type_name>\<open>focused\<close> andalso
+            gref = \<^type_name>\<open>gref\<close> andalso g = global
+          then SOME (a, g) else NONE
+        | _ => NONE) types |> the
+    in require "pointer/reference arrival changed a named singleton slot"
+      (pair = (address, global) andalso address <> global) end
+  val _ = List.app check_order
+    [[named "FunctionAddress", pointer, named "FunctionGlobal"],
+     [pointer, named "FunctionAddress", named "FunctionGlobal"],
+     [named "FunctionGlobal", pointer, named "FunctionAddress"],
+     [pointer, named "FunctionGlobal", named "FunctionAddress"],
+     [named "FunctionAddress", reference, named "FunctionGlobal"],
+     [reference, named "FunctionAddress", named "FunctionGlobal"],
+     [named "FunctionGlobal", reference, named "FunctionAddress"],
+     [reference, named "FunctionGlobal", named "FunctionAddress"]]
+  val _ = List.app check_order
+    [[named "FunctionTransportAddress", pointer, named "FunctionTransportAlias"],
+     [pointer, named "FunctionTransportAddress", named "FunctionTransportAlias"],
+     [named "FunctionTransportAlias", reference, named "FunctionTransportAddress"],
+     [reference, named "FunctionTransportAlias", named "FunctionTransportAddress"]]
+  fun transported_scheme name roles source_indexes =
+    let
+      val entry = the (Types.lookup ctxt name)
+      val expected = map (pair "_urust_type") source_indexes @
+        map (fn Types.Address => ("_urust_backend", 0)
+          | Types.Global => ("_urust_backend", 1)) roles
+      val actual = Term.add_tvarsT (Types.entry_template entry) []
+    in require (name ^ ": locale export changed a canonical slot, role or sort")
+      (Types.entry_backend_roles entry = roles andalso
+        eq_set (op =) (map fst actual, expected) andalso
+        forall (fn (_, sort) => sort = \<^sort>\<open>type\<close>) actual)
+    end
+  val _ = List.app (fn (name, roles, sources) => transported_scheme name roles sources)
+    [("FunctionTransportAddress", [Types.Address], []),
+     ("FunctionTransportGlobal", [Types.Global], []),
+     ("FunctionTransportAlias", [Types.Global], []),
+     ("FunctionTransportPair", [Types.Address, Types.Global], []),
+     ("FunctionTransportPairAlias", [Types.Address, Types.Global], []),
+     ("FunctionTransportWrapped", [Types.Address, Types.Global], [0]),
+     ("FunctionTransportWrappedAlias", [Types.Address, Types.Global], [0]),
+     ("FunctionRolePacket", [Types.Address, Types.Global], [])]
+  val first = resolved_signature [named "FunctionAddress"]
+  val second = resolved_signature [named "FunctionAddress"]
+  val _ = require "independent resolutions reused flexible backend variables" (first <> second)
+  val repeated = resolved_signature [named "FunctionAddress", named "FunctionAddress"]
+  val _ = require "repeated mappings allocated separate address roles" (hd repeated = nth repeated 1)
+
+  val fixed = TFree ("'urust_address", \<^sort>\<open>type\<close>)
+  val fixed_ctxt = Variable.declare_typ fixed ctxt
+  val channel = Types.Authored_Channel (Input.string "'urust_address")
+  val complete = captured (fn () => Types.resolve_function_signature fixed_ctxt
+    {state = SOME channel, abort = NONE, input = NONE, output = NONE} []
+    [named "FunctionAddress"] (named "FunctionGlobal"))
+  val [Type (_, [address])] = binder_types complete
+  val Type (_, [state, Type (_, [global]), _, _, _]) = body_type complete
+  val _ = require "role sort/spelling captured an ambient variable or computation channel"
+    (state = fixed andalso address <> fixed andalso global <> fixed andalso address <> global)
+
+  fun canonical_type typ =
+    let
+      val variables = Term.add_tvarsT typ [] |> rev
+      val substitutions = variables |> map_index (fn (index, variable as (_, sort)) =>
+        (variable, TVar (("backend_type", index), sort))) |> TVars.make
+    in Term_Subst.instantiateT substitutions typ end
+  fun constant_type name =
+    Sign.the_const_type thy (Proof_Context.intern_const ctxt name) |> canonical_type
+  val _ = List.app (fn (native, escaped) =>
+    require (native ^ ": complete type/sort/channel relationships differ from escape twin")
+      (constant_type native = constant_type escaped))
+    [("function_address_native", "function_address_escape"),
+     ("function_global_native", "function_global_escape"),
+     ("function_pair_native", "function_pair_escape")]
+
+  fun cartouche text = Symbol.open_ ^ " " ^ text ^ " " ^ Symbol.close
+  fun run base label text =
+    Outer_Syntax.parse_text base (K base)
+      (Position.make0 1 1 0 "" label "" |> Position.copy_id (Position.thread_data ())) text
+    |> (fn transitions => fold (Toplevel.command_exception false) transitions
+      (Toplevel.make_state (SOME base)))
+    |> Toplevel.context_of
+  val aliases = captured (fn () => run thy "implicit-morphism-alias-replay"
+    ("urust_type_alias " ^ cartouche "type FunctionTransportAlias = FunctionTransportGlobal;" ^
+      " urust_type_alias " ^ cartouche "type FunctionTransportPairAlias = FunctionTransportPair;" ^
+      " urust_type_alias " ^
+        cartouche "type FunctionTransportWrappedAlias<Value> = FunctionTransportWrapped<Value>;"))
+  val _ = List.app (fn name =>
+    require (name ^ ": transported captured meaning was not idempotent")
+      (Types.entry_identity (the (Types.lookup ctxt name)) =
+        Types.entry_identity (the (Types.lookup aliases name))))
+    ["FunctionTransportAlias", "FunctionTransportPairAlias", "FunctionTransportWrappedAlias"]
+  val sorted = run thy "implicit-sort-fixtures"
+    ("urust_type [implicit = " ^ cartouche "address = 'a" ^ "] \"FunctionFinite\" = " ^
+      cartouche "'a::finite function_address_model")
+  val sorted_thy = Proof_Context.theory_of sorted
+  val [Type (_, [sorted_address]), Type (_, [plain_global]),
+      Type (_, [Type (_, [pointer_address, pointer_global]), pointer_global', _])] =
+    captured (fn () => Types.resolve_signature sorted
+      [named "FunctionFinite", named "FunctionGlobal", pointer])
+  val _ = require "sort refinement split or conflated roles"
+    (sorted_address = pointer_address andalso plain_global = pointer_global andalso
+      pointer_global = pointer_global' andalso
+      Type.sort_of_atyp sorted_address = \<^sort>\<open>finite\<close> andalso
+      Type.sort_of_atyp plain_global = \<^sort>\<open>type\<close>)
+  val succeeded = captured (fn () => run sorted_thy "implicit-sort-compatible"
+    ("urust_fn [register_notation = false] _ " ^
+      cartouche ("fn FunctionSortCompatible(value: FunctionFinite) -> FunctionFinite { " ^
+        "\<llangle>value :: bool function_address_model\<rrangle> }")))
+  val _ = require "sort-compatible anonymous declaration leaked its generic scope"
+    (is_none (Types.generic_scope succeeded))
+  val incompatible = Exn.capture (fn () => captured (fn () =>
+    run sorted_thy "implicit-sort-incompatible"
+      ("urust_fn [register_notation = false] _ " ^
+        cartouche ("fn FunctionSortIncompatible(value: FunctionFinite) -> FunctionFinite { " ^
+          "\<llangle>value :: nat function_address_model\<rrangle> }")))) ()
+  val _ = (case incompatible of
+    Exn.Exn exn => require "concrete backend sort conflict lost native type failure"
+      (String.isSubstring "Type unification failed" (Runtime.exn_message exn))
+  | _ => error "implicit signature audit: an infinite backend satisfied finite")
+in val _ = writeln "implicit signature roles, fresh scopes, full twins and sort controls passed" end
+\<close>
+
 end

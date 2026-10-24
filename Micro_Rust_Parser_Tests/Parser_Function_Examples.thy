@@ -2025,4 +2025,101 @@ lemma declared_interpreted_identity:
     (literal () :: (unit, unit, unit, bool, nat prompt, unit prompt_output) expression)\<close>
   unfolding semantic_unit.declared_locale_identity_def by simp
 
+section\<open> Native signatures with implicit manual backends \<close>
+
+datatype 'a function_address_model = FunctionAddressModel
+datatype 'g function_global_model = FunctionGlobalModel
+datatype ('a, 'g) function_pair_model = FunctionPairModel
+
+urust_type [implicit = \<open> address = 'addr \<close>]
+  "FunctionAddress" = \<open> 'addr function_address_model \<close>
+urust_type [implicit = \<open> global = 'store \<close>]
+  "FunctionGlobal" = \<open> 'store function_global_model \<close>
+urust_type [implicit = \<open> address = 'addr, global = 'store \<close>]
+  "FunctionPair" = \<open> ('addr, 'store) function_pair_model \<close>
+
+urust_fn [register_notation = false] function_address_native \<open>
+  fn FunctionAddressNative(value: FunctionAddress) -> FunctionAddress { value }
+\<close>
+urust_fn [register_notation = false] function_address_escape \<open>
+  fn FunctionAddressEscape(value: \<tau>\<open> 'a function_address_model \<close>)
+      -> \<tau>\<open> 'a function_address_model \<close> { value }
+\<close>
+
+urust_fn [register_notation = false] function_global_native \<open>
+  fn FunctionGlobalNative(value: FunctionGlobal) -> FunctionGlobal { value }
+\<close>
+urust_fn [register_notation = false] function_global_escape \<open>
+  fn FunctionGlobalEscape(value: \<tau>\<open> 'g function_global_model \<close>)
+      -> \<tau>\<open> 'g function_global_model \<close> { value }
+\<close>
+
+urust_fn [register_notation = false] function_pair_native \<open>
+  fn FunctionPairNative(value: FunctionPair) -> FunctionPair { value }
+\<close>
+urust_fn [register_notation = false] function_pair_escape \<open>
+  fn FunctionPairEscape(value: \<tau>\<open> ('a, 'g) function_pair_model \<close>)
+      -> \<tau>\<open> ('a, 'g) function_pair_model \<close> { value }
+\<close>
+
+lemma backend_signature_twins:
+  shows \<open>function_address_native = function_address_escape\<close>
+    and \<open>function_global_native = function_global_escape\<close>
+    and \<open>function_pair_native = function_pair_escape\<close>
+  unfolding function_address_native_def function_address_escape_def
+    function_global_native_def function_global_escape_def
+    function_pair_native_def function_pair_escape_def
+  by (rule refl)+
+
+section\<open> Implicit mapping schemes through locale interpretations \<close>
+
+locale function_backend_transport =
+  fixes marker :: nat
+begin
+
+urust_type [implicit = \<open> address = 'addr \<close>]
+  "FunctionTransportAddress" = \<open> 'addr function_address_model \<close>
+urust_type [implicit = \<open> global = 'store \<close>]
+  "FunctionTransportGlobal" = \<open> 'store function_global_model \<close>
+urust_type [implicit = \<open> global = 'store, address = 'addr \<close>]
+  "FunctionTransportPair" = \<open> ('addr, 'store) function_pair_model \<close>
+urust_type [implicit = \<open> global = 'store, address = 'addr \<close>]
+  "FunctionTransportWrapped<'value>" =
+    \<open> ('addr, 'store) function_pair_model \<times> 'value \<close>
+
+urust_type_alias \<open> type FunctionTransportAlias = FunctionTransportGlobal; \<close>
+urust_type_alias \<open> type FunctionTransportPairAlias = FunctionTransportPair; \<close>
+urust_type_alias \<open>
+  type FunctionTransportWrappedAlias<Value> = FunctionTransportWrapped<Value>;
+\<close>
+
+urust_datatype [verbosity = 0, pretty = false] \<open>
+  struct FunctionRolePacket {
+    left: FunctionTransportAddress,
+    right: FunctionTransportAlias,
+    pair: FunctionTransportPairAlias,
+  }
+\<close>
+
+urust_fn [register_notation = false, verbosity = 0, pretty = false]
+  function_transport_identity \<open>
+    fn FunctionTransportIdentity(value: FunctionTransportAlias) -> FunctionTransportGlobal { value }
+  \<close>
+urust_fn [register_notation = false, verbosity = 0, pretty = false]
+  function_transport_pair_identity \<open>
+    fn FunctionTransportPairIdentity<Value>(value: FunctionTransportWrappedAlias<Value>)
+        -> FunctionTransportWrapped<Value> { value }
+  \<close>
+
+lemma function_transport_shapes:
+  shows \<open>function_transport_identity = (\<lambda>value. FunctionBody (literal value))\<close>
+    and \<open>function_transport_pair_identity = (\<lambda>value. FunctionBody (literal value))\<close>
+  unfolding function_transport_identity_def function_transport_pair_identity_def
+  by (rule refl)+
+
+end
+
+interpretation function_backend_zero: function_backend_transport 0 .
+interpretation function_backend_one: function_backend_transport 1 .
+
 end

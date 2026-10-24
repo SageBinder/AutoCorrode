@@ -1784,13 +1784,14 @@ fun declare_prepared
     val ((final_lthy, artifacts, pretty_declaration), type_reports) =
       URust_Report_Transaction.capture (fn () =>
         let
-          val {types, source_parameters, backend_parameters} =
-            URust_Type_Mappings.resolve_declaration lthy descriptors parameters (item_field_types item)
+          val {types, source_parameters, backend_parameters = role_parameters} =
+            URust_Type_Mappings.resolve_declaration_roles lthy descriptors parameters (item_field_types item)
+          val backend_parameters = map snd role_parameters
           val all_parameters = source_parameters @ backend_parameters
           (* Backend selection follows field resolution, so item diagnostics keep their order. *)
           val (selected, width, values) = select_backend backend word_width repr discriminants item
           val _ =
-            URust_Type_Mappings.preflight_declaration_scheme
+            URust_Type_Mappings.preflight_declaration_role_scheme
               {rust_name = rust_name,
                rust_pos = rust_pos,
                hol_type_name = expected_hol_type_name,
@@ -1798,7 +1799,7 @@ fun declare_prepared
                  Type (expected_hol_type_name, map TFree all_parameters),
                source_parameters = source_parameters,
                parameter_kinds = map (fn URust_AST.Generic_Parameter (_, _, kind) => kind) descriptors,
-               backend_parameters = backend_parameters}
+               backend_parameters = role_parameters}
               lthy
           fun generate backend_lthy =
             let
@@ -1823,7 +1824,7 @@ fun declare_prepared
               val registered_lthy =
                 generated_lthy
                 |> register_generated_datatype generated
-                |> URust_Type_Mappings.register_declaration_scheme
+                |> URust_Type_Mappings.register_declaration_role_scheme
                     {rust_name = rust_name,
                      rust_pos = rust_pos,
                      hol_type_name = #hol_type_name generated,
@@ -1831,7 +1832,7 @@ fun declare_prepared
                      source_parameters = #source_parameters generated,
                      parameter_kinds =
                        map (fn URust_AST.Generic_Parameter (_, _, kind) => kind) descriptors,
-                     backend_parameters = #backend_parameters generated}
+                     backend_parameters = map fst role_parameters ~~ #backend_parameters generated}
               val restored_lthy =
                 registered_lthy
                 |> Local_Theory.map_contexts (fn depth =>

@@ -17,6 +17,39 @@ struct
 end
 \<close>
 
+section\<open> Shared command option lists \<close>
+
+ML\<open>
+structure URust_Option_Parser =
+struct
+  (* Schemas and value validation remain in their owning command. Minor keywords such as
+     output may name an option and receive the same delimiter report as before. *)
+  val name =
+    Scan.ahead Parse.not_eof -- Parse.position Parse.liberal_name >>
+      (fn (token, entry) =>
+        (if Token.is_kind Token.Keyword token then Position.report (#2 entry) Markup.delimiter
+         else ();
+         entry))
+
+  fun entry reject configs value =
+    name :|-- (fn option =>
+      (case Symtab.lookup configs (fst option) of
+         NONE => reject option
+       | SOME config =>
+           Scan.option (Parse.$$$ "=" |-- value config) >> pair option))
+
+  fun entries reject configs value add empty =
+    Parse.enum1 "," (entry reject configs value) >>
+      (fn options => fold add options empty)
+
+  fun command_list reject configs value add empty =
+    Scan.optional
+      (Parse.$$$ "[" |--
+        Parse.!!! (entries reject configs value add empty --| Parse.$$$ "]"))
+      empty
+end
+\<close>
+
 section\<open> Report transactions \<close>
 
 text\<open>

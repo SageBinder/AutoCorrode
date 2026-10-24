@@ -1235,4 +1235,44 @@ urust_expr pointer_independent_calls \<open>
   )
 \<close>
 
+section\<open> Manual mappings with implicit backend roles \<close>
+
+datatype 'a backend_address_model = BackendAddressModel
+datatype 'g backend_global_model = BackendGlobalModel
+datatype ('a, 'g, 'p) backend_payload_model = BackendPayloadModel 'p
+
+urust_type [implicit = \<open> address = 'a \<close>]
+  "BackendAddress" = \<open> 'a backend_address_model \<close>
+
+urust_type [implicit = \<open> global = 'g \<close>]
+  "BackendGlobal" = \<open> 'g backend_global_model \<close>
+
+urust_type [implicit = \<open> global = 'g, address = 'a \<close>]
+  "BackendPayload<'p>" = \<open> ('a, 'g, 'p) backend_payload_model \<close>
+
+urust_type "BackendWrap<'p>" = \<open> 'p option \<close>
+
+urust_type_alias \<open> type BackendAddressAlias = BackendAddress; \<close>
+urust_type_alias \<open> type BackendGlobalAlias = BackendGlobal; \<close>
+
+urust_datatype \<open>
+  struct BackendAddressFields {
+    first: BackendAddress, next: BackendWrap<BackendAddressAlias>
+  }
+\<close>
+
+urust_datatype \<open>
+  struct BackendGlobalFields { first: BackendGlobal, next: BackendGlobalAlias }
+\<close>
+
+urust_datatype \<open>
+  struct BackendMixedFields {
+    first: BackendAddress,
+    pointer: *const u8,
+    payload: BackendPayload<u16>,
+    store: BackendGlobal,
+    next: BackendAddress,
+  }
+\<close>
+
 end

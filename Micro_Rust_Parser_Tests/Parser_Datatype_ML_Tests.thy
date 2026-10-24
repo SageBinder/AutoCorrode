@@ -7358,4 +7358,294 @@ ML_val\<open>
   end
 \<close>
 
+chapter\<open> Implicit manual mapping backend roles \<close>
+
+ML_val\<open>
+local
+  open URust_AST
+  structure Types = URust_Type_Mappings
+  structure T = Selector_Name_Test
+  val ctxt = \<^context>
+  val thy = \<^theory>
+  fun require label ok = if ok then () else error ("implicit mapping audit: " ^ label)
+  fun mapping name = the (Types.lookup ctxt name)
+  val layout = make_source_layout Position.none []
+  fun path name arguments =
+    Path_Type ([Rust_Type_Path_Segment (name, Position.none,
+      if null arguments then NONE else SOME (map Rust_Type_Argument arguments), layout)], layout)
+  fun named name = path name []
+  fun captured action = #1 (Micro_Rust_Semantic_Navigation.capture action)
+  fun fields rust = captured (fn () => Types.resolve_fields ctxt rust)
+  fun role name expected =
+    require (name ^ " lost its named backend roles")
+      (Types.entry_backend_roles (mapping name) = expected)
+  val _ = List.app (fn (name, roles) => role name roles)
+    [("BackendAddress", [Types.Address]), ("BackendAddressAlias", [Types.Address]),
+     ("BackendAddressFields", [Types.Address]), ("BackendGlobal", [Types.Global]),
+     ("BackendGlobalAlias", [Types.Global]), ("BackendGlobalFields", [Types.Global]),
+     ("BackendPayload", [Types.Address, Types.Global]),
+     ("BackendMixedFields", [Types.Address, Types.Global]), ("BackendWrap", [])]
+  val _ = require "implicit roles entered Rust source arity or placeholder slots"
+    (Types.entry_arities (mapping "BackendAddress") = [0] andalso
+      null (Types.entry_parameter_sorts (mapping "BackendAddress")) andalso
+      Types.entry_arities (mapping "BackendPayload") = [1] andalso
+      length (Types.entry_parameter_sorts (mapping "BackendPayload")) = 1)
+  val _ = require "singleton global must retain canonical index one"
+    (map (#1 o #1) (Term.add_tvarsT (Types.entry_template (mapping "BackendGlobalFields")) []) =
+      ["_urust_backend"] andalso
+     map (#2 o #1) (Term.add_tvarsT (Types.entry_template (mapping "BackendGlobalFields")) []) = [1])
+  val global_batch = fields [named "BackendGlobalFields", named "BackendGlobalAlias"]
+  val _ = require "singleton global fields allocated an address parameter"
+    (map fst (#backend_parameters global_batch) = ["'urust_global"])
+  val [Type (_, [global]), Type (_, [global_alias])] = #types global_batch
+  val _ = require "singleton global generated/alias scheme changed role identity"
+    (global = global_alias)
+  val address_batch = fields [named "BackendAddressFields", named "BackendAddressAlias"]
+  val _ = require "singleton address fields allocated a global parameter"
+    (map fst (#backend_parameters address_batch) = ["'urust_address"])
+  val [Type (_, [address]), Type (_, [address_alias])] = #types address_batch
+  val _ = require "singleton address generated/alias scheme changed role identity"
+    (address = address_alias)
+  val pointer = Raw_Pointer_Type (RPM_Const, Primitive_Type (DPT_U8, Position.none), layout)
+  fun check_pointer_order rust =
+    let
+      val batch = fields rust
+      val _ = require "batch did not finalize exactly the requested pair"
+        (map fst (#backend_parameters batch) = ["'urust_address", "'urust_global"])
+      fun inspect (Type (name, args)) =
+            if name = \<^type_name>\<open>focused\<close> then
+              let val [Type (gref, slots), global, _] = args
+              in
+                require "pointer did not share the established role slots"
+                  (gref = \<^type_name>\<open>gref\<close> andalso
+                    slots = map TFree (#backend_parameters batch) andalso
+                    global = TFree (nth (#backend_parameters batch) 1))
+              end
+            else if name = \<^type_name>\<open>backend_address_model\<close> then
+              require "address mapping changed its first allocated slot"
+                (args = [TFree (hd (#backend_parameters batch))])
+            else if name = \<^type_name>\<open>backend_global_model\<close> then
+              require "global mapping changed its first allocated slot"
+                (args = [TFree (nth (#backend_parameters batch) 1)])
+            else ()
+        | inspect _ = error "implicit mapping audit: unexpected resolved type"
+    in List.app inspect (#types batch) end
+  val _ = List.app check_pointer_order
+    [[named "BackendAddress", pointer, named "BackendGlobal"],
+     [pointer, named "BackendAddress", named "BackendGlobal"],
+     [named "BackendGlobal", pointer, named "BackendAddress"],
+     [pointer, named "BackendGlobal", named "BackendAddress"]]
+  val nested = fields [path "BackendWrap" [named "BackendAddress"],
+    path "BackendPayload" [named "BackendGlobal"], named "BackendAddress"]
+  val [Type (_, [nested_address]), Type (_, [payload_address, payload_global, payload]), direct] =
+    #types nested
+  val _ = require "nested mappings stopped sharing either role"
+    (nested_address = direct andalso
+      Term.add_tfreesT direct [] = [hd (#backend_parameters nested)] andalso
+      payload_address = TFree (hd (#backend_parameters nested)) andalso
+      payload_global = TFree (nth (#backend_parameters nested) 1) andalso
+      payload = Type (\<^type_name>\<open>backend_global_model\<close>, [payload_global]))
+
+  (* Public old APIs retain their exact records; role-aware APIs carry singleton identity. *)
+  val old_pair: {types: typ list, source_parameters: (string * sort) list,
+      backend_parameters: (string * sort) list} =
+    captured (fn () => Types.resolve_declaration ctxt [] [] [pointer])
+  val new_global = captured (fn () =>
+    Types.resolve_declaration_roles ctxt [] [] [named "BackendGlobal"])
+  val _ = require "legacy field resolution stopped exposing the old pair"
+    (length (#backend_parameters old_pair) = 2)
+  val _ = require "role-aware field resolution lost singleton-global metadata"
+    (map fst (#backend_parameters new_global) = [Types.Global])
+  val lthy = Named_Target.theory_init thy
+  val native_parameters = [("'legacy_address", \<^sort>\<open>type\<close>),
+    ("'legacy_global", \<^sort>\<open>type\<close>)]
+  val old = captured (fn () => Types.register_generated_scheme
+    {rust_name = "BackendLegacyAdapter", rust_pos = Position.none,
+     hol_type_name = \<^type_name>\<open>prod\<close>,
+     hol_type = HOLogic.mk_prodT (TFree (hd native_parameters), TFree (nth native_parameters 1)),
+     backend_parameters = native_parameters} lthy)
+  val _ = require "legacy generated adapter lost pair identity"
+    (Types.entry_backend_roles (the (Types.lookup old "BackendLegacyAdapter")) =
+      [Types.Address, Types.Global])
+  val legacy_source = ("'legacy_payload", \<^sort>\<open>type\<close>)
+  val legacy_specification =
+    {rust_name = "BackendLegacySourceAdapter", rust_pos = Position.none,
+     hol_type_name = \<^type_name>\<open>prod\<close>,
+     hol_type = HOLogic.mk_prodT (TFree legacy_source,
+       HOLogic.mk_prodT (TFree (hd native_parameters), TFree (nth native_parameters 1))),
+     source_parameters = [legacy_source], parameter_kinds = [Type_Parameter],
+     backend_parameters = native_parameters}
+  val _ = Types.preflight_declaration_scheme legacy_specification lthy
+  val legacy_registered = captured (fn () =>
+    Types.register_declaration_scheme legacy_specification lthy)
+  val _ = require "legacy declaration adapters changed the source/backend partition"
+    (Types.entry_arities (the (Types.lookup legacy_registered "BackendLegacySourceAdapter")) = [1]
+      andalso Types.entry_parameter_sorts
+        (the (Types.lookup legacy_registered "BackendLegacySourceAdapter")) = [\<^sort>\<open>type\<close>]
+      andalso Types.entry_backend_roles
+        (the (Types.lookup legacy_registered "BackendLegacySourceAdapter")) =
+          [Types.Address, Types.Global])
+  val _ = Types.preflight_generated_scheme
+    {rust_name = "BackendLegacyEmptyAdapter", rust_pos = Position.none,
+     hol_type_name = \<^type_name>\<open>nat\<close>, hol_type = \<^typ>\<open>nat\<close>,
+     backend_parameters = []} lthy
+  val role_global = captured (fn () => Types.register_declaration_role_scheme
+    {rust_name = "BackendRoleAdapter", rust_pos = Position.none,
+     hol_type_name = \<^type_name>\<open>backend_global_model\<close>,
+     hol_type = Type (\<^type_name>\<open>backend_global_model\<close>, [TFree (hd native_parameters)]),
+     source_parameters = [], parameter_kinds = [],
+     backend_parameters = [(Types.Global, hd native_parameters)]} lthy)
+  val _ = require "role-aware generated adapter guessed the role from its HOL name"
+    (Types.entry_backend_roles (the (Types.lookup role_global "BackendRoleAdapter")) = [Types.Global])
+  val _ = (case Exn.capture (fn () => captured (fn () =>
+      Types.register_generated_scheme
+        {rust_name = "BackendAmbiguousAdapter", rust_pos = Position.none,
+         hol_type_name = \<^type_name>\<open>backend_global_model\<close>,
+         hol_type = Type (\<^type_name>\<open>backend_global_model\<close>, [TFree (hd native_parameters)]),
+         backend_parameters = [hd native_parameters]} lthy)) () of
+    Exn.Exn exn => require "positional singleton adapter guessed a named role"
+      (String.isSubstring "positional backend schemes require an address/global pair"
+        (Runtime.exn_message exn))
+  | _ => error "implicit mapping audit: positional singleton backend was accepted")
+
+  fun cartouche text = Symbol.open_ ^ " " ^ text ^ " " ^ Symbol.close
+  fun declaration options key template =
+    "urust_type " ^ options ^ " " ^ quote key ^ " = " ^ cartouche template
+  fun implicit payload = "[implicit = " ^ cartouche payload ^ "]"
+  val alpha_first = T.succeeded thy "backend-alpha-first"
+    (declaration (implicit "address = 'a, global = 'g") "BackendAlpha<'p>"
+      "('a, 'g, 'p) backend_payload_model")
+  val alpha_thy = Proof_Context.theory_of alpha_first
+  val alpha_second = T.succeeded alpha_thy "backend-alpha-second"
+    (declaration (implicit "global = 'store, address = 'addr") "BackendAlpha<'value>"
+      "('addr, 'store, 'value) backend_payload_model")
+  val _ = require "alpha-renaming/reversed options changed navigation identity"
+    (Types.entry_identity (the (Types.lookup alpha_first "BackendAlpha")) =
+      Types.entry_identity (the (Types.lookup alpha_second "BackendAlpha")))
+  val zero = T.succeeded thy "backend-empty-role-list"
+    (declaration (implicit "") "BackendNoRoles" "nat")
+  val _ = require "empty role list changed a plain mapping"
+    (null (Types.entry_backend_roles (the (Types.lookup zero "BackendNoRoles"))))
+
+  val ended = Theory.end_theory thy
+  fun branch label payload template =
+    let
+      val branch = Theory.begin_theory (label, Position.none) [ended]
+      val ctxt = T.succeeded branch (label ^ "-declaration")
+        (declaration (implicit payload) "BackendMerge" template)
+    in Theory.end_theory (Proof_Context.theory_of ctxt) end
+  val left = branch "BackendMergeLeft" "address = 'a, global = 'g"
+    "('a, 'g, nat) backend_payload_model"
+  val right = branch "BackendMergeRight" "global = 's, address = 'p"
+    "('p, 's, nat) backend_payload_model"
+  fun merged label parents =
+    Theory.begin_theory (label, Position.none) parents |> Proof_Context.init_global
+  val merged_left = merged "BackendMergeForward" [left, right]
+  val merged_right = merged "BackendMergeReverse" [right, left]
+  val _ = require "native merge order changed role metadata or canonical template"
+    (Types.entry_backend_roles (the (Types.lookup merged_left "BackendMerge")) =
+      [Types.Address, Types.Global] andalso
+     Types.entry_template (the (Types.lookup merged_left "BackendMerge")) =
+      Types.entry_template (the (Types.lookup merged_right "BackendMerge")))
+  val conflicting = branch "BackendMergeConflict" "address = 'g, global = 'a"
+    "('a, 'g, nat) backend_payload_model"
+  val _ = List.app (fn parents =>
+    (case Exn.capture (fn () => merged "BackendMergeRejected" parents) () of
+       Exn.Exn exn => require "merge role conflict lost its diagnostic"
+         (String.isSubstring "conflicting active mappings" (Runtime.exn_message exn))
+     | _ => error "implicit mapping audit: conflicting role assignment merged"))
+    [[left, conflicting], [conflicting, left]]
+in val _ = writeln "implicit manual mapping sharing, canonicalization and API audits passed" end
+\<close>
+
+ML_val\<open>
+local
+  structure T = Selector_Name_Test
+  structure Types = URust_Type_Mappings
+  val thy = \<^theory>
+  fun require label ok = if ok then () else error ("implicit mapping rejection audit: " ^ label)
+  fun cartouche text = Symbol.open_ ^ " " ^ text ^ " " ^ Symbol.close
+  fun declaration options key template =
+    "urust_type " ^ options ^ " " ^ quote key ^ " = " ^ cartouche template
+  fun implicit payload = "[implicit = " ^ cartouche payload ^ "]"
+  fun no_semantic_markup markup =
+    not (exists (fn (name, props) =>
+      member (op =) [Markup.typingN, Markup.sortingN, Markup.tfreeN, Markup.tvarN] name orelse
+        (name = Markup.entityN andalso
+          member (op =) [SOME "micro_rust_type_mapping", SOME "type_name", SOME "class"]
+            (Properties.get props Markup.kindN))) markup)
+  val rows =
+    [("unknown-role", implicit "heap = 'a", "BackendBad", "'a backend_address_model",
+       "unknown implicit role", ("", "heap")),
+     ("symbol-position", implicit "(* \<alpha> *) heap = 'a", "BackendBad",
+       "'a backend_address_model", "unknown implicit role", ("", "heap")),
+     ("duplicate-role", implicit "address = 'a, address = 'b", "BackendBad",
+       "('a, 'b, nat) backend_payload_model", "duplicate implicit role", ("'a, ", "address")),
+     ("duplicate-variable", implicit "address = 'a, global = 'a", "BackendBad",
+       "'a backend_address_model", "duplicate implicit template variable", ("global = ", "'a")),
+     ("source-overlap", implicit "address = 'a", "BackendBad<'a>",
+       "'a backend_address_model", "also a source placeholder", ("address = ", "'a")),
+     ("unused-role", implicit "address = 'a", "BackendBad", "nat",
+       "unused implicit variable", ("address = ", "'a")),
+     ("undeclared-template", implicit "address = 'a", "BackendBad",
+       "('a, 'g, nat) backend_payload_model", "undeclared", (Symbol.open_ ^ " ", "('a")),
+     ("old-missing", "", "BackendBad<'a>", "nat",
+       "missing", (Symbol.open_ ^ " ", "nat")),
+     ("old-extra", "", "BackendBad", "'a backend_address_model",
+       "undeclared", (Symbol.open_ ^ " ", "'a")),
+     ("schematic-template", implicit "address = 'a", "BackendBad",
+        "?'a backend_address_model", "schematic type variable", (Symbol.open_ ^ " ", "?'a")),
+     ("invalid-native-template", implicit "address = 'a", "BackendBad",
+       "'a backend_missing_model", "Undefined type name", ("", "backend_missing_model")),
+     ("missing-payload", "[implicit]", "BackendBad", "'a backend_address_model",
+       "expects a cartouche payload", ("[", "implicit")),
+     ("unknown-option", "[backend = " ^ cartouche "address = 'a" ^ "]", "BackendBad",
+       "'a backend_address_model", "unknown option", ("[", "backend")),
+     ("duplicate-option", "[implicit = " ^ cartouche "address = 'a" ^
+       ", implicit = " ^ cartouche "global = 'g" ^ "]", "BackendBad",
+       "('a, 'g, nat) backend_payload_model", "duplicate option", (", ", "implicit"))]
+  val _ = List.app (fn (label, options, key, template, fragment, _) =>
+    let
+      val text = declaration options key template
+      val failed = T.run_output thy ("backend-" ^ label) text
+      val _ = (case #result failed of
+        Exn.Exn exn => require (label ^ ": wrong diagnostic")
+          (String.isSubstring fragment (T.plain_message exn))
+      | _ => error ("implicit mapping rejection audit: accepted " ^ label))
+      val _ = require (label ^ ": failed declaration replayed semantic/native type markup")
+        (no_semantic_markup (#markup failed))
+      val _ = require (label ^ ": failed declaration changed original registry")
+        (is_none (Types.lookup (Proof_Context.init_global thy) "BackendBad"))
+      val recovery = T.succeeded thy ("backend-" ^ label ^ "-recovery")
+        (declaration (implicit "global = 'g") "BackendRecovery" "'g backend_global_model")
+      val _ = require (label ^ ": failure prevented valid declaration recovery")
+        (Types.entry_backend_roles (the (Types.lookup recovery "BackendRecovery")) = [Types.Global])
+    in () end) rows
+  val _ = List.app (fn (label, options, key, template, fragment, range) =>
+    if member (op =) ["undeclared-template", "old-missing", "old-extra",
+      "schematic-template", "invalid-native-template"] label then ()
+    else
+      let val text = declaration options key template
+      in T.rejected_at thy ("backend-range-" ^ label) fragment (T.source_range text 1 range) text end)
+    rows
+  val valid = T.run_output thy "backend-valid-native-markup"
+    (declaration (implicit "address = 'a") "BackendReported" "'a backend_address_model")
+  val _ = require "valid declaration did not publish native type or mapping navigation"
+    (exists (fn (name, _) => name = Markup.tfreeN) (#markup valid) andalso
+     exists (fn (name, props) => name = Markup.entityN andalso
+       Properties.get props Markup.kindN = SOME "micro_rust_type_mapping") (#markup valid))
+  val conflict = T.run_output thy "backend-role-assignment-conflict"
+    (declaration (implicit "global = 'a") "BackendAddress" "'a backend_address_model")
+  val _ = (case #result conflict of
+    Exn.Exn exn => require "changed role assignment lost its conflict diagnostic"
+      (String.isSubstring "conflicting active mappings" (T.plain_message exn))
+  | _ => error "implicit mapping rejection audit: changed role assignment was accepted")
+  val _ = require "preflight conflict published native type or semantic reports"
+    (no_semantic_markup (#markup conflict))
+  val _ = require "preflight conflict changed the existing mapping"
+    (Types.entry_backend_roles
+      (the (Types.lookup (Proof_Context.init_global thy) "BackendAddress")) = [Types.Address])
+in val _ = writeln "implicit manual mapping diagnostics, markup and rollback audits passed" end
+\<close>
+
 end
