@@ -19,8 +19,7 @@ sort through the existing semantic-navigation transaction.
 ML\<open>
 signature URUST_TRAIT_MAPPINGS =
 sig
-  datatype rust_trait_bound =
-    Rust_Trait_Bound of (string * Position.T) list * URust_AST.source_layout
+  datatype rust_trait_bound = datatype URust_AST.rust_trait_bound
   type trait_entry =
     {path: string, pos: Position.T, sort: sort,
      constants: (string * {term: term, pos: Position.T}) list}
@@ -41,8 +40,7 @@ struct
   structure Navigation = Micro_Rust_Semantic_Navigation
   structure Reports = URust_Report_Transaction
 
-  datatype rust_trait_bound =
-    Rust_Trait_Bound of (string * Position.T) list * URust_AST.source_layout
+  datatype rust_trait_bound = datatype URust_AST.rust_trait_bound
   type trait_entry =
     {path: string, pos: Position.T, sort: sort,
      constants: (string * {term: term, pos: Position.T}) list}

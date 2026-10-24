@@ -790,6 +790,110 @@ in
 end
 \<close>
 
+section\<open> Shared AST trait-bound identity \<close>
+
+ML_val\<open>
+local
+  open Parser_Trait_Test
+  structure AST = URust_AST
+  fun from_ast (bound: AST.rust_trait_bound): Traits.rust_trait_bound = bound
+  fun to_ast (bound: Traits.rust_trait_bound): AST.rust_trait_bound = bound
+  val resolve_ast: Proof.context -> AST.rust_trait_bound -> Traits.trait_entry = Traits.resolve_bound
+  val declared = capture (fn () => run \<^theory> "trait-bridge-declaration"
+    (declaration "bridge::Scale" "trait_scale" []))
+  val ctxt = context (Exn.release (#result declared))
+  val identity = entities Markup.defN "bridge::Scale" (#markup declared)
+  val _ = require "bridge fixture lost its definition identity" (length identity = 1)
+  val neighbors = neighboring_snapshot [] ctxt
+  val previous_theory = Proof_Context.theory_of ctxt
+  val keys = ["bridge::Scale", "Marker", "Scale", "Copy"]
+  val entries = map (mapping ctxt) keys
+
+  fun parse label text =
+    the (URust_Parser.parse_function_source ctxt (source label text))
+  val label = "trait-bridge-carrier"
+  val text = "fn BoundBridge<T: bridge::Scale + Marker>()\n" ^
+    "/* \<alpha> */ where T: Scale + Copy {}"
+  val parsed = capture (fn () => parse label text)
+  val function = Exn.release (#result parsed)
+  val (parameter, bounds) = the_single (AST.function_bounds function)
+  val _ = require "parser resolved trait bounds prematurely"
+    (forall (fn key => null (entities Markup.refN key (#markup parsed))) keys)
+  val _ = require "parser-to-registry carrier changed bound order"
+    (parameter = "T" andalso
+      map (fn AST.Rust_Trait_Bound (segments, _) => space_implode "::" (map fst segments)) bounds = keys)
+  val ast_bound: AST.rust_trait_bound = hd bounds
+  val legacy_bound: Traits.rust_trait_bound = from_ast ast_bound
+  val Traits.Rust_Trait_Bound (segments, layout) = ast_bound
+  val rebuilt: AST.rust_trait_bound = Traits.Rust_Trait_Bound (segments, layout)
+  val AST.Rust_Trait_Bound (legacy_segments, legacy_layout) = to_ast legacy_bound
+  val AST.Rust_Trait_Bound (rebuilt_segments, rebuilt_layout) = rebuilt
+  val _ = require "constructor replication changed the bound payload"
+    (segments = legacy_segments andalso segments = rebuilt_segments andalso
+      AST.source_span layout = AST.source_span legacy_layout andalso
+      AST.source_span layout = AST.source_span rebuilt_layout andalso
+      AST.source_tokens layout = AST.source_tokens legacy_layout andalso
+      AST.source_tokens layout = AST.source_tokens rebuilt_layout)
+  val _ = require "qualified parsed bound lost its exact segment positions"
+    (map snd segments = [range label text "bridge", range label text "Scale"])
+
+  val observed = capture (fn () => Navigation.capture (fn () => map (resolve_ast ctxt) bounds))
+  val (resolved, pending) = Exn.release (#result observed)
+  val _ = require "parsed bound resolution emitted before replay"
+    (null (#markup observed) andalso #reports observed = "" andalso #output observed = "")
+  val _ = require "parsed bound resolution changed its mapped entries or sorts"
+    (resolved = entries andalso map #sort resolved =
+      [\<^sort>\<open>trait_scale\<close>, \<^sort>\<open>type\<close>,
+       \<^sort>\<open>trait_scale\<close>, \<^sort>\<open>type\<close>])
+  val replayed = capture (fn () => Navigation.replay ctxt pending)
+  val _ = Exn.release (#result replayed)
+  val _ = require "AST bound did not reference the original trait definition"
+    (entities Markup.refN "bridge::Scale" (#markup replayed) = identity)
+  val _ = List.app (fn key => require ("parsed bound lost reference " ^ key)
+    (length (entities Markup.refN key (#markup replayed)) = 1)) keys
+  val expected_segments = maps (fn AST.Rust_Trait_Bound (segments, _) => map snd segments) bounds
+  val _ = require "inline/where bound ranges changed after the source symbol"
+    (expected_segments = [range label text "bridge", range label text "Scale",
+      range label text "Marker", range_nth 1 label text "Scale", range label text "Copy"])
+  val tooltip_positions = #markup replayed |> map_filter (fn (name, props) =>
+    if name = Markup.typingN then SOME props else NONE)
+  val _ = require "parsed bound changed segment tooltip positions or order"
+    (ListPair.allEq (fn (props, pos) => same_position props pos) (tooltip_positions, expected_segments))
+  val expected_tooltips = maps (fn (AST.Rust_Trait_Bound (segments, _), entry) =>
+    replicate (length segments) (#path entry ^ " = " ^
+      XML.content_of (YXML.parse_body (Syntax.string_of_sort ctxt (#sort entry)))))
+    (bounds ~~ resolved)
+  val _ = require "parsed bound changed mapped-sort tooltip text or printed output"
+    (#reports replayed = implode expected_tooltips andalso #output replayed = "")
+
+  val missing_label = "trait-bridge-missing"
+  val missing_text = "fn MissingBridge<T: bridge::Absent>() {}"
+  val missing_parsed = capture (fn () => parse missing_label missing_text)
+  val (_, missing_bounds) = the_single (AST.function_bounds (Exn.release (#result missing_parsed)))
+  val missing = the_single missing_bounds
+  val failed = capture (fn () => Navigation.capture (fn () => resolve_ast ctxt missing))
+  val message = error_message "parsed missing bound" "unregistered Rust trait \"bridge::Absent\""
+    (#result failed)
+  val _ = require "parsed missing bound lost its final segment range"
+    (positioned_message (range missing_label missing_text "Absent") message)
+  val _ = require "parsed missing bound emitted successful reports or output"
+    (null (#markup failed) andalso #reports failed = "" andalso #output failed = "")
+  val recovery = capture (fn () => Navigation.capture (fn () => Traits.resolve_bound ctxt legacy_bound))
+  val (recovered, recovery_reports) = Exn.release (#result recovery)
+  val released = capture (fn () => Navigation.replay ctxt recovery_reports)
+  val _ = Exn.release (#result released)
+  val _ = require "legacy constructor recovery changed resolution or definition identity"
+    (recovered = hd entries andalso
+      entities Markup.refN "bridge::Scale" (#markup released) = identity)
+  val _ = require "bridge resolution/failure/recovery changed registries or theory"
+    (map (mapping ctxt) keys = entries andalso neighboring_snapshot [] ctxt = neighbors andalso
+      is_none (Traits.lookup ctxt "bridge::Absent") andalso
+      Context.eq_thy (Proof_Context.theory_of ctxt, previous_theory))
+in
+  val _ = ()
+end
+\<close>
+
 chapter\<open> Syntax \<close>
 
 text\<open>
