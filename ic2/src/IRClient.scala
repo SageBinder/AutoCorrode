@@ -8,7 +8,6 @@ package isabelle
 
 import java.io.{BufferedReader, InputStreamReader, OutputStreamWriter, PrintWriter}
 import java.net.Socket
-import scala.util.Using
 
 /** Ephemeral TCP client for the I/R REPL server (repl.py).
   *
@@ -307,8 +306,12 @@ object IRLauncher {
 
 final class IRLauncher(
   session: Session,
-  onStatus: String => Unit = msg => Output.writeln("I/R: " + msg)
+  onStatus: String => Unit = msg => Output.writeln("I/R: " + msg),
+  nativePrerequisite: Option[Document.Node.Name => Either[String, Unit]] = None
 ) {
+  def this(session: Session, onStatus: String => Unit) =
+    this(session, onStatus, None)
+
   import IRLauncher.{Launched, Port_Handler, Status_Handler}
 
   /** Resolve (registering once) a protocol handler instance on the session.
@@ -319,54 +322,60 @@ final class IRLauncher(
     session.get_protocol_handler(cls)
   }
 
-  /** Ensure the I/R ML (ir.ML / tcp_handler.ML / ml_repl.ML, which define the
-    * IR_Repl.* protocol commands) is loaded into the prover, by introducing an
-    * in-memory `ir` theory node whose body inlines those ML files. Portable: it
-    * uses only the generic Session/Resources API, so it works for the live PIDE
-    * session (jEdit) and a headless session alike. The node is named from the
-    * real `irDir`, so if `ir.thy` is ALSO loaded normally the theory graph
-    * dedupes (no double ML evaluation).
-    *
-    * Returns the node name on success. `session.update` only ENQUEUES the edit
-    * and the node is processed asynchronously, so the caller must
-    * awaitConsolidated before the IR_Repl.* commands exist. */
-  private def ensureLoaded(irDir: String): Either[String, Document.Node.Name] = {
-    def read(name: String): Either[String, String] = {
-      val f = new java.io.File(irDir, name)
-      if (!f.isFile) Left(s"I/R ML source not found: ${f.getPath}")
-      else Right(Using.resource(scala.io.Source.fromFile(f, "UTF-8"))(_.mkString))
-    }
-    for {
-      irML <- read("ir.ML")
-      tcpML <- read("tcp_handler.ML")
-      mlReplML <- read("ml_repl.ML")
-    } yield {
-      // Inline the three ML files as ML<...> blocks (cartouche-delimited), in
-      // dependency order, bracketed by ML_write_global so the structures and
-      // protocol commands become Poly/ML globals (as ir.thy does).
-      def ml(src: String): String = "ML‹" + src + "›"
-      val text =
-        "theory ir\n  imports Main\nbegin\n" +
-        "declare [[ML_write_global = true]]\n" +
-        ml(irML) + "\n" + ml(tcpML) + "\n" + ml(mlReplML) + "\n" +
-        "declare [[ML_write_global = false]]\n" +
-        "end\n"
+  private def nodeStatus(node: Document.Node.Name): Document_Status.Node_Status = {
+    val snap = session.snapshot(node_name = node)
+    Document_Status.Node_Status.make(Date.now(), snap.state, snap.version, node)
+  }
 
-      val resources = session.resources
-      val node = resources.import_name(Sessions.DRAFT, irDir, "ir")
-      val header = resources.check_thy(node, Scan.char_reader(text))
-      // Perspective.required = true so the prover processes the node even though
-      // nothing is "visible"; awaitConsolidated then blocks until it settles.
-      val edits: List[Document.Edit_Text] = List(
-        node -> Document.Node.Deps(header),
-        node -> Document.Node.Edits(Text.Edit.inserts(0, text)),
-        node -> Document.Node.Perspective(true, Text.Perspective.empty, Document.Node.Overlays.empty)
-      )
-      onStatus("Loading I/R ML into the prover (node " + node.theory + ") ...")
-      session.update(Document.Blobs.empty, edits)
-      node
+  private def fullyProcessed(status: Document_Status.Node_Status): Boolean =
+    status.consolidated && status.failed == 0 && status.unprocessed == 0 &&
+      status.running == 0 && !status.canceled
+
+  /** Native resources must own each source from its first load, so ordinary
+    * later loading updates that same source record. Reuse heap or fully
+    * processed document theories without another initializer. */
+  private def ensureNativeTheory(
+    irDir: String,
+    importRef: String,
+    label: String,
+    expectedTheory: Option[String] = None
+  ): Either[String, Document.Node.Name] = {
+    try {
+      val node = session.resources.import_name(Sessions.DRAFT, irDir, importRef)
+      if (expectedTheory.exists(_ != node.theory))
+        Left("Noncanonical " + label + " theory: " + node.theory)
+      else if (session.resources.loaded_theory(node.theory)) Right(node)
+      else if (fullyProcessed(nodeStatus(node))) Right(node)
+      else {
+        onStatus("Loading " + label + " through native resources ...")
+        val loaded = nativePrerequisite match {
+          case Some(load) => load(node)
+          case None =>
+            session match {
+              case headless: Headless.Session =>
+                val result = headless.use_theories(
+                  List(importRef), qualifier = Sessions.DRAFT, master_dir = irDir)
+                if (result.ok && result.nodes.forall { case (_, status) => fullyProcessed(status) })
+                  Right(())
+                else Left(label + " did not fully process")
+              case _ => Left("This session requires a native prerequisite loader for " + node.theory)
+            }
+        }
+        loaded.flatMap(_ => awaitConsolidated(node, 120000, label).map(_ => node))
+      }
+    } catch {
+      case scala.util.control.NonFatal(exn) if !Exn.is_interrupt(exn) =>
+        Left(label + " failed to load: " + Exn.message(exn))
     }
   }
+
+  private def ensureNativeOwnership(irDir: String): Either[String, Unit] =
+    ensureNativeTheory(irDir, "Parser_Common.Native_Output_Ownership",
+      "Native output ownership", Some("Parser_Common.Native_Output_Ownership")).map(_ => ())
+
+  /** Load the ordinary consumer through its embedding's native source owner. */
+  private def ensureLoaded(irDir: String): Either[String, Document.Node.Name] =
+    ensureNativeTheory(irDir, "ir", "I/R ML")
 
   /** Block until the I/R ML node has CONSOLIDATED (settled), or `timeoutMs`
     * elapses. Event-driven: subscribe to commands_changed and recompute the node
@@ -383,11 +392,10 @@ final class IRLauncher(
     *
     * Left on timeout or if the settled node has failed commands; Right once it
     * consolidates clean. */
-  private def awaitConsolidated(node: Document.Node.Name, timeoutMs: Long): Either[String, Unit] = {
-    def status(): Document_Status.Node_Status = {
-      val snap = session.snapshot(node_name = node)
-      Document_Status.Node_Status.make(Date.now(), snap.state, snap.version, node)
-    }
+  private def awaitConsolidated(
+    node: Document.Node.Name, timeoutMs: Long, label: String = "I/R ML"
+  ): Either[String, Unit] = {
+    def status(): Document_Status.Node_Status = nodeStatus(node)
     val latch = new java.util.concurrent.CountDownLatch(1)
     val consumer = Session.Consumer[Session.Commands_Changed]("IRLauncher.awaitConsolidated") {
       case Session.Commands_Changed(_, nodes, _) if nodes.contains(node) =>
@@ -401,9 +409,11 @@ final class IRLauncher(
       if (status().consolidated) latch.countDown()
       val settled = latch.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS) || status().consolidated
       if (!settled)
-        Left(s"I/R ML did not load within ${timeoutMs / 1000}s — the prover may be busy")
+        Left(s"$label did not load within ${timeoutMs / 1000}s — the prover may be busy")
       else if (status().failed > 0)
-        Left("I/R ML failed to load — error while evaluating the inlined ML")
+        Left(label + " failed to load — error while evaluating its commands")
+      else if (!fullyProcessed(status()))
+        Left(label + " did not fully process or was canceled")
       else Right(())
     } finally {
       session.commands_changed -= consumer
@@ -449,7 +459,11 @@ final class IRLauncher(
       // (a) no reply: ML not loaded -> load it and wait until the node has
       // CONSOLIDATED, so the IR_Repl.* commands are defined before we use them.
       // Without this wait a busy prover may not reach the node in time.
-      onStatus("IR_Repl.status: no reply — loading I/R ML ad-hoc")
+      onStatus("IR_Repl.status: no reply — loading I/R ML through native resources")
+      ensureNativeOwnership(irDir) match {
+        case Right(()) => ()
+        case Left(msg) => return Left(msg)
+      }
       ensureLoaded(irDir) match {
         case Right(node) =>
           onStatus("Waiting for the I/R ML node to consolidate ...")

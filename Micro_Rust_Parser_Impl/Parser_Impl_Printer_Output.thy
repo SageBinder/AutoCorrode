@@ -56,7 +56,8 @@ fun tree_uses_position_id expected tree =
    | XML.Text _ => false)
 
 fun capture_reports forward_other probe_id action =
-  Synchronized.change_result report_capture_lock (fn () =>
+  Native_Output_Ownership.with_temporary_hooks (fn () =>
+    Synchronized.change_result report_capture_lock (fn () =>
     let
       val captured =
         Synchronized.var
@@ -87,7 +88,7 @@ fun capture_reports forward_other probe_id action =
             URust_Report_Transaction.with_private_reports action) ()
     in
       ((result, rev (Synchronized.value captured)), ())
-    end)
+    end))
 
 fun reports_for_id probe_id chunks =
   let

@@ -1,4 +1,6 @@
 session iq = HOL +
+  sessions
+    Parser_Common
   theories [document=false]
     iq
     Isar_Explore

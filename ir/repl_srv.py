@@ -681,6 +681,8 @@ class PolyMLProcess:
         cmd = [isabelle, "ML_process"]
         if directory:
             cmd += ["-d", directory]
+        source_root = os.path.dirname(os.path.realpath(ml_dir))
+        cmd += ["-d", source_root]
         cmd += ["-l", session]
         if bash_server:
             cmd += ["-o", f"bash_process_address={bash_server.address}",
@@ -691,8 +693,11 @@ class PolyMLProcess:
         isabelle_remote = os.environ.get("ISABELLE_REMOTE", "")
         if isabelle_remote:
             cmd += shlex.split(isabelle_remote)
-        # Load order: tcp_handler, ir, ml_repl (ml_repl wires them together)
-        cmd += ["-f", os.path.join(ml_dir, "tcp_handler.ML"),
+        # Load the canonical ownership theory before raw ML consumers compile.
+        cmd += ["-e", "Thy_Info.use_theories (Options.default ()) "
+                "Resources.default_qualifier "
+                "[(\"Parser_Common.Native_Output_Ownership\", Position.none)];",
+                "-f", os.path.join(ml_dir, "tcp_handler.ML"),
                 "-f", os.path.join(ml_dir, "ir.ML"),
                 "-f", os.path.join(ml_dir, "ml_repl.ML"),
                 "-e", f"case ML_Repl.start {port} of SOME (_, t) => Isabelle_Thread.join t | NONE => ();"]
