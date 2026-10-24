@@ -2416,7 +2416,8 @@ local
       Properties.get props Markup.kindN = SOME "urust_generic_parameter" andalso
       Properties.get props Markup.nameN = SOME name
     then Properties.get props property else NONE)
-  val item = "fn SignatureMarkup<T: Scale, const N: usize>(value: [T; N]) -> [T; N] where T: Ordered + Scale { value }"
+  val item = "/* " ^ Symbol.open_ ^ " marker " ^ Symbol.close ^ " */ " ^
+    "fn SignatureMarkup<T: Scale, const N: usize>(value: [T; N]) -> [T; N] where T: Ordered + Scale { value }"
   fun declaration verbosity =
     "urust_fn [verbosity = " ^ string_of_int verbosity ^
     ", hol_type_parameters = [\"T\" \<rightarrow> " ^ cartouche "'element::ord" ^
@@ -2458,10 +2459,16 @@ local
         val _ = require "manifest metadata retains override, bound union and final array length sort"
           (final = [("'element", @{sort "{ord, trait_scale}"}), ("'n", @{sort len})])
         val _ = List.app (fn ((name, occurrence), hol) =>
-          require "generic declaration tooltip retains its final strengthened type"
+          require "labelled declaration tooltip retains its Rust name and final strengthened type"
             (Library.member (op =) (maps (typings (range_of text name occurrence)) (trees "report" events))
-              (plain [Syntax.string_of_typ (Config.put show_sorts true completed) (TFree hol)])))
+              (plain [name ^ " = " ^
+                Syntax.string_of_typ (Config.put show_sorts true completed) (TFree hol)])))
           ([("T", 1), ("N", 0)] ~~ final)
+        val _ = List.app (fn (name, occurrence, descriptor) =>
+          require "final declaration typing preserves the separate U2 parameter descriptor"
+            (Library.member (op =)
+              (maps (typings (range_of text name occurrence)) (trees "report" events)) descriptor))
+          [("T", 1, "type parameter T"), ("N", 0, "const parameter N")]
         val _ = List.app (fn (name, occurrences, hol) =>
           List.app (fn occurrence =>
             require "labelled parameter-use tooltip retains the final strengthened type and sort"
@@ -2554,9 +2561,9 @@ local
        "fn SignatureError<T: MissingTrait>(value: T) -> T { value }"),
      ("unregistered-where-bound", "unregistered Rust trait", "",
        "fn SignatureError<T>(value: T) -> T where T: MissingTrait { value }"),
-     ("body-only-type", "occurs only in the body", "",
+     ("body-only-type", "urust: generic parameter T does not occur in the signature", "",
        "fn SignatureError<T>() -> usize { let spare = \<llangle>undefined :: 't\<rrangle>; 0 }"),
-     ("body-only-const", "occurs only in the body", "",
+     ("body-only-const", "urust: generic parameter N does not occur in the signature", "",
        "fn SignatureError<const N: usize>() -> usize { let spare = \<llangle>undefined :: 'n itself\<rrangle>; 0 }")]
   val _ = List.app (fn (label, expected, options, item) =>
     let
@@ -2570,8 +2577,10 @@ local
         require (label ^ ": exact missing trait range changed")
           (hd positions = range_of text "MissingTrait" 0)
         else if String.isPrefix "body-only-" label then
-          require (label ^ ": O7 did not identify its source header parameter")
-            (hd positions = range_of text (if label = "body-only-type" then "T" else "N") 0)
+          (require (label ^ ": O7 did not identify its source header parameter")
+             (hd positions = range_of text (if label = "body-only-type" then "T" else "N") 0);
+           require (label ^ ": O7 did not preserve the exact user-decided diagnostic")
+             (String.isPrefix expected diagnostic))
         else ()
       val _ = if label = "duplicate-override" then
         require (label ^ ": both duplicate override positions missing") (length positions >= 2)
@@ -2636,6 +2645,107 @@ local
     run thy "chunk-override-option"
       ("urust [hol_type_parameters = [\"T\" \<rightarrow> " ^ cartouche "'member" ^ "]] " ^
         cartouche identity)))
+in val _ = () end
+\<close>
+
+section\<open> Parameter roles through wrappers and kind-neutral HOL escapes \<close>
+
+ML_val\<open>
+local
+  open Generic_Signature_Test
+  val thy = @{theory}
+  val ctxt = @{context}
+  val original_snapshot = snapshot ctxt
+  val original_schemes = scheme_snapshot ctxt
+  val prefix = "/* " ^ Symbol.open_ ^ " marker " ^ Symbol.close ^ " */ "
+  fun declaration options item =
+    "urust_fn [verbosity = 0" ^ options ^ "] signature_role_error " ^ cartouche (prefix ^ item)
+  fun item generic typ = "fn SignatureRole<" ^ generic ^ ">(value: " ^ typ ^ ") -> " ^ typ ^ " { value }"
+  val const_rows =
+    [("direct", "N"), ("group", "(N)"), ("nested-group", "((N))"),
+     ("tuple", "(N, u8)"), ("array-element", "[N; 3]"),
+     ("mutable-reference", "&mut N"), ("raw-const-pointer", "*const N"),
+     ("raw-mut-pointer", "*mut N"), ("nested-array", "([N; 3], u8)"),
+     ("nested-pointer-tuple", "*const (N, u8)"),
+     ("mapped-type-slot", "SignatureBag<N>"),
+     ("mapped-nested-type-slot", "SignatureBag<(N, u8)>"),
+     ("mixed-mapped-type-slot", "SignatureRoleSized<N, 3>")]
+    |> map (fn (label, typ) => ("const-type-" ^ label, "const parameters", "N", "",
+      item "const N: usize" typ))
+  val type_rows =
+    [("direct", "[u8; T]"), ("nested-array", "([u8; T], u8)"),
+     ("pointer-array", "*const [u8; T]"),
+     ("mapped-const-slot", "SignatureRoleSized<u8, T>"),
+     ("mapped-grouped-const-slot", "SignatureRoleSized<u8, (T)>"),
+     ("mapped-nested-grouped-const-slot", "SignatureRoleSized<u8, ((T))>")]
+    |> map (fn (label, typ) => ("type-length-" ^ label, "type parameters", "T", "",
+      item "T" typ))
+  val sorted_rows =
+    [("type-length-final-len", "type parameters", "T",
+      ", hol_type_parameters = [\"T\" \<rightarrow> " ^ cartouche "'element::len" ^ "]",
+      item "T" "[u8; T]"),
+     ("type-mapped-const-final-len", "type parameters", "T",
+      ", hol_type_parameters = [\"T\" \<rightarrow> " ^ cartouche "'element::len" ^ "]",
+      item "T" "SignatureRoleSized<u8, T>")]
+  val _ = List.app (fn (label, expected, token, options, rust) =>
+    let
+      val text = declaration options rust
+      val callbacks = saved_callbacks ()
+      val report_callback = !Private_Output.report_fn
+      val (result, events) = capture (fn () => failure label expected (fn () => run thy label text))
+      val diagnostic = Exn.release result
+      val occurrence = if options = "" then 1 else 2
+      val _ = require (label ^ ": wrong-kind error must identify the actual parameter leaf")
+        (map position_range (message_positions diagnostic) =
+          [range_of text token occurrence, range_of text "urust_fn" 0])
+      val _ = require (label ^ ": rejected kind use released successful output or declaration entities")
+        (null (ordinary events) andalso null (chunks "urgent" events) andalso
+          null (declaration_reports events) andalso
+          null (parameter_definitions (fold Parser_Test_Reports.collect_markup (trees "report" events) []
+            |> map (fn (name, props) => (name, position_range (Position.of_properties props), props)))))
+      val _ = require (label ^ ": kind failure changed original theory or generic/ordinary registries")
+        (snapshot (Proof_Context.init_global thy) = original_snapshot andalso
+          scheme_snapshot (Proof_Context.init_global thy) = original_schemes)
+      val _ = require (label ^ ": kind failure changed native output/report callbacks")
+        (same_callbacks callbacks andalso PolyML.pointerEq (report_callback, !Private_Output.report_fn))
+      val recovery = run thy (label ^ "-recovery")
+        ("urust_fn [verbosity = 0] " ^ cartouche (prefix ^
+          "fn SignatureRoleRecovery(value: u8) -> u8 { value }")) |> Toplevel.context_of
+      val _ = require (label ^ ": kind error blocked monomorphic recovery")
+        (is_some (Parser_Test_Calls.lookup recovery "SignatureRoleRecovery"))
+      val _ = require_scope_closed label recovery
+    in () end) (const_rows @ type_rows @ sorted_rows)
+  val _ = List.app (fn (rust, expected) =>
+    require (rust ^ ": valid roles, escaped sorts or declared-HOL bypass lost ordered metadata")
+      (map (fn {rust, kind, hol} => (rust, kind, hol))
+        (entry_scheme ctxt (entry ctxt rust)) = expected))
+    [("SignatureRoleMapped", [("T", URust_AST.Type_Parameter, ("'t", @{sort type})),
+       ("N", URust_AST.Const_Parameter, ("'n", @{sort len}))]),
+     ("SignatureRoleGroupedLength", [("N", URust_AST.Const_Parameter, ("'n", @{sort len}))]),
+     ("SignatureRoleConstEscape", [("N", URust_AST.Const_Parameter, ("'n", @{sort len0}))]),
+     ("SignatureRoleTypeEscape", [("T", URust_AST.Type_Parameter, ("'t", @{sort len}))]),
+     ("SignatureRoleExplicitEscape", [("T", URust_AST.Type_Parameter, ("'t", @{sort len}))]),
+     ("SignatureRoleSharedEscapes", [("T", URust_AST.Type_Parameter, ("'t", @{sort type})),
+       ("N", URust_AST.Const_Parameter, ("'n", @{sort len}))]),
+     ("SignatureRoleOrderedEscapes", [("T", URust_AST.Type_Parameter, ("'element", @{sort len})),
+       ("N", URust_AST.Const_Parameter, ("'length", @{sort len}))]),
+     ("SignatureRoleDeclaredConst", [("N", URust_AST.Const_Parameter, ("'n", @{sort len0}))]),
+     ("SignatureRoleDeclaredType", [("T", URust_AST.Type_Parameter, ("'t", @{sort type}))])]
+  val first = TFree ("'first", @{sort len})
+  val second = TFree ("'second", @{sort len})
+  val ordered_backend = entry ctxt "SignatureRoleOrderedEscapes"
+  val ordered_instance = the (URust_Type_Mappings.instantiate_generic_scheme_for_source ctxt
+    (#serial ordered_backend) (#hol_term ordered_backend)
+    [(first, Position.none), (second, Position.none)])
+  val _ = require "two well-sorted HOL escapes retain the distinct element/length order"
+    (hd (binder_types (fastype_of ordered_instance)) = Type (@{type_name array}, [first, second]))
+  val shared_backend = entry ctxt "SignatureRoleSharedEscapes"
+  val shared_instance = the (URust_Type_Mappings.instantiate_generic_scheme_for_source ctxt
+    (#serial shared_backend) (#hol_term shared_backend)
+    [(@{typ nat}, Position.none), (@{typ 3}, Position.none)])
+  val _ = require "unannotated HOL element/length escapes retain source parameter sharing"
+    (hd (binder_types (fastype_of shared_instance)) = @{typ "(nat, 3) array"})
+  val _ = require_scope_closed "role positives" ctxt
 in val _ = () end
 \<close>
 

@@ -1285,14 +1285,8 @@ struct
                  (case (argument, parameter_kind) of
                     (Rust_Type_Argument argument, parameter_kind) =>
                       let
-                        val value = resolve_type argument
+                        val value = resolve_type (SOME parameter_kind) argument
                         val pos = rust_type_position argument
-                        val _ = case (#meaning value, parameter_kind) of
-                            (Meaning_Parameter _, Const_Parameter) =>
-                              unsupported kind "type parameters used as const arguments" pos
-                          | (Meaning_Const_Parameter _, Type_Parameter) =>
-                              unsupported kind "const parameters used as type arguments" pos
-                          | _ => ()
                         val _ = if parameter_kind = Const_Parameter then
                           check_sort "const argument" (#typ value) \<^sort>\<open>len0\<close> pos
                           else ()
@@ -1355,11 +1349,30 @@ struct
                   (map (#meaning o fst) resolved_arguments) (#meaning entry)}
              end
 
-      and resolve_type
+      (* Validate each source role before a wrapper can erase or wrap its meaning. Grouping
+         retains the role, so a rejection points to the parameter rather than its parentheses. *)
+      and resolve_type role rust_type =
+        let
+          val value = resolve_type_value role rust_type
+          val _ =
+            (case (#meaning value, role) of
+               (Meaning_Parameter _, SOME Const_Parameter) =>
+                 unsupported kind "type parameters used as const arguments"
+                   (rust_type_position rust_type)
+             | (Meaning_Const_Parameter _, SOME Type_Parameter) =>
+                 unsupported kind "const parameters used as type arguments"
+                   (rust_type_position rust_type)
+             | (Meaning_Const_Parameter _, NONE) =>
+                 unsupported kind "const parameters used as field types"
+                   (rust_type_position rust_type)
+             | _ => ())
+        in value end
+
+      and resolve_type_value _
           (Primitive_Type (primitive, pos)) =
             resolve_nominal
               (rust_primitive_name primitive) [pos] [0] [] pos true
-        | resolve_type (Path_Type (segments, layout)) =
+        | resolve_type_value _ (Path_Type (segments, layout)) =
             let
               val _ = check_type_path_start kind segments
               val rows = path_rows segments
@@ -1394,67 +1407,66 @@ struct
                     | NONE =>
                         registry_nominal base positions arities arguments pos false))
             end
-        | resolve_type (Tuple_Type (types, layout)) =
+        | resolve_type_value _ (Tuple_Type (types, layout)) =
             if length types < 2
             then unsupported kind "singleton tuple types" (source_span layout)
             else
-              let val resolved = map resolve_type types in
+              let val resolved = map (resolve_type NONE) types in
                 {typ =
                    fold_rev
                      (fn typ => fn rest => HOLogic.mk_prodT (typ, rest))
                      (map #typ resolved) \<^typ>\<open>tnil\<close>,
                  meaning = Meaning_Tuple (map #meaning resolved)}
               end
-        | resolve_type (Group_Type (typ, _)) =
-            resolve_type typ
+        | resolve_type_value role (Group_Type (typ, _)) =
+            resolve_type role typ
         (* Function_Signature also resolves constructor turbofish arguments, but the generic lexer
            has no reference syntax, so only function signatures reach the mutable case. *)
-        | resolve_type (Reference_Type (BM_Mut, _, target, layout)) =
+        | resolve_type_value _ (Reference_Type (BM_Mut, _, target, layout)) =
             if signature_kind kind then
-              let val target_type = resolve_type target in
+              let val target_type = resolve_type NONE target in
                 {typ = reference_typ (#typ target_type),
                  meaning = Meaning_Reference (BM_Mut, #meaning target_type)}
               end
             else unsupported kind "Rust reference types" (source_span layout)
-        | resolve_type (Reference_Type (BM_Imm, _, _, layout)) =
+        | resolve_type_value _ (Reference_Type (BM_Imm, _, _, layout)) =
             if signature_kind kind then
               error
                 ("urust_fn: shared Rust references (&T) are not supported in function signatures; " ^
                   "use &mut T or \<tau>\<open>...\<close>" ^ Position.here (source_span layout))
             else unsupported kind "Rust reference types" (source_span layout)
-        | resolve_type (Raw_Pointer_Type (mutability, target, _)) =
-            let val target_type = resolve_type target in
+        | resolve_type_value _ (Raw_Pointer_Type (mutability, target, _)) =
+            let val target_type = resolve_type NONE target in
               {typ = reference_typ (#typ target_type),
                meaning = Meaning_Pointer (mutability, #meaning target_type)}
             end
-        | resolve_type (Slice_Type (_, layout)) =
+        | resolve_type_value _ (Slice_Type (_, layout)) =
             unsupported kind "Rust slice types" (source_span layout)
-        | resolve_type (Array_Type (element, integer, layout)) =
-            resolve_array element (length_literal ctxt integer) (source_span layout)
-        | resolve_type (Const_Array_Type (element, length, layout)) =
-            resolve_array element (#typ (resolve_type length)) (source_span layout)
-        | resolve_type (Function_Type (_, _, layout)) =
+        | resolve_type_value _ (Array_Type (element, integer, layout)) =
+            let val length = length_literal ctxt integer in
+              resolve_array (resolve_type NONE element) length (source_span layout)
+            end
+        | resolve_type_value _ (Const_Array_Type (element, length, layout)) =
+            let
+              val resolved = resolve_type NONE element
+              val length_type = #typ (resolve_type (SOME Const_Parameter) length)
+            in resolve_array resolved length_type (source_span layout) end
+        | resolve_type_value _ (Function_Type (_, _, layout)) =
             unsupported kind "Rust function pointer types" (source_span layout)
-        | resolve_type (Impl_Trait_Type (_, layout)) =
+        | resolve_type_value _ (Impl_Trait_Type (_, layout)) =
             unsupported kind "Rust impl Trait types" (source_span layout)
-        | resolve_type (Macro_Type (_, pos)) =
+        | resolve_type_value _ (Macro_Type (_, pos)) =
             unsupported kind "unexpanded Rust macro types" pos
-        | resolve_type (HOL_Type_Source source) =
+        | resolve_type_value _ (HOL_Type_Source source) =
             let val typ = read_escape source in
               {typ = typ, meaning = Meaning_HOL typ}
             end
-      and resolve_array element length pos =
+      and resolve_array ({typ = element_type, ...}: resolved) length pos =
         let
-          val resolved = resolve_type element
           val _ = check_sort "fixed array length" length \<^sort>\<open>len\<close> pos
-          val typ = Type (\<^type_name>\<open>array\<close>, [#typ resolved, normalize length])
+          val typ = Type (\<^type_name>\<open>array\<close>, [element_type, normalize length])
         in {typ = typ, meaning = Meaning_HOL typ} end
-      fun resolve_field typ =
-        let val value = resolve_type typ
-        in case #meaning value of Meaning_Const_Parameter _ =>
-          unsupported kind "const parameters used as field types" (rust_type_position typ)
-        | _ => value end
-    in map resolve_field rust_types end
+    in map (resolve_type NONE) rust_types end
 
   fun no_parameter _ _ _ = NONE
   fun no_dependency _ _ _ = ()

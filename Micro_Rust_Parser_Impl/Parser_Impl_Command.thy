@@ -808,8 +808,8 @@ fun close_typed_term kind lthy type_pos checked =
                if exists (fn (used, _) => used = name) (Term.add_tfrees checked []) andalso
                    not (exists (fn (used, _) => used = name)
                      (Term.add_tfreesT declaration_type []))
-               then error ("urust_fn: generic parameter " ^ quote rust ^
-                 " occurs only in the body, not in the signature" ^ Position.here pos)
+               then error ("urust: generic parameter " ^ rust ^
+                 " does not occur in the signature" ^ Position.here pos)
                else ()) parameters
          | NONE => ())
       else ()
@@ -1475,7 +1475,7 @@ fun final_function_scope lthy ({parameters}: URust_Type_Mappings.generic_scope) 
         val hol = (name, final_sort)
         val _ = Navigation.defer_report lthy pos Markup.tfree
         val _ = Navigation.defer_report_text lthy pos Markup.typing
-          (Syntax.string_of_typ (Config.put show_sorts true lthy) (TFree hol))
+          (rust ^ " = " ^ Syntax.string_of_typ (Config.put show_sorts true lthy) (TFree hol))
         fun report_final_reference use_pos =
           (report_reference use_pos;
            Navigation.defer_report_text lthy use_pos Markup.typing

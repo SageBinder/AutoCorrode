@@ -199,6 +199,98 @@ fn SignatureMappedTwin(value: SignatureAlias<\<tau>\<open>'t\<close>>)
 lemma signature_mapped_twin: \<open> signature_mapped = signature_mapped_twin \<close>
   unfolding signature_mapped_def signature_mapped_twin_def by (rule refl)
 
+urust_type "SignatureRoleSized<'t, const 'n>" = \<open> ('t, 'n::len) array \<close>
+urust_fn \<open>
+fn SignatureRoleMapped<T, const N: usize>(value: SignatureRoleSized<T, N>)
+  -> SignatureRoleSized<T, N> { value }
+\<close>
+urust_fn \<open>
+fn SignatureRoleMappedTwin(value: SignatureRoleSized<\<tau>\<open>'t\<close>, \<tau>\<open>'n::len\<close>>)
+  -> SignatureRoleSized<\<tau>\<open>'t\<close>, \<tau>\<open>'n::len\<close>> { value }
+\<close>
+lemma signature_role_mapped_twin: \<open> signature_role_mapped = signature_role_mapped_twin \<close>
+  unfolding signature_role_mapped_def signature_role_mapped_twin_def by (rule refl)
+
+urust_fn \<open>
+fn SignatureRoleGroupedLength<const N: usize>(value: SignatureRoleSized<u8, (N)>)
+  -> SignatureRoleSized<u8, (N)> { value }
+\<close>
+lemma signature_role_grouped_length_twin:
+  \<open> signature_role_grouped_length = signature_array_twin \<close>
+  unfolding signature_role_grouped_length_def signature_array_twin_def by (rule refl)
+
+urust_fn \<open>
+fn SignatureRoleConstEscape<const N: usize>(value: [\<tau>\<open>'n::len0\<close>; 3])
+  -> [\<tau>\<open>'n::len0\<close>; 3] { value }
+\<close>
+urust_fn \<open>
+fn SignatureRoleConstEscapeTwin(value: [\<tau>\<open>'n::len0\<close>; 3])
+  -> [\<tau>\<open>'n::len0\<close>; 3] { value }
+\<close>
+lemma signature_role_const_escape_twin:
+  \<open> signature_role_const_escape = signature_role_const_escape_twin \<close>
+  unfolding signature_role_const_escape_def signature_role_const_escape_twin_def by (rule refl)
+
+urust_fn \<open>
+fn SignatureRoleTypeEscape<T>(value: [u8; \<tau>\<open>'t\<close>]) -> [u8; \<tau>\<open>'t\<close>] { value }
+\<close>
+urust_fn [hol_type_parameters = ["T" \<rightarrow> \<open>'t::len\<close>]] \<open>
+fn SignatureRoleExplicitEscape<T>(value: [u8; \<tau>\<open>'t::len\<close>])
+  -> [u8; \<tau>\<open>'t::len\<close>] { value }
+\<close>
+urust_fn \<open>
+fn SignatureRoleTypeEscapeTwin(value: [u8; \<tau>\<open>'t::len\<close>])
+  -> [u8; \<tau>\<open>'t::len\<close>] { value }
+\<close>
+lemma signature_role_type_escape_twin:
+  \<open> signature_role_type_escape = signature_role_type_escape_twin \<close>
+  unfolding signature_role_type_escape_def signature_role_type_escape_twin_def by (rule refl)
+lemma signature_role_explicit_escape_twin:
+  \<open> signature_role_explicit_escape = signature_role_type_escape_twin \<close>
+  unfolding signature_role_explicit_escape_def signature_role_type_escape_twin_def by (rule refl)
+
+urust_fn \<open>
+fn SignatureRoleSharedEscapes<T, const N: usize>(value: [\<tau>\<open>'t\<close>; \<tau>\<open>'n\<close>])
+  -> [\<tau>\<open>'t\<close>; \<tau>\<open>'n\<close>] { value }
+\<close>
+urust_fn \<open>
+fn SignatureRoleSharedEscapesTwin(value: [\<tau>\<open>'t\<close>; \<tau>\<open>'n::len\<close>])
+  -> [\<tau>\<open>'t\<close>; \<tau>\<open>'n::len\<close>] { value }
+\<close>
+lemma signature_role_shared_escapes_twin:
+  \<open> signature_role_shared_escapes = signature_role_shared_escapes_twin \<close>
+  unfolding signature_role_shared_escapes_def signature_role_shared_escapes_twin_def by (rule refl)
+
+urust_fn [hol_type_parameters =
+  ["T" \<rightarrow> \<open>'element::len\<close>, "N" \<rightarrow> \<open>'length::len\<close>]] \<open>
+fn SignatureRoleOrderedEscapes<T, const N: usize>(
+  value: [\<tau>\<open>'element::len\<close>; \<tau>\<open>'length::len\<close>])
+  -> [\<tau>\<open>'element::len\<close>; \<tau>\<open>'length::len\<close>] { value }
+\<close>
+urust_fn \<open>
+fn SignatureRoleOrderedEscapesTwin(value: [\<tau>\<open>'element::len\<close>; \<tau>\<open>'length::len\<close>])
+  -> [\<tau>\<open>'element::len\<close>; \<tau>\<open>'length::len\<close>] { value }
+\<close>
+lemma signature_role_ordered_escapes_twin:
+  \<open> signature_role_ordered_escapes = signature_role_ordered_escapes_twin \<close>
+  unfolding signature_role_ordered_escapes_def signature_role_ordered_escapes_twin_def by (rule refl)
+
+urust_fn signature_role_declared_const
+  :: \<open> nat \<Rightarrow> ('s, nat, 'abort, 'i, 'o) function_body \<close>
+  \<open> fn SignatureRoleDeclaredConst<const N: usize>(value: [N; 3]) -> [N; 3] { value } \<close>
+urust_fn signature_role_declared_type
+  :: \<open> nat \<Rightarrow> ('s, nat, 'abort, 'i, 'o) function_body \<close>
+  \<open> fn SignatureRoleDeclaredType<T>(value: [u8; T]) -> [u8; T] { value } \<close>
+urust_fn signature_role_declared_twin
+  :: \<open> nat \<Rightarrow> ('s, nat, 'abort, 'i, 'o) function_body \<close>
+  \<open> fn SignatureRoleDeclaredTwin(value: u64) -> u64 { value } \<close>
+lemma signature_role_declared_const_twin:
+  \<open> signature_role_declared_const = signature_role_declared_twin \<close>
+  unfolding signature_role_declared_const_def signature_role_declared_twin_def by (rule refl)
+lemma signature_role_declared_type_twin:
+  \<open> signature_role_declared_type = signature_role_declared_twin \<close>
+  unfolding signature_role_declared_type_def signature_role_declared_twin_def by (rule refl)
+
 urust_fn [state = \<open>'t\<close>, abort = \<open>bool\<close>,
   input = \<open>'t prompt\<close>, output = \<open>unit prompt_output\<close>] \<open>
 fn SignatureChannels<T>(value: T) -> T { value }
