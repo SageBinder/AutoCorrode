@@ -897,9 +897,9 @@ end
 chapter\<open> Syntax \<close>
 
 text\<open>
-Generic headers parse and print before signature elaboration. Type and const parameters currently
-reach the temporary guard in both signature modes; these audits preserve the delivered lifetime,
-receiver, datatype and retained literal-type behavior until signature support removes that guard.
+Generic headers parse and print before signature elaboration. These syntax audits preserve the
+delivered lifetime, receiver, datatype and retained literal-type behavior. Executable generic
+signature, registration and atomicity audits appear in the Signatures chapter.
 \<close>
 
 section\<open> Source positions and test support \<close>
@@ -1163,7 +1163,7 @@ local
 in val _ = () end
 \<close>
 
-section\<open> Temporary guards and delivered compatibility \<close>
+section\<open> Delivered compatibility \<close>
 
 ML_val\<open>
 local
@@ -1173,30 +1173,6 @@ local
   fun declaration declared item =
     "urust_fn [pp_test, verbosity = 0] generic_syntax_failure " ^
     (if declared then ":: " ^ cartouche hol_type ^ " " else "") ^ cartouche item
-  fun guard (label, declared, item, token) =
-    let
-      val text = declaration declared item
-      val (message, events) = reports (fn () => failure label
-        "urust_fn: type generics are not supported" (fn () => run thy label text))
-      val positions = map position_range (message_positions message)
-      val _ = require (label ^ ": stub did not identify first non-lifetime parameter")
-        (not (null positions) andalso hd positions = range_of text token 0)
-      val _ = require (label ^ ": premature declaration markup")
-        (not (exists (fn (name, _, props) => name = Markup.entityN andalso
-          is_some (Properties.get props Markup.defN)) events))
-      val recovered = run thy (label ^ "-recovery")
-        (declaration false "fn Generic(value: u8) -> u8 { value }") |> Toplevel.context_of
-      val _ = require (label ^ ": command did not recover")
-        (is_some (Parser_Test_Calls.lookup recovered "Generic"))
-    in () end
-  val _ = List.app guard
-    [("guard-inferred-type", false, "fn Generic<T>(x: T) -> T { x }", "T"),
-     ("guard-declared-type", true, "fn Generic<T>(value: impl Marker) -> impl Marker { value }", "T"),
-     ("guard-inferred-const", false, "fn Sized<const N: usize>(value: [u8; N]) -> usize { 0 }", "N"),
-     ("guard-declared-const", true, "fn Sized<const N: usize>(value: Unknown) -> Unknown { value }", "N"),
-     ("guard-inferred-mixed", false, "fn Mix<'a, const N: usize, T>(value: T) -> T { value }", "N"),
-     ("guard-declared-mixed", true, "fn Mix<'a, T, const N: usize>(value: Unknown) -> Unknown { value }", "T"),
-     ("legacy-reference-mixed-generics", false, "fn BadReference<'a, T>(value: &'a mut u8) -> u8 { 0 }", "T")]
   val _ = ignore (run thy "lifetime-only-command"
     (declaration false "fn Borrow<'a>(value: &'a mut u8) -> &'a mut u8 { value }"))
   val _ = List.app (fn (label, expected, item) => ignore (failure label expected
@@ -1210,22 +1186,6 @@ local
     (declaration true "fn Retained(value: impl Marker) -> impl Marker { value }") |> Toplevel.context_of
   val _ = require "declared HOL type retained impl Trait bypass"
     (is_some (Parser_Test_Calls.lookup retained "Retained"))
-  val model = run thy "generic-member-model"
-    ("urust_datatype [verbosity = 0] " ^ cartouche "struct SyntaxCounter { value: u8 }")
-    |> Toplevel.theory_of
-  val chunks =
-    [("chunk-generic-function", "fn Generic<T>(value: T) -> T { value }", "T"),
-     ("impl-generic-value", "impl SyntaxCounter { fn Value<T>(self, value: T) -> T { value } }", "T"),
-     ("impl-generic-mutable", "impl SyntaxCounter { fn Value<T>(mut self, value: T) -> T { value } }", "T"),
-     ("impl-generic-shared", "impl SyntaxCounter { fn Value<'a, T>(&'a self, value: T) -> T { value } }", "T"),
-     ("impl-generic-unique", "impl SyntaxCounter { fn Value<const N: usize>(&mut self) -> usize { 0 } }", "N"),
-     ("impl-generic-typed", "impl SyntaxCounter { fn Value<T>(self: Self, value: T) -> T { value } }", "T")]
-  val _ = List.app (fn (label, item, token) =>
-    let val text = "urust [pp_test, verbosity = 0] " ^ cartouche item
-        val diagnostic = failure label "urust_fn: type generics are not supported"
-          (fn () => run model label text)
-    in require (label ^ ": chunk/member stub range")
-      (hd (map position_range (message_positions diagnostic)) = range_of text token 0) end) chunks
   val ctxt = Proof_Context.init_global thy
   fun datatype_of text = the (URust_Parser.parse_datatype_source ctxt (source "datatype-generic-control" text))
   fun alias_of text = the (URust_Parser.parse_type_alias_source ctxt (source "alias-generic-control" text))
@@ -1776,8 +1736,8 @@ Successful structs and native HOL enums retain authored verbosity, definition re
 all generated class artifacts. Failed chunks release no earlier successful declaration reports
 or ordinary or urgent output. A failed member may report only its own exact binder declarations.
 Configuration tests distinguish absent entries from explicit values through both merge orders,
-and nested targets retain each original setting. Generic guards remain temporary until U3;
-the malformed nongeneric body supplies an independent durable failure and recovery control.
+and nested targets retain each original setting. The malformed nongeneric body supplies an
+independent durable failure and recovery control; generic prefixes are audited in Signatures.
 \<close>
 
 ML\<open>
@@ -1920,11 +1880,7 @@ local
   val ctxt = Proof_Context.init_global thy
   val initial_snapshot = snapshot ctxt
   val failures =
-    [("member-type-guard", holder ^ "\nimpl SyntaxOutputHolder { fn member<T>(self, value: T) -> T { value } }",
-       "urust_fn: type generics are not supported"),
-     ("free-const-guard", holder ^ "\nfn sized<const N: usize>(value: [u8; N]) -> usize { 0 }",
-       "urust_fn: type generics are not supported"),
-     ("nongeneric-body", holder ^ "\nimpl SyntaxOutputHolder { fn member(self, value: u8) -> u8 { missing_output_value } }",
+    [("nongeneric-body", holder ^ "\nimpl SyntaxOutputHolder { fn member(self, value: u8) -> u8 { missing_output_value } }",
        "missing_output_value")]
   fun failing (setting_value, verbosity, (kind, body, expected)) =
     let
@@ -1956,27 +1912,6 @@ local
     (maps (fn setting_value => maps (fn verbosity =>
       map (fn failure => (setting_value, verbosity, failure)) failures) [0, 1, 2])
       [NONE, SOME true, SOME false])
-  fun guard declared verbosity =
-    let
-      val label = "complete-output-signature-guard-" ^ Bool.toString declared ^ "-" ^ string_of_int verbosity
-      val body = "fn SyntaxOutputGeneric<T>(value: T) -> T { value }"
-      val text = "urust_fn [verbosity = " ^ string_of_int verbosity ^ "] syntax_output_guard " ^
-        (if declared then ":: " ^ cartouche "nat => ('s, nat, 'abort, 'i, 'o) function_body" ^ " "
-         else "") ^ cartouche body
-      val (result, events) = capture (fn () => run_with true thy label text)
-      val diagnostic =
-        (case result of Exn.Res _ => error (label ^ ": unexpectedly accepted")
-         | Exn.Exn exn => Runtime.exn_message exn)
-      val _ = require (label ^ ": wrong temporary generic diagnostic")
-        (String.isSubstring "urust_fn: type generics are not supported" diagnostic)
-      val _ = require (label ^ ": complete output or definition reports escaped")
-        (null (ordinary events) andalso null (declaration_reports events))
-      val _ = exact_binders label text [] events
-      val _ = require (label ^ ": first non-lifetime declaration range changed")
-        (hd (map position_range (message_positions diagnostic)) = range_of text "T" 0)
-    in () end
-  val _ = List.app (fn verbosity => List.app (fn declared => guard declared verbosity) [false, true])
-    [0, 1, 2]
 in val _ = () end
 \<close>
 
@@ -2043,9 +1978,7 @@ local
     (callback_count "writeln" events = 1 andalso null (chunks "urgent" events) andalso
       not (null (declaration_reports events)))
   val failures =
-    [("member-type-guard", "impl SyntaxOutputHolder { fn member<T>(self, value: T) -> T { value } }",
-       "urust_fn: type generics are not supported", []),
-     ("nongeneric-body", "impl SyntaxOutputHolder { fn member(self, value: u8) -> u8 { missing_output_value } }",
+    [("nongeneric-body", "impl SyntaxOutputHolder { fn member(self, value: u8) -> u8 { missing_output_value } }",
        "missing_output_value", [("self", 0), ("value", 1)])]
   val _ = List.app (fn (kind, member, expected, binders) =>
     let
@@ -2066,7 +1999,964 @@ in val _ = () end
 
 chapter\<open> Signatures \<close>
 
-text\<open> Reserved for U3 generic signature audits. \<close>
+text\<open>
+These checks preserve the exact sources, wrappers and controls of the temporary U2 guards.
+Successful generic declarations carry ordered source schemes; genuine body failures and late
+chunk failures retain the original output, report, namespace, settings and recovery controls.
+The two A14 legacy Function ML sources remain separate from the newer Syntax rows.
+\<close>
+
+ML\<open>
+structure Generic_Signature_Test =
+struct
+  open Generic_Syntax_Output_Atomicity
+  fun scheme ctxt backend =
+    (case URust_Command.generic_scheme ctxt backend of
+       SOME parameters => parameters | NONE => error "generic signature audit: missing scheme")
+  (* Exact migrated names may already have an imported ordinary backend. Select the newly
+     generated generic source for metadata checks while retaining every ordinary registration. *)
+  fun entry ctxt key =
+    Parser_Test_Calls.entries ctxt key
+    |> filter (fn backend =>
+      is_some (URust_Type_Mappings.generic_scheme_for_source ctxt (#serial backend)))
+    |> the_single
+  fun entry_scheme ctxt (backend: Micro_Rust_Names.entry) =
+    (case URust_Type_Mappings.generic_scheme_for_source ctxt (#serial backend) of
+       SOME parameters => parameters | NONE => error "generic signature audit: missing source scheme")
+  fun require_scope_closed label ctxt =
+    require (label ^ ": generic scope escaped the declaration")
+      (is_none (URust_Type_Mappings.generic_scope ctxt))
+  fun scheme_snapshot ctxt =
+    (Parser_Test_Calls.dump ctxt |> map (fn (key, backend) =>
+       (key, URust_Type_Mappings.generic_scheme_for_source ctxt (#serial backend))),
+     Inttab.dest (Micro_Rust_Names.Method_Only_Registrations.get (Context.Proof ctxt)),
+     Option.map (fn {parameters}: URust_Type_Mappings.generic_scope =>
+       map (fn {rust, pos, kind, hol, bounds, ...}: URust_Type_Mappings.generic_parameter =>
+         (rust, Position.properties_of pos, kind, hol, bounds)) parameters)
+       (URust_Type_Mappings.generic_scope ctxt))
+  fun parameter_definitions events =
+    filter (fn (name, _, props) => name = Markup.entityN andalso
+      Properties.get props Markup.kindN = SOME "urust_generic_parameter" andalso
+      is_some (Properties.get props Markup.defN)) events
+  fun first_parameter label text token events =
+    require (label ^ ": exact first generic declaration range changed")
+      (exists (fn (_, range, props) =>
+        range = range_of text token 0 andalso Properties.get props Markup.nameN = SOME token)
+        (parameter_definitions events))
+  fun header ctxt label item = parse ctxt label item |> URust_AST.function_type_parameters
+  fun check_header label descriptors
+      (parameters: URust_Type_Mappings.generic_scheme_parameter list) =
+    require (label ^ ": ordered source parameter kinds/names changed")
+      (map (fn URust_AST.Generic_Parameter (name, _, kind) => (name, kind)) descriptors =
+       map (fn {rust, kind, ...} => (rust, kind)) parameters)
+  fun body_failure item =
+    hd (space_explode "{" item) ^ "{ missing_generic_value }"
+end
+\<close>
+
+section\<open> Exact migrated declarations and receiver behavior \<close>
+
+ML_val\<open>
+local
+  open Generic_Signature_Test
+  val thy = @{theory}
+  val hol_type = "nat => ('s, nat, 'abort, 'i, 'o) function_body"
+  fun declaration declared item =
+    "urust_fn [pp_test, verbosity = 0] generic_syntax_failure " ^
+    (if declared then ":: " ^ cartouche hol_type ^ " " else "") ^ cartouche item
+  fun accepted (label, declared, item, token) =
+    let
+      val text = declaration declared item
+      val (state, events) = reports (fn () => run thy label text)
+      val ctxt = Toplevel.context_of state
+      val function = parse ctxt label item
+      val backend = entry ctxt (#1 (URust_AST.function_name function))
+      val parameters = scheme ctxt (#hol_term backend)
+      val _ = check_header label (URust_AST.function_type_parameters function) parameters
+      val _ = first_parameter label text token events
+      val _ = require_scope_closed label ctxt
+      val _ = require (label ^ ": named HOL declaration missing")
+        (can (Proof_Context.read_const {proper = true, strict = true} ctxt)
+          "generic_syntax_failure")
+      val _ = if declared then
+        require (label ^ ": literal declared-HOL bypass changed")
+          (Sign.typ_equiv (Proof_Context.theory_of ctxt)
+            (fastype_of (#hol_term backend), Logic.varifyT_global (Syntax.read_typ ctxt hol_type)))
+        else ()
+      val original = Proof_Context.init_global thy
+      val failed_text = declaration declared (body_failure item)
+      val (diagnostic, failed_events) = reports (fn () =>
+        failure label "missing_generic_value" (fn () => run thy label failed_text))
+      val _ = require (label ^ ": genuine failure has no source range")
+        (not (null (message_positions diagnostic)))
+      val _ = require (label ^ ": failed declaration emitted definition markup")
+        (not (exists (fn (name, _, props) => name = Markup.entityN andalso
+          is_some (Properties.get props Markup.defN) andalso
+          Properties.get props Markup.kindN <> SOME "urust_var") failed_events))
+      val _ = require (label ^ ": failure changed original namespace/schemes")
+        (snapshot original = snapshot (Proof_Context.init_global thy) andalso
+         scheme_snapshot original = scheme_snapshot (Proof_Context.init_global thy))
+      val recovered = run thy (label ^ "-recovery")
+        (declaration false "fn Generic(value: u8) -> u8 { value }") |> Toplevel.context_of
+      val _ = require (label ^ ": command did not recover")
+        (is_some (Parser_Test_Calls.lookup recovered "Generic"))
+    in () end
+  val _ = List.app accepted
+    [("guard-inferred-type", false, "fn Generic<T>(x: T) -> T { x }", "T"),
+     ("guard-declared-type", true, "fn Generic<T>(value: impl Marker) -> impl Marker { value }", "T"),
+     ("guard-inferred-const", false, "fn Sized<const N: usize>(value: [u8; N]) -> usize { 0 }", "N"),
+     ("guard-declared-const", true, "fn Sized<const N: usize>(value: Unknown) -> Unknown { value }", "N"),
+     ("guard-inferred-mixed", false, "fn Mix<'a, const N: usize, T>(value: T) -> T { value }", "N"),
+     ("guard-declared-mixed", true, "fn Mix<'a, T, const N: usize>(value: Unknown) -> Unknown { value }", "T"),
+     ("legacy-reference-mixed-generics", false, "fn BadReference<'a, T>(value: &'a mut u8) -> u8 { 0 }", "T")]
+
+  val model = run thy "generic-member-model"
+    ("urust_datatype [verbosity = 0] " ^ cartouche "struct SyntaxCounter { value: u8 }")
+    |> Toplevel.theory_of
+  val chunks =
+    [("chunk-generic-function", "fn Generic<T>(value: T) -> T { value }", "T"),
+     ("impl-generic-value", "impl SyntaxCounter { fn Value<T>(self, value: T) -> T { value } }", "T"),
+     ("impl-generic-mutable", "impl SyntaxCounter { fn Value<T>(mut self, value: T) -> T { value } }", "T"),
+     ("impl-generic-shared", "impl SyntaxCounter { fn Value<'a, T>(&'a self, value: T) -> T { value } }", "T"),
+     ("impl-generic-unique", "impl SyntaxCounter { fn Value<const N: usize>(&mut self) -> usize { 0 } }", "N"),
+     ("impl-generic-typed", "impl SyntaxCounter { fn Value<T>(self: Self, value: T) -> T { value } }", "T")]
+  val _ = List.app (fn (label, item, token) =>
+    let
+      val text = "urust [pp_test, verbosity = 0] " ^ cartouche item
+      val original = Proof_Context.init_global model
+    in
+      if label = "impl-generic-shared" then
+        let
+          val (diagnostic, events) = reports (fn () =>
+            failure label "shared Rust references" (fn () => run model label text))
+          val _ = require (label ^ ": exact shared receiver range changed")
+            (hd (map position_range (message_positions diagnostic)) = range_of text "&'a self" 0)
+          val _ = require (label ^ ": failed receiver installed definition markup")
+            (null (parameter_definitions events))
+          val _ = require (label ^ ": failed receiver mutated namespace")
+            (snapshot original = snapshot (Proof_Context.init_global model))
+        in () end
+      else
+        let
+          val (state, events) = reports (fn () => run model label text)
+          val ctxt = Toplevel.context_of state
+          val key = if label = "chunk-generic-function" then "Generic" else "SyntaxCounter::Value"
+          val backend = entry ctxt key
+          val parameters = scheme ctxt (#hol_term backend)
+          val _ = first_parameter label text token events
+          val _ = require (label ^ ": source scheme missing") (map #rust parameters = [token])
+          val _ = require_scope_closed label ctxt
+          val _ = if key = "Generic" then () else
+            let
+              val method = entry ctxt "Value"
+              val owners = Micro_Rust_Names.associated_functions ctxt key
+              val _ = require (label ^ ": associated owner Self/identity lost")
+                (length owners = 1 andalso #identity (hd owners) = #serial backend andalso
+                 Sign.typ_equiv (Proof_Context.theory_of ctxt)
+                   (#self_type (hd owners), URust_Type_Mappings.entry_template
+                     (the (URust_Type_Mappings.lookup ctxt "SyntaxCounter"))))
+              val _ = require (label ^ ": bare receiver entry lost method-only provenance")
+                (Micro_Rust_Names.is_method_only_serial (Context.Proof ctxt) (#serial method) andalso
+                 scheme ctxt (#hol_term method) = parameters)
+            in () end
+        in () end
+    end) chunks
+
+  val _ = List.app (fn (label, text, key) =>
+    let
+      val original = Proof_Context.init_global thy
+      val completed = run thy label text |> Toplevel.context_of
+      val _ = require (label ^ ": exact legacy positive did not install its scheme")
+        (map #rust (scheme completed (#hol_term (entry completed key))) = ["T"])
+      val _ = require_scope_closed label completed
+      val _ = require (label ^ ": original namespace changed")
+        (snapshot original = snapshot (Proof_Context.init_global thy))
+    in () end)
+    [("rust-function-generics", "urust_fn invalid_function_item " ^
+       cartouche "fn Generic<T>(x: T) -> T { x }", "Generic"),
+     ("reference-mixed-generics", "urust_fn  reference_failure " ^
+       cartouche "fn BadReference<'a, T>(value: &'a mut u8) -> u8 { 0 }", "BadReference")]
+in val _ = () end
+\<close>
+
+section\<open> Native twin artifacts and ordered generic metadata \<close>
+
+ML_val\<open>
+local
+  open Generic_Signature_Test
+  val ctxt = @{context}
+  val thy = @{theory}
+  fun constant name = Proof_Context.read_const {proper = true, strict = false} ctxt name
+  val twins =
+    [("signature_identity", "SignatureIdentity"), ("signature_array", "SignatureArray"),
+     ("signature_mixed", "SignatureMixed"), ("signature_borrow", "SignatureBorrow"),
+     ("signature_pointer", "SignaturePointer"), ("signature_mapped", "SignatureMapped"),
+     ("signature_channels", "SignatureChannels"), ("signature_bounds", "SignatureBounds"),
+     ("signature_unused", "SignatureUnused"), ("signature_disabled", "SignatureDisabled"),
+     ("signature_application", "SignatureApplication")]
+  val _ = List.app (fn (name, rust) =>
+    let
+      val backend = constant name
+      val twin = constant (name ^ "_twin")
+      val _ = require (name ^ ": complete native HOL types differ")
+        (Sign.typ_equiv thy (fastype_of backend, fastype_of twin))
+      val parameters = scheme ctxt backend
+      val _ = require (name ^ ": source generic metadata missing") (not (null parameters))
+      val _ = require (name ^ ": escape twin unexpectedly acquired source generic metadata")
+        (is_none (URust_Command.generic_scheme ctxt twin))
+      val theorem = Proof_Context.get_thm ctxt (name ^ "_def")
+      val twin_theorem = Proof_Context.get_thm ctxt (name ^ "_twin_def")
+      val rhs_type = fastype_of (snd (Logic.dest_equals (Thm.prop_of theorem)))
+      val twin_rhs_type = fastype_of (snd (Logic.dest_equals (Thm.prop_of twin_theorem)))
+      val _ = require (name ^ ": definition theorem has different type variables/sorts")
+        (Sign.typ_equiv thy (rhs_type, twin_rhs_type))
+      val _ = if name = "signature_disabled" then
+        require (name ^ ": opt-out retained a callable")
+          (null (Parser_Test_Calls.entries ctxt rust) andalso
+           null (Parser_Test_Calls.entries ctxt (rust ^ "Twin")))
+        else require (name ^ ": ordinary automatic registration differs")
+          (length (Parser_Test_Calls.entries ctxt rust) =
+             length (Parser_Test_Calls.entries ctxt (rust ^ "Twin")) andalso
+           Micro_Rust_Names.is_automatic_serial (Context.Proof ctxt) (#serial (entry ctxt rust)))
+    in () end) twins
+  val _ = require "array parameter finalized to len"
+    (map #hol (scheme ctxt (constant "signature_array")) = [("'n", @{sort len})])
+  val _ = require "mixed source order omits only the lifetime"
+    (map (fn {rust, kind, hol, ...} => (rust, kind, hol))
+      (scheme ctxt (constant "signature_mixed")) =
+      [("T", URust_AST.Type_Parameter, ("'t", @{sort type})),
+       ("N", URust_AST.Const_Parameter, ("'n", @{sort len}))])
+  val _ = require "bounds retain union with override name"
+    (map #hol (scheme ctxt (constant "signature_bounds")) =
+      [("'element", @{sort "{trait_scale, ord}"})])
+  val _ = require "unused ordered parameters retain their sort requirements"
+    (map #hol (scheme ctxt (constant "signature_unused")) =
+      [("'t", @{sort ord}), ("'n", @{sort len0})])
+  val locale_backend = #hol_term (entry ctxt "SignatureLocale")
+  val _ = require "interpreted applied backend retains ordered parameter"
+    (map #hol (scheme ctxt locale_backend) = [("'t", @{sort type})])
+  val caller = TVar (("caller", 70000), @{sort type})
+  val candidate = Logic.incr_indexes ([], 60000) locale_backend
+  val instantiated = the (URust_Type_Mappings.instantiate_generic_scheme ctxt
+    locale_backend candidate [(caller, Position.none)])
+  val _ = require "locale helper preserves high caller variable and captured seed"
+    (hd (binder_types (fastype_of instantiated)) = caller andalso
+     snd (Term.strip_comb instantiated) = snd (Term.strip_comb candidate))
+  val abbreviation = entry ctxt "SignatureAbbrev"
+  val specialized = the (URust_Type_Mappings.instantiate_generic_scheme_for_source ctxt
+    (#serial abbreviation) (#hol_term abbreviation) [(@{typ nat}, Position.none)])
+  val _ = require "input abbreviation expanded backend shares the source parameter"
+    (hd (binder_types (fastype_of specialized)) = @{typ nat})
+  val other_abbreviation = entry ctxt "SignatureAbbrevOther"
+  val _ = require "equal expanded named abbreviations retain separate ordered/unused metadata"
+    (map #rust (entry_scheme ctxt abbreviation) = ["T"] andalso
+     map #rust (entry_scheme ctxt other_abbreviation) = ["T", "U"] andalso
+     map #hol (entry_scheme ctxt other_abbreviation) =
+       [("'t", @{sort type}), ("'u", @{sort ord})])
+  val _ = ignore (failure "ambiguous-expanded-abbreviation-query" "ambiguous generic scheme query"
+    (fn () => URust_Command.generic_scheme ctxt (#hol_term abbreviation)))
+  val _ = require "native named abbreviation identity selects its own metadata"
+    (map #rust (scheme ctxt (constant "signature_abbrev")) = ["T"] andalso
+     map #rust (scheme ctxt (constant "signature_abbrev_other")) = ["T", "U"])
+  val _ = require "disabled named abbreviation retains its ordered unused metadata without callables"
+    (map #rust (scheme ctxt (constant "signature_abbrev_disabled")) = ["T", "U"] andalso
+     map #hol (scheme ctxt (constant "signature_abbrev_disabled")) =
+       [("'t", @{sort type}), ("'u", @{sort ord})] andalso
+     is_none (URust_Command.generic_scheme ctxt (constant "signature_abbrev_disabled_twin")) andalso
+     null (Parser_Test_Calls.entries ctxt "SignatureAbbrevDisabled") andalso
+     null (Parser_Test_Calls.entries ctxt "SignatureAbbrevDisabledTwin"))
+  val _ = require_scope_closed "all signature examples" ctxt
+in val _ = () end
+\<close>
+
+section\<open> Native code and specification artifacts \<close>
+
+ML_val\<open>
+local
+  open Generic_Signature_Test
+  val ctxt = @{context}
+  val thy = @{theory}
+  fun full name = Proof_Context.intern_const ctxt name
+  fun normalize own = Term.map_aterms
+    (fn Const (name, T) => Const (if name = own then "signature_twin" else name, T)
+      | term => term)
+  fun equations name =
+    let val (_, equations) = Code.equations_of_cert thy (Code.get_cert ctxt [] (full name))
+    in these equations |> map_filter
+      (fn (_, (SOME theorem, _)) => SOME (Thm.prop_of theorem |> normalize (full name))
+        | _ => NONE) end
+  fun specification name =
+    let val theorem = Proof_Context.get_thm ctxt (name ^ "_def") in
+      exists (fn {rough_classification, rules, ...} =>
+        Spec_Rules.is_equational rough_classification andalso
+        exists (fn rule => Thm.eq_thm_prop (rule, theorem)) rules) (Spec_Rules.get ctxt)
+    end
+  val _ = List.app (fn name =>
+    let val twin = name ^ "_twin"
+        val code = equations name
+        val twin_code = equations twin
+        val _ = require (name ^ ": native code equations differ from the escape twin")
+          (not (null code) andalso eq_list Term.aconv_untyped (code, twin_code))
+        val _ = require (name ^ ": native equational specification artifacts differ")
+          (specification name = specification twin)
+        val _ = require (name ^ ": raw definition artifacts differ")
+          (can (Thm.axiom thy) (full name ^ "_def_raw") =
+           can (Thm.axiom thy) (full twin ^ "_def_raw"))
+    in () end)
+    ["signature_identity", "signature_array", "signature_mixed", "signature_borrow",
+     "signature_pointer", "signature_mapped", "signature_channels", "signature_bounds",
+     "signature_unused", "signature_disabled", "signature_application"]
+in val _ = () end
+\<close>
+
+section\<open> Named abbreviation locale provenance, replay and merge \<close>
+
+ML_val\<open>
+local
+  open Generic_Signature_Test
+  structure Types = URust_Type_Mappings
+  val ctxt = @{context}
+  val thy = @{theory}
+  val entries = Parser_Test_Calls.entries ctxt "SignatureAbbrevLocale"
+  val source = #serial (hd entries)
+  val expected = [{rust = "T", kind = URust_AST.Type_Parameter, hol = ("'t", @{sort type})},
+    {rust = "U", kind = URust_AST.Type_Parameter, hol = ("'u", @{sort ord})}]
+  val _ = require "three fixed type/value interpretations retain one original source serial"
+    (length entries = 3 andalso forall (fn (entry: Micro_Rust_Names.entry) =>
+      #serial entry = source andalso entry_scheme ctxt entry = expected andalso
+      is_none (#source_const entry)) entries)
+  val caller = TVar (("locale_caller", 90000), @{sort type})
+  val arguments = [(caller, Position.none), (@{typ nat}, Position.none)]
+  val _ = List.app (fn (entry: Micro_Rust_Names.entry) =>
+    let val candidate = Logic.incr_indexes ([], 80000) (#hol_term entry)
+        val instance = the (Types.instantiate_generic_scheme_for_source ctxt source candidate arguments)
+        val _ = require "source-specific locale helper preserves caller and complete captured backend"
+          (hd (binder_types (fastype_of instance)) = caller andalso
+           Term.aconv_untyped (instance, candidate))
+        val _ = require "unused interpreted abbreviation parameter still requires ord"
+          (is_none (Types.instantiate_generic_scheme_for_source ctxt source candidate
+            [(caller, Position.none), (TVar (("unused_weak", 90001), @{sort type}), Position.none)]))
+    in () end) entries
+  val unrelated = Free ("unrelated_locale_backend", fastype_of (#hol_term (hd entries)))
+  val _ = require "source helper rejects an unrelated complete candidate"
+    (is_none (Types.instantiate_generic_scheme_for_source ctxt source unrelated arguments))
+  val named = Proof_Context.read_const {proper = true, strict = false} ctxt
+    "signature_abbrev_seed.signature_abbrev_locale"
+  val _ = require "native locale abbreviation identity retains ordered unused metadata"
+    (Types.generic_scheme ctxt named = SOME expected)
+  val replay = run thy "signature-abbrev-interpretation-replay"
+    ("interpretation signature_abbrev_again: signature_abbrev_seed " ^
+      cartouche "3 :: nat" ^ " by unfold_locales") |> Toplevel.context_of
+  val replay_entries = Parser_Test_Calls.entries replay "SignatureAbbrevLocale"
+  val _ = require "native interpretation replay deduplicates identical complete backends"
+    (length replay_entries = 3 andalso forall (fn (entry: Micro_Rust_Names.entry) =>
+      #serial entry = source andalso entry_scheme replay entry = expected) replay_entries)
+  val _ = List.app (fn (entry: Micro_Rust_Names.entry) =>
+    require "interpretation replay preserves candidate results"
+      (Types.instantiate_generic_scheme_for_source replay source (#hol_term entry) arguments =
+       Types.instantiate_generic_scheme_for_source ctxt source (#hol_term entry) arguments)) entries
+
+  val base = Theory.end_theory thy
+  fun branch label header =
+    Theory.begin_theory (label, Position.none) [base]
+    |> (fn theory => run theory label
+      ("urust_fn [abbrev, verbosity = 0] " ^
+        cartouche ("fn SignatureMerge" ^ header ^ "(value: T) -> T { value }")))
+    |> Toplevel.theory_of |> Theory.end_theory
+  val left = branch "SignatureAbbrevMergeLeft" "<T>"
+  val right = branch "SignatureAbbrevMergeRight" "<T, U: Ordered>"
+  fun merged label parents = Theory.begin_theory (label, Position.none) parents
+    |> Proof_Context.init_global
+  val merged_ctxt = merged "SignatureAbbrevMerged" [left, right]
+  val reverse_ctxt = merged "SignatureAbbrevMergedReverse" [right, left]
+  fun sources context = Parser_Test_Calls.dump context
+    |> filter (fn (key, _) => key = "SignatureMerge") |> map snd
+  fun metadata context = sources context |> map (fn (entry: Micro_Rust_Names.entry) =>
+    (#serial entry, entry_scheme context entry)) |> sort (int_ord o apply2 #1)
+  val merged_entries = sources merged_ctxt
+  val _ = require "native merge retains both equal-RHS named abbreviation sources"
+    (length merged_entries = 2 andalso metadata merged_ctxt = metadata reverse_ctxt andalso
+     sort int_ord (map (length o entry_scheme merged_ctxt) merged_entries) = [1, 2])
+  val _ = List.app (fn (name, rust) =>
+    let val identity = Proof_Context.read_const {proper = true, strict = false} merged_ctxt name in
+      require "merged native named identity selects its own ordered header"
+        (map #rust (scheme merged_ctxt identity) = rust)
+    end)
+    [("SignatureAbbrevMergeLeft.signature_merge", ["T"]),
+     ("SignatureAbbrevMergeRight.signature_merge", ["T", "U"])]
+  val _ = ignore (failure "merged-expanded-abbreviation-query" "ambiguous generic scheme query"
+    (fn () => Types.generic_scheme merged_ctxt (#hol_term (hd merged_entries))))
+  val _ = List.app (fn (entry: Micro_Rust_Names.entry) =>
+    let val parameters = entry_scheme merged_ctxt entry
+        val arguments = (caller, Position.none) ::
+          map (K (@{typ nat}, Position.none)) (tl parameters)
+        val instance = the (Types.instantiate_generic_scheme_for_source merged_ctxt
+          (#serial entry) (#hol_term entry) arguments)
+    in require "native merged source provenance aligns its own full backend/witnesses"
+      (hd (binder_types (fastype_of instance)) = caller) end) merged_entries
+in val _ = () end
+\<close>
+
+section\<open> Positioned navigation, final-sort tooltips and generic manifests \<close>
+
+ML_val\<open>
+local
+  open Generic_Signature_Test
+  val thy = @{theory}
+  val original = @{context}
+  fun plain chunks = XML.content_of (maps YXML.parse_body chunks)
+    |> Symbol.explode |> filter_out Symbol.is_control |> implode
+  fun spaces text = space_implode " " (String.tokens Char.isSpace text)
+  fun typings range (XML.Elem ((name, props), body)) =
+        (if name = Markup.typingN andalso position_range (Position.of_properties props) = range
+         then [plain [XML.content_of body]] else []) @ maps (typings range) body
+    | typings _ (XML.Text _) = []
+  fun parameter_entities property name markup = markup |> map_filter (fn (element, props) =>
+    if element = Markup.entityN andalso
+      Properties.get props Markup.kindN = SOME "urust_generic_parameter" andalso
+      Properties.get props Markup.nameN = SOME name
+    then Properties.get props property else NONE)
+  val item = "fn SignatureMarkup<T: Scale, const N: usize>(value: [T; N]) -> [T; N] where T: Ordered + Scale { value }"
+  fun declaration verbosity =
+    "urust_fn [verbosity = " ^ string_of_int verbosity ^
+    ", hol_type_parameters = [\"T\" \<rightarrow> " ^ cartouche "'element::ord" ^
+    "]] signature_markup " ^ cartouche item
+  val _ = List.app (fn verbosity =>
+    let val label = "signature-markup-" ^ string_of_int verbosity
+        val text = declaration verbosity
+        val callbacks = saved_callbacks ()
+        val report_callback = !Private_Output.report_fn
+        val (result, events) = capture (fn () => run thy label text)
+        val completed = Exn.release result |> Toplevel.context_of
+        val _ = require "signature capture restores exact owned and report callbacks"
+          (same_callbacks callbacks andalso PolyML.pointerEq (report_callback, !Private_Output.report_fn))
+        val markup = fold Parser_Test_Reports.collect_markup (trees "report" events) []
+        val parameter_reports = parameter_definitions
+          (map (fn (name, props) => (name, position_range (Position.of_properties props), props)) markup)
+        val _ = require "generic declaration entities retain their exact positioned Rust headers"
+          (length parameter_reports = 2 andalso
+           forall (fn (name, occurrence) =>
+             exists (fn (_, range, props) => range = range_of text name occurrence andalso
+               Properties.get props Markup.nameN = SOME name) parameter_reports)
+             [("T", 1), ("N", 0)])
+        val _ = List.app (fn (name, occurrences) =>
+          let val definitions = parameter_entities Markup.defN name markup
+              val references = parameter_entities Markup.refN name markup
+              val _ = require "parameter uses navigate to one original declaration entity"
+                (length definitions = 1 andalso length references = length occurrences andalso
+                 forall (fn identity => identity = hd definitions) references)
+              val _ = List.app (fn occurrence =>
+                require "generic reference retained its exact source range"
+                  (exists (fn (element, props) => element = Markup.entityN andalso
+                    Properties.get props Markup.kindN = SOME "urust_generic_parameter" andalso
+                    Properties.get props Markup.nameN = SOME name andalso
+                    is_some (Properties.get props Markup.refN) andalso
+                    position_range (Position.of_properties props) = range_of text name occurrence) markup))
+                occurrences
+          in () end) [("T", [2, 3, 4]), ("N", [1, 2])]
+        val final = map #hol (entry_scheme completed (entry completed "SignatureMarkup"))
+        val _ = require "manifest metadata retains override, bound union and final array length sort"
+          (final = [("'element", @{sort "{ord, trait_scale}"}), ("'n", @{sort len})])
+        val _ = List.app (fn ((name, occurrence), hol) =>
+          require "generic declaration tooltip retains its final strengthened type"
+            (Library.member (op =) (maps (typings (range_of text name occurrence)) (trees "report" events))
+              (plain [Syntax.string_of_typ (Config.put show_sorts true completed) (TFree hol)])))
+          ([("T", 1), ("N", 0)] ~~ final)
+        val _ = List.app (fn (name, occurrences, hol) =>
+          List.app (fn occurrence =>
+            require "labelled parameter-use tooltip retains the final strengthened type and sort"
+              (Library.member (op =)
+                (maps (typings (range_of text name occurrence)) (trees "report" events))
+                (plain [name ^ " = " ^
+                  Syntax.string_of_typ (Config.put show_sorts true completed) (TFree hol)])))
+            occurrences) [("T", [2, 3, 4], hd final), ("N", [1, 2], nth final 1)]
+        val bounds = URust_AST.function_bounds (parse original label item) |> maps snd
+        val ((resolved, bound_events)) = reports (fn () =>
+          map (URust_Trait_Mappings.resolve_bound original) bounds)
+        val reference_markup = map (fn (name, _, props) => (name, props)) bound_events
+        val _ = require "inline/where bounds retain canonical declared Rust mapping keys"
+          (map #path resolved = ["Scale", "Ordered", "Scale"])
+        val _ = List.app (fn name =>
+          require "inline/where bounds navigate through their original native trait entities"
+            (Parser_Trait_Test.entities Markup.refN name markup =
+             Parser_Trait_Test.entities Markup.refN name reference_markup)) ["Scale", "Ordered"]
+        val report_text = plain (chunks "report" events)
+        val _ = require "bound tooltips retain declared paths and mapped sorts"
+          (String.isSubstring "Scale = trait_scale" report_text andalso
+           String.isSubstring "Ordered = ord" report_text)
+        val manifest = spaces (plain (ordinary events))
+        val expected = spaces (plain ["generics T \<mapsto> " ^
+          Syntax.string_of_typ (Config.put show_sorts true completed) (TFree (hd final)) ^
+          ", const N \<mapsto> " ^
+          Syntax.string_of_typ (Config.put show_sorts true completed) (TFree (nth final 1))])
+        val _ = require "generic manifest follows verbosity and final ordered source metadata"
+          (String.isSubstring expected manifest = (verbosity > 0))
+        val backend = entry completed "SignatureMarkup"
+        val (query_result, query_events) = capture (fn () =>
+          (URust_Command.generic_scheme completed (#hol_term backend),
+           URust_Type_Mappings.generic_scheme_for_source completed (#serial backend)))
+        val (term_metadata, source_metadata) = Exn.release query_result
+        val _ = require "scheme queries are report/output free and agree on an unambiguous source"
+          (null query_events andalso term_metadata = source_metadata andalso
+           term_metadata = SOME (entry_scheme completed backend))
+        val _ = require_scope_closed label completed
+    in () end) [0, 1, 2]
+  val unused_text = "urust_fn [verbosity = 1] " ^
+    cartouche "fn SignatureUnusedManifest<T: Ordered, const N: usize>() {}"
+  val (unused_result, unused_events) = capture (fn () => run thy "signature-unused-manifest" unused_text)
+  val unused_ctxt = Exn.release unused_result |> Toplevel.context_of
+  val unused_parameters = entry_scheme unused_ctxt (entry unused_ctxt "SignatureUnusedManifest")
+  val _ = require "unused manifest metadata retains each positioned source parameter and sort"
+    (map #hol unused_parameters = [("'t", @{sort ord}), ("'n", @{sort len0})])
+  val unused_manifest = spaces (plain (ordinary unused_events))
+  val unused_expected = spaces (plain ["generics T \<mapsto> " ^
+    Syntax.string_of_typ (Config.put show_sorts true unused_ctxt) (TFree ("'t", @{sort ord})) ^
+    ", const N \<mapsto> " ^
+    Syntax.string_of_typ (Config.put show_sorts true unused_ctxt) (TFree ("'n", @{sort len0}))])
+  val _ = require "unused parameters retain their ordered generic manifest after HOL erasure"
+    (String.isSubstring unused_expected unused_manifest)
+  val callbacks = saved_callbacks ()
+  val report_callback = !Private_Output.report_fn
+  val (failed, _) = capture (fn () => error "signature callback restoration probe")
+  val _ = require "capture restores exact callback pointers after an exception"
+    ((case failed of Exn.Exn (ERROR _) => true | _ => false) andalso same_callbacks callbacks andalso
+     PolyML.pointerEq (report_callback, !Private_Output.report_fn))
+in val _ = () end
+\<close>
+
+section\<open> Positioned errors, isolation and final scope \<close>
+
+ML_val\<open>
+local
+  open Generic_Signature_Test
+  val thy = @{theory}
+  val ctxt = Proof_Context.init_global thy
+  val original_snapshot = snapshot ctxt
+  val before_schemes = scheme_snapshot ctxt
+  fun declaration options item =
+    "urust_fn [" ^ options ^ "verbosity = 0] signature_error " ^ cartouche item
+  val identity = "fn SignatureError<T>(value: T) -> T { value }"
+  val overrides =
+    [("unknown-override", "unknown parameter override",
+       "hol_type_parameters = [\"Missing\" \<rightarrow> " ^ cartouche "'x" ^ "], ", identity),
+     ("duplicate-override", "duplicate parameter override",
+       "hol_type_parameters = [\"T\" \<rightarrow> " ^ cartouche "'x" ^
+         ", \"T\" \<rightarrow> " ^ cartouche "'y" ^ "], ", identity),
+     ("nonvariable-override", "parameter overrides require a HOL type variable",
+       "hol_type_parameters = [\"T\" \<rightarrow> " ^ cartouche "nat" ^ "], ", identity),
+     ("duplicate-hol", "HOL parameter names must be distinct",
+       "hol_type_parameters = [\"T\" \<rightarrow> " ^ cartouche "'same" ^
+         ", \"U\" \<rightarrow> " ^ cartouche "'same" ^ "], ",
+       "fn SignatureError<T, U>(value: T) -> T { value }"),
+     ("default-hol-collision", "HOL parameter names must be distinct", "",
+       "fn SignatureError<T, t>(value: T) -> T { value }"),
+     ("unregistered-inline-bound", "unregistered Rust trait", "",
+       "fn SignatureError<T: MissingTrait>(value: T) -> T { value }"),
+     ("unregistered-where-bound", "unregistered Rust trait", "",
+       "fn SignatureError<T>(value: T) -> T where T: MissingTrait { value }"),
+     ("body-only-type", "occurs only in the body", "",
+       "fn SignatureError<T>() -> usize { let spare = \<llangle>undefined :: 't\<rrangle>; 0 }"),
+     ("body-only-const", "occurs only in the body", "",
+       "fn SignatureError<const N: usize>() -> usize { let spare = \<llangle>undefined :: 'n itself\<rrangle>; 0 }")]
+  val _ = List.app (fn (label, expected, options, item) =>
+    let
+      val text = declaration options item
+      val (diagnostic, events) = reports (fn () =>
+        failure label expected (fn () => run thy label text))
+      val positions = map position_range (message_positions diagnostic)
+      val _ = require (label ^ ": positioned diagnostic lost its source")
+        (not (null positions) andalso String.isSubstring label diagnostic)
+      val _ = if String.isPrefix "unregistered-" label then
+        require (label ^ ": exact missing trait range changed")
+          (hd positions = range_of text "MissingTrait" 0)
+        else if String.isPrefix "body-only-" label then
+          require (label ^ ": O7 did not identify its source header parameter")
+            (hd positions = range_of text (if label = "body-only-type" then "T" else "N") 0)
+        else ()
+      val _ = if label = "duplicate-override" then
+        require (label ^ ": both duplicate override positions missing") (length positions >= 2)
+        else ()
+      val _ = require (label ^ ": failed declaration installed generic parameter markup")
+        (null (parameter_definitions events))
+      val _ = require (label ^ ": failure changed all original registries/theory/schemes")
+        (snapshot (Proof_Context.init_global thy) = original_snapshot andalso
+         scheme_snapshot (Proof_Context.init_global thy) = before_schemes)
+      val recovery = run thy (label ^ "-recovery")
+        (declaration "" "fn SignatureRecovery(value: u8) -> u8 { value }") |> Toplevel.context_of
+      val _ = require (label ^ ": genuine error blocked subsequent declaration")
+        (is_some (Parser_Test_Calls.lookup recovery "SignatureRecovery"))
+    in () end) overrides
+  val ambient = run thy "signature-ambient-model"
+    "locale SignatureAmbient = fixes anchor :: 't" |> Toplevel.theory_of
+  val _ = ignore (failure "ambient-default-name" "is fixed by the ambient context" (fn () =>
+    run ambient "ambient-default-name"
+      ("context SignatureAmbient begin\n" ^ declaration "" identity)))
+  val _ = ignore (failure "ambient-override-name" "is fixed by the ambient context" (fn () =>
+    run ambient "ambient-override-name"
+      ("context SignatureAmbient begin\n" ^
+        declaration ("hol_type_parameters = [\"T\" \<rightarrow> " ^ cartouche "'t" ^ "], ") identity)))
+  val shadowed = run thy "signature-shadow"
+    ("urust_type \"SignatureShadow\" = " ^ cartouche "nat" ^ "\n" ^
+      declaration "" "fn SignatureShadowFn<SignatureShadow>(value: SignatureShadow) -> SignatureShadow { value }")
+    |> Toplevel.context_of
+  val shadow_backend = #hol_term (entry shadowed "SignatureShadowFn")
+  val _ = require "generic shadows a registry mapping inside its item"
+    (map #hol (scheme shadowed shadow_backend) = [("'signatureshadow", @{sort type})] andalso
+     hd (binder_types (fastype_of shadow_backend)) <> @{typ nat})
+  val _ = require "registry mapping remains after generic scope closes"
+    (URust_Type_Mappings.resolve shadowed
+      (URust_AST.Path_Type
+        ([URust_AST.Rust_Type_Path_Segment ("SignatureShadow", Position.none, NONE,
+           URust_AST.Source_Layout (Position.none, []))],
+         URust_AST.Source_Layout (Position.none, []))) = @{typ nat})
+  val _ = require_scope_closed "mapping shadow" shadowed
+  val overridden = run thy "signature-const-minimum"
+    (declaration ("hol_type_parameters = [\"N\" \<rightarrow> " ^ cartouche "'size::type" ^ "], ")
+      "fn SignatureConstMinimum<const N: usize>(value: [u8; N]) -> usize { 0 }")
+    |> Toplevel.context_of
+  val _ = require "const override unions minimum and mapping-strengthened sort"
+    (map #hol (scheme overridden (#hol_term (entry overridden "SignatureConstMinimum"))) =
+      [("'size", @{sort len})])
+  val annotated = run thy "signature-member-annotation"
+    ("urust [pp_test, verbosity = 0] " ^ cartouche
+      ("struct SignatureAnnotated { value: u8 }\nimpl SignatureAnnotated {\n\<omega>" ^
+        cartouche ("hol_type_parameters = [\"T\" \<rightarrow> " ^ cartouche "'member::ord" ^ "]") ^
+        "\nfn Value<T>(self, value: T) -> T { value }\n}"))
+    |> Toplevel.context_of
+  val _ = require "member annotation sets one generic signature"
+    (map #hol (scheme annotated (#hol_term (entry annotated "SignatureAnnotated::Value"))) =
+      [("'member", @{sort ord})])
+  val _ = ignore (failure "impl-override-option" "names one function" (fn () =>
+    run thy "impl-override-option"
+      ("urust [verbosity = 0] " ^ cartouche
+        ("struct SignatureAnnotated { value: u8 }\n\<omega>" ^
+          cartouche ("hol_type_parameters = [\"T\" \<rightarrow> " ^ cartouche "'member" ^ "]") ^
+          "\nimpl SignatureAnnotated { fn Value<T>(self, value: T) -> T { value } }"))))
+  val _ = ignore (failure "chunk-override-option" "declaration-specific" (fn () =>
+    run thy "chunk-override-option"
+      ("urust [hol_type_parameters = [\"T\" \<rightarrow> " ^ cartouche "'member" ^ "]] " ^
+        cartouche identity)))
+in val _ = () end
+\<close>
+
+section\<open> Candidate freshness, unused sorts, replay and native merge \<close>
+
+ML_val\<open>
+local
+  open URust_AST
+  structure Types = URust_Type_Mappings
+  fun assert label condition = if condition then () else error ("U3 lower probe: " ^ label)
+  val ctxt = @{context}
+  val layout = Source_Layout (Position.none, [])
+  fun named name = Path_Type ([Rust_Type_Path_Segment (name, Position.none, NONE, layout)], layout)
+  fun escaped text = HOL_Type_Source (Input.string text)
+  fun parameter rust kind hol =
+    {rust = rust, kind = kind, hol = hol, pos = Position.none,
+     bounds = [], report_reference = K ()}: Types.generic_parameter
+  val scope = {parameters =
+    [parameter "T" Type_Parameter ("'t", @{sort type}),
+     parameter "N" Const_Parameter ("'n", @{sort len0})]}
+  val scoped = Types.with_generic_scope scope ctxt
+  val shared = Types.resolve_signature scoped [named "T", escaped "'t"]
+  val _ = assert "Rust and escaped names share" (shared = [TFree ("'t", @{sort type}),
+    TFree ("'t", @{sort type})])
+  val array_type = Const_Array_Type (escaped "nat", named "N", layout)
+  val array = the_single (Types.resolve_signature scoped [array_type])
+  val _ = assert "length sort strengthened" (Term.add_tfreesT array [] =
+    [("'n", @{sort len})])
+  val _ = assert "scope is isolated" (is_none (Types.generic_scope ctxt))
+  val pointer = Raw_Pointer_Type (RPM_Mut, named "T", layout)
+  val pointer_types = Types.resolve_signature scoped [pointer, named "T"]
+  val _ = assert "pointer retains named generic"
+    (member (op =) (Term.add_tfreesT (hd pointer_types) []) ("'t", @{sort type}))
+
+  val lthy = Named_Target.theory_init @{theory}
+  val source_type = TFree ("'t", @{sort type})
+  val source_channel = TFree ("'channel", @{sort type})
+  val body_type = Type (@{type_name function_body},
+    [source_channel, source_type, @{typ unit}, @{typ unit}, @{typ unit}])
+  val backend = Free ("u3_scheme_probe", source_type --> body_type)
+  val parameters =
+    [{rust = "T", kind = Type_Parameter, hol = ("'t", @{sort type})},
+     {rust = "U", kind = Type_Parameter, hol = ("'u", @{sort len0})},
+     {rust = "N", kind = Const_Parameter, hol = ("'n", @{sort len0})}]
+  val registered = Types.register_generic_scheme
+    {identity = backend, backend = backend, sources = [], parameters = parameters, pos = Position.none} lthy
+  val _ = assert "ordered scheme including unused parameters"
+    (Types.generic_scheme registered backend = SOME parameters)
+
+  val collision = TVar (("caller", 70000), @{sort type})
+  val callee_generic = TVar (("callee", 50000), @{sort type})
+  val candidate = Free ("u3_scheme_probe", callee_generic -->
+    Type (@{type_name function_body},
+      [collision, callee_generic, @{typ unit}, @{typ unit}, @{typ unit}]))
+  val arguments = [(collision, Position.none), (@{typ 3}, Position.none),
+    (@{typ 4}, Position.none)]
+  val instantiated = the (Types.instantiate_generic_scheme registered backend candidate arguments)
+  val (inputs, result) = strip_type (fastype_of instantiated)
+  val Type (_, [channel, value, _, _, _]) = result
+  val _ = assert "caller variable preserved exactly" (inputs = [collision] andalso value = collision)
+  val _ = assert "overlapping independent channel renamed away" (channel <> collision)
+  val _ = assert "unused sort still enforced"
+    (is_none (Types.instantiate_generic_scheme registered backend candidate
+      [(collision, Position.none), (@{typ nat}, Position.none), (@{typ 4}, Position.none)]))
+  val _ = assert "wrong count ineligible"
+    (is_none (Types.instantiate_generic_scheme registered backend candidate []))
+  val _ = assert "repeated instantiation preserves caller sharing"
+    (case Types.instantiate_generic_scheme registered backend candidate arguments of
+       SOME term => hd (binder_types (fastype_of term)) = collision
+     | NONE => false)
+
+  val shared_backend = Free ("u3_shared_channel_probe", source_type -->
+    Type (@{type_name function_body},
+      [source_type, source_type, @{typ unit}, @{typ unit}, @{typ unit}]))
+  val shared_registered = Types.register_generic_scheme
+    {identity = shared_backend, backend = shared_backend, sources = [], parameters = take 1 parameters, pos = Position.none} registered
+  val shared_candidate = Free ("u3_shared_channel_probe", callee_generic -->
+    Type (@{type_name function_body},
+      [callee_generic, callee_generic, @{typ unit}, @{typ unit}, @{typ unit}]))
+  val shared_instance = the (Types.instantiate_generic_scheme shared_registered shared_backend
+    shared_candidate [(collision, Position.none)])
+  val Type (_, [shared_channel, shared_value, _, _, _]) = snd (strip_type (fastype_of shared_instance))
+  val _ = assert "intentional generic/channel sharing survives"
+    (shared_channel = collision andalso shared_value = collision)
+
+  val seed = Free ("u3_seed", @{typ nat})
+  val applied_backend = Free ("u3_applied_probe", @{typ nat} --> fastype_of backend) $ seed
+  val applied_registered = Types.register_generic_scheme
+    {identity = applied_backend, backend = applied_backend, sources = [], parameters = parameters, pos = Position.none} shared_registered
+  val applied_candidate =
+    Free ("u3_applied_probe", @{typ nat} --> fastype_of candidate) $ seed
+  val applied_instance = the (Types.instantiate_generic_scheme applied_registered applied_backend
+    applied_candidate arguments)
+  val _ = assert "complete applied backend retained"
+    (snd (Term.strip_comb applied_instance) = [seed])
+  val _ = assert "applied backend source parameter aligned"
+    (hd (binder_types (fastype_of applied_instance)) = collision)
+  val replayed = Types.register_generic_scheme
+    {identity = backend, backend = backend, sources = [], parameters = parameters, pos = Position.none}
+    registered
+  val _ = assert "declaration replay is idempotent"
+    (Types.generic_scheme replayed backend = SOME parameters)
+  val base = Theory.end_theory @{theory}
+  fun branch label =
+    Named_Target.theory_init (Theory.begin_theory (label, Position.none) [base])
+    |> Types.register_generic_scheme
+      {identity = backend, backend = backend, sources = [], parameters = parameters, pos = Position.none}
+    |> Local_Theory.exit_global |> Theory.end_theory
+  val left = branch "SignatureSchemeLeft"
+  val right = branch "SignatureSchemeRight"
+  val merged = Theory.begin_theory ("SignatureSchemeMerged", Position.none) [left, right]
+    |> Proof_Context.init_global
+  val _ = assert "native theory merge preserves the ordered scheme"
+    (Types.generic_scheme merged backend = SOME parameters)
+  val merged_reverse = Theory.begin_theory ("SignatureSchemeMergedReverse", Position.none) [right, left]
+    |> Proof_Context.init_global
+  val _ = assert "native theory merge is independent of parent order"
+    (Types.generic_scheme merged_reverse backend = SOME parameters)
+  val conflicting = {rust = "Different", kind = Type_Parameter, hol = ("'t", @{sort type})} :: tl parameters
+  val _ = assert "conflicting same-identity metadata does not overwrite a registration"
+    (case Exn.capture (fn () => Types.register_generic_scheme
+      {identity = backend, backend = backend, sources = [], parameters = conflicting, pos = Position.none}
+      registered) () of
+       Exn.Exn (ERROR message) => String.isSubstring "conflicting generic schemes" message
+     | _ => false)
+  val _ = assert "failed replay leaves original metadata intact"
+    (Types.generic_scheme registered backend = SOME parameters)
+
+in
+  val _ = writeln "U3 lower probes passed: scope/sharing/final sorts/unused sorts/high collisions/channels/applied backend"
+end
+\<close>
+
+section\<open> Exact generic output positives and durable late failures \<close>
+
+ML_val\<open>
+local
+  open Generic_Signature_Test
+  val thy = @{theory}
+  val ctxt = Proof_Context.init_global thy
+  val initial_snapshot = snapshot ctxt
+  val initial_schemes = scheme_snapshot ctxt
+  val prefixes =
+    [("member-type-guard", holder ^ "\nimpl SyntaxOutputHolder { fn member<T>(self, value: T) -> T { value } }"),
+     ("free-const-guard", holder ^ "\nfn sized<const N: usize>(value: [u8; N]) -> usize { 0 }")]
+  val late_failure = "\nfn late_failure(late_value: u8) -> u8 { missing_output_value }"
+  fun paired (setting_value, verbosity, (kind, body)) =
+    let
+      val callbacks = saved_callbacks ()
+      val report_callback = !Private_Output.report_fn
+      val configured = setting setting_value thy
+      val label = "complete-atomicity-" ^ kind ^ "-" ^ string_of_int verbosity ^ "-" ^
+        setting_name setting_value
+      val positive_text = command verbosity body
+      val (success, success_events) = capture (fn () =>
+        run_with true configured (label ^ "-positive") positive_text)
+      val completed = Exn.release success
+      val completed_ctxt = Toplevel.context_of completed
+      val key = if kind = "member-type-guard" then "SyntaxOutputHolder::member" else "sized"
+      val _ = require (label ^ ": exact original generic prefix did not install its scheme")
+        (length (scheme completed_ctxt (#hol_term (entry completed_ctxt key))) = 1)
+      val _ = native_artifacts completed_ctxt "SyntaxOutputHolder"
+      val _ = require (label ^ ": successful authored verbosity changed")
+        ((not (null (ordinary success_events))) = (verbosity > 0) andalso
+         callback_count "writeln" success_events =
+           (if verbosity = 0 then 0 else if kind = "member-type-guard" then 4 else 3) andalso
+         null (chunks "urgent" success_events))
+      val _ = require (label ^ ": original successful declaration reports missing")
+        (not (null (declaration_reports success_events)))
+      val _ = require (label ^ ": original show_results setting changed on success")
+        (Config.get_global (Toplevel.theory_of completed) Proof_Display.show_results =
+          Config.get_global configured Proof_Display.show_results)
+      val _ = require_scope_closed label completed_ctxt
+      val text = command verbosity (body ^ late_failure)
+      val (result, events) = capture (fn () => run_with true configured label text)
+      val message =
+        (case result of Exn.Res _ => error (label ^ ": unexpectedly accepted")
+         | Exn.Exn exn => if Exn.is_interrupt exn then Exn.reraise exn else Runtime.exn_message exn)
+      val _ = require (label ^ ": real later failure lost its diagnostic")
+        (String.isSubstring "missing_output_value" message)
+      val _ = require (label ^ ": real later failure lost its source position")
+        (not (null (message_positions message)))
+      val _ = require (label ^ ": earlier successful datatype/generic output escaped")
+        (null (ordinary events))
+      val _ = require (label ^ ": earlier successful definition reports escaped")
+        (null (declaration_reports events))
+      val _ = exact_binders label text [("late_value", 0)] events
+      val _ = require (label ^ ": original registry, schemes or theory artifacts changed")
+        (snapshot (Proof_Context.init_global configured) = initial_snapshot andalso
+         scheme_snapshot (Proof_Context.init_global configured) = initial_schemes)
+      val (recovery, recovery_events) = capture (fn () =>
+        run_with true configured (label ^ "-recovery") (command verbosity (holder ^ "\n" ^ member)))
+      val recovered = Exn.release recovery |> Toplevel.context_of
+      val _ = require (label ^ ": failure blocked exact original monomorphic recovery")
+        (is_some (Parser_Test_Calls.lookup recovered "SyntaxOutputHolder::member"))
+      val _ = native_artifacts recovered "SyntaxOutputHolder"
+      val _ = require (label ^ ": recovery lost authored definition reports")
+        (not (null (declaration_reports recovery_events)))
+      val _ = require (label ^ ": positive/failure/recovery preserves exact native callbacks")
+        (same_callbacks callbacks andalso PolyML.pointerEq (report_callback, !Private_Output.report_fn))
+    in () end
+  val _ = List.app paired
+    (maps (fn setting_value => maps (fn verbosity =>
+      map (fn prefix => (setting_value, verbosity, prefix)) prefixes) [0, 1, 2])
+      [NONE, SOME true, SOME false])
+  fun standalone declared verbosity =
+    let
+      val callbacks = saved_callbacks ()
+      val report_callback = !Private_Output.report_fn
+      val before_global = Config.get_global thy Proof_Display.show_results
+      val label = "complete-output-signature-guard-" ^ Bool.toString declared ^ "-" ^ string_of_int verbosity
+      val body = "fn SyntaxOutputGeneric<T>(value: T) -> T { value }"
+      fun declaration body =
+        "urust_fn [verbosity = " ^ string_of_int verbosity ^ "] syntax_output_guard " ^
+        (if declared then ":: " ^ cartouche "nat => ('s, nat, 'abort, 'i, 'o) function_body" ^ " "
+         else "") ^ cartouche body
+      val text = declaration body
+      val (success, successful_events) = capture (fn () => run_with true thy (label ^ "-positive") text)
+      val completed_ctxt = Exn.release success |> Toplevel.context_of
+      val _ = require (label ^ ": original standalone source lost its scheme")
+        (map #rust (scheme completed_ctxt (#hol_term (entry completed_ctxt "SyntaxOutputGeneric"))) = ["T"])
+      val _ = require (label ^ ": original standalone authored output changed")
+        ((not (null (ordinary successful_events))) = (verbosity > 0) andalso
+         callback_count "writeln" successful_events = (if verbosity > 0 then 2 else 0) andalso
+         null (chunks "urgent" successful_events))
+      val _ = require (label ^ ": original standalone definition reports missing")
+        (not (null (declaration_reports successful_events)))
+      val parameter_reports = fold Parser_Test_Reports.collect_markup (trees "report" successful_events) []
+      val _ = require (label ^ ": original first non-lifetime declaration range changed")
+        (exists (fn (name, props) => name = Markup.entityN andalso
+          Properties.get props Markup.kindN = SOME "urust_generic_parameter" andalso
+          is_some (Properties.get props Markup.defN) andalso
+          position_range (Position.of_properties props) = range_of text "T" 0) parameter_reports)
+      val failed_text = declaration "fn SyntaxOutputGeneric<T>(value: T) -> T { missing_output_value }"
+      val (result, events) = capture (fn () => run_with true thy label failed_text)
+      val diagnostic =
+        (case result of Exn.Res _ => error (label ^ ": unexpectedly accepted")
+         | Exn.Exn exn => Runtime.exn_message exn)
+      val _ = require (label ^ ": real same-mode body failure lost its diagnostic/range")
+        (String.isSubstring "missing_output_value" diagnostic andalso
+         not (null (message_positions diagnostic)))
+      val _ = require (label ^ ": complete output or definition reports escaped")
+        (null (ordinary events) andalso null (declaration_reports events))
+      val _ = exact_binders label failed_text [("value", 0)] events
+      val _ = require (label ^ ": standalone failure mutated original namespace/schemes")
+        (snapshot (Proof_Context.init_global thy) = initial_snapshot andalso
+         scheme_snapshot (Proof_Context.init_global thy) = initial_schemes)
+      val _ = require_scope_closed label completed_ctxt
+      val _ = require (label ^ ": standalone positive preserves native show_results")
+        (Config.get_global (Proof_Context.theory_of completed_ctxt) Proof_Display.show_results = before_global)
+      val recovery_text = declaration "fn SyntaxOutputGeneric(value: u8) -> u8 { value }"
+      val (recovery, recovery_events) = capture (fn () =>
+        run_with true thy (label ^ "-recovery") recovery_text)
+      val recovered = Exn.release recovery |> Toplevel.context_of
+      val _ = require (label ^ ": same-mode monomorphic recovery restores its ordinary declaration")
+        (is_some (Parser_Test_Calls.lookup recovered "SyntaxOutputGeneric") andalso
+         not (null (declaration_reports recovery_events)) andalso
+         Config.get_global (Proof_Context.theory_of recovered) Proof_Display.show_results = before_global)
+      val _ = require (label ^ ": positive/failure/recovery preserves exact native callbacks")
+        (same_callbacks callbacks andalso PolyML.pointerEq (report_callback, !Private_Output.report_fn))
+      val _ = require_scope_closed (label ^ "-recovery") recovered
+    in () end
+  val _ = List.app (fn verbosity => List.app (fn declared => standalone declared verbosity) [false, true])
+    [0, 1, 2]
+in val _ = () end
+\<close>
+
+ML_val\<open>
+local
+  open Generic_Signature_Test
+  val thy = @{theory}
+  val locale = run_with false thy "native-output-locale"
+    "locale SyntaxOutputScope = fixes output_seed :: nat"
+  val entered = continue false locale "native-output-nested-enter"
+    "context SyntaxOutputScope begin\ndeclare [[show_results = true]]\n\
+    \context begin\ndeclare [[show_results = false]]"
+  val callbacks = saved_callbacks ()
+  val report_callback = !Private_Output.report_fn
+  val before_context = Toplevel.context_of entered
+  val before_settings = target_settings before_context
+  val before_global = Config.get_global (Toplevel.theory_of entered) Proof_Display.show_results
+  val before_snapshot = snapshot before_context
+  val before_schemes = scheme_snapshot before_context
+  val member = "impl SyntaxOutputHolder { fn member<T>(self, value: T) -> T { value } }"
+  val body = holder ^ "\n" ^ member
+  val label = "native-output-nested-failure-member-type-guard"
+  val (success, successful_events) = capture (fn () => continue true entered (label ^ "-positive")
+    (command 2 body))
+  val completed = Exn.release success
+  val completed_ctxt = Toplevel.context_of completed
+  val _ = require (label ^ ": exact nested generic source lost its scheme")
+    (map #rust (scheme completed_ctxt (#hol_term (entry completed_ctxt "SyntaxOutputHolder::member"))) = ["T"])
+  val _ = require (label ^ ": nested positive restores every original target/global setting")
+    (length before_settings >= 2 andalso target_settings completed_ctxt = before_settings andalso
+     Config.get_global (Toplevel.theory_of completed) Proof_Display.show_results = before_global)
+  val _ = require (label ^ ": nested positive lost authored output/report controls")
+    (callback_count "writeln" successful_events = 4 andalso null (chunks "urgent" successful_events) andalso
+     not (null (declaration_reports successful_events)))
+  val text = command 2 (body ^ "\nfn late_failure(late_value: u8) -> u8 { missing_output_value }")
+  val (failed, events) = capture (fn () => continue true entered label text)
+  val _ = require (label ^ ": real later nested failure retains its diagnostic")
+    (case failed of Exn.Exn exn => String.isSubstring "missing_output_value" (Runtime.exn_message exn)
+     | _ => false)
+  val _ = require (label ^ ": earlier successful output or definition markup escaped")
+    (null (ordinary events) andalso null (declaration_reports events))
+  val _ = exact_binders label text [("late_value", 0)] events
+  val _ = require (label ^ ": failure preserves every original target/global setting and registry")
+    (target_settings (Toplevel.context_of entered) = before_settings andalso
+     Config.get_global (Toplevel.theory_of entered) Proof_Display.show_results = before_global andalso
+     snapshot (Toplevel.context_of entered) = before_snapshot andalso
+     scheme_snapshot (Toplevel.context_of entered) = before_schemes)
+  val (recovery, recovery_events) = capture (fn () => continue true entered (label ^ "-recovery")
+    (command 2 (holder ^ "\n" ^ Generic_Syntax_Output_Atomicity.member)))
+  val recovered = Exn.release recovery |> Toplevel.context_of
+  val _ = require (label ^ ": exact monomorphic recovery failed")
+    (is_some (Parser_Test_Calls.lookup recovered "SyntaxOutputHolder::member") andalso
+     not (null (declaration_reports recovery_events)) andalso target_settings recovered = before_settings)
+  val _ = require (label ^ ": nested positive/failure/recovery preserves exact native callbacks")
+    (same_callbacks callbacks andalso PolyML.pointerEq (report_callback, !Private_Output.report_fn))
+in val _ = () end
+\<close>
 
 chapter\<open> Bodies \<close>
 

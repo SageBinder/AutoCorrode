@@ -4,6 +4,7 @@ theory Parser_Impl_Command
     Parser_Impl_Printer_Output
     Parser_Impl_Translate
     Parser_Impl_Datatype
+    Parser_Impl_Trait_Mappings
   keywords
     "urust_expr" :: thy_decl
     and "urust_fn" :: thy_decl
@@ -40,10 +41,13 @@ independent inference holes. Raw pointers and mutable references \<open>&mut T\<
 \<open>Global_Store.ref\<close> model and share implicit address/global backend parameters across the
 complete signature, constrained by its body and expected types. Datatype fields introduce those
 backend parameters for raw pointers while continuing to reject unrelated free type variables.
-The optional generic list declares only lifetimes. Reference and generic-argument lifetimes,
+The optional generic list declares type, const and lifetime parameters. Type parameters become
+named HOL type variables; const parameters become type variables with sort \<open>len0\<close>.
+Bounds and \<open>hol_type_parameters\<close> overrides constrain their sorts, which type mappings may
+strengthen further. Reference and generic-argument lifetimes,
 such as \<open>&'a mut T\<close> and \<open>Cursor<'a, T>\<close>,
 must be declared there unless they are \<open>'static\<close> or \<open>'_\<close>; lifetimes are then erased and
-never change the definition. Type generics and lifetime bounds are rejected. Literal function-pointer
+never change the definition. Lifetime bounds are rejected. Literal function-pointer
 types, \<open>impl Trait\<close>, lifetime generic arguments, associated type bindings, const-expression
 generic arguments, and unexpanded macro type variables are parsed as unresolved syntax. They
 require a declared HOL type; the type resolver supplies no interpretation for them.
@@ -265,6 +269,8 @@ sig
   datatype elaboration_kind = Expression | Function
 
   val urust_pp_test: bool Config.T
+  val generic_scheme:
+    Proof.context -> term -> URust_Type_Mappings.generic_scheme_parameter list option
 
   val elaborate:
     local_theory ->
@@ -339,6 +345,7 @@ structure URust_Command :> URUST_COMMAND =
 struct
 datatype elaboration_kind = Expression | Function
 structure Navigation = Micro_Rust_Semantic_Navigation
+val generic_scheme = URust_Type_Mappings.generic_scheme
 
 val urust_pp_test =
   Attrib.setup_config_bool \<^binding>\<open>urust_pp_test\<close> (K false)
@@ -479,6 +486,7 @@ val expression_option_configs = declaration_option_configs
 val function_option_configs =
   fold Symtab.update
     [(register_notation_option, Boolean_Config urust_register_notation),
+     (hol_type_parameters_option, Renames_Config),
      (state_option, Type_Config urust_state), (abort_option, Type_Config urust_abort),
      (input_option, Type_Config urust_input), (output_option, Type_Config urust_output)]
     declaration_option_configs
@@ -790,6 +798,21 @@ fun reject_unresolved Function lthy source checked =
 fun close_typed_term kind lthy type_pos checked =
   let
     val declaration_type = fastype_of checked
+    (* Closing unconstrained internal variables must not erase an authored generic that occurs
+       only in the body. The source scope distinguishes it from ordinary inference variables. *)
+    val _ =
+      if kind = Function then
+        (case URust_Type_Mappings.generic_scope lthy of
+           SOME {parameters} =>
+             List.app (fn {rust, pos, hol = (name, _), ...} =>
+               if exists (fn (used, _) => used = name) (Term.add_tfrees checked []) andalso
+                   not (exists (fn (used, _) => used = name)
+                     (Term.add_tfreesT declaration_type []))
+               then error ("urust_fn: generic parameter " ^ quote rust ^
+                 " occurs only in the body, not in the signature" ^ Position.here pos)
+               else ()) parameters
+         | NONE => ())
+      else ()
     val declared_tvars = Term.add_tvarsT declaration_type []
     fun declared_tvar (xi, _) =
       exists (fn (declared_xi, _) => declared_xi = xi) declared_tvars
@@ -1402,11 +1425,80 @@ datatype function_signature =
 fun function_parameter_types ctxt function =
   map (function_parameter_type ctxt) (URust_AST.function_parameters function)
 
-fun reject_function_type_generics function =
-  (case URust_AST.function_type_parameters function of
-     [] => ()
-   | URust_AST.Generic_Parameter (_, pos, _) :: _ =>
-       error ("urust_fn: type generics are not supported" ^ Position.here pos))
+(* The source parameters are signature-named HOL variables. Bounds are resolved once, retaining
+   their declared Rust identities as well as their minimized HOL sort union. *)
+fun prepare_function_scope lthy overrides function =
+  let
+    val descriptors = URust_AST.function_type_parameters function
+    val names = URust_Type_Mappings.parameter_names lthy descriptors overrides
+    val thy = Proof_Context.theory_of lthy
+    val bounds = URust_AST.function_bounds function
+    fun parameter (URust_AST.Generic_Parameter (rust, pos, kind), (name, override_sort)) =
+      let
+        val _ =
+          if is_some (Variable.def_sort lthy (name, ~1)) then
+            error ("urust_fn: HOL parameter " ^ quote name ^
+              " is fixed by the ambient context" ^ Position.here pos)
+          else ()
+        val mapped =
+          map (URust_Trait_Mappings.resolve_bound lthy)
+            (the_default [] (AList.lookup (op =) bounds rust))
+        val minimum =
+          (case kind of URust_AST.Type_Parameter => \<^sort>\<open>type\<close>
+           | URust_AST.Const_Parameter => \<^sort>\<open>len0\<close>)
+        val sort = Sign.minimize_sort thy (override_sort @ minimum @ maps #sort mapped)
+        val identity = serial ()
+        fun report_reference use_pos =
+          Navigation.defer_report lthy use_pos
+            (Position.make_entity_markup {def = false} identity "urust_generic_parameter"
+              (rust, pos))
+        fun report_declaration () =
+          Navigation.defer_report lthy pos
+            (Position.make_entity_markup {def = true} identity "urust_generic_parameter"
+              (rust, pos))
+      in
+        ({rust = rust, pos = pos, kind = kind, hol = (name, sort),
+         bounds = distinct (op =) (map #path mapped),
+         report_reference = report_reference}: URust_Type_Mappings.generic_parameter,
+         report_declaration)
+      end
+    val prepared = map parameter (descriptors ~~ names)
+  in ({parameters = map fst prepared}, fn () => List.app (fn (_, report) => report ()) prepared) end
+
+fun final_function_scope lthy ({parameters}: URust_Type_Mappings.generic_scope) complete_type =
+  let
+    val variables = Term.add_tfreesT complete_type []
+    fun finalize ({rust, pos, kind, hol = (name, sort), bounds, report_reference}
+        : URust_Type_Mappings.generic_parameter) =
+      let
+        val final_sort = the_default sort (AList.lookup (op =) variables name)
+        val hol = (name, final_sort)
+        val _ = Navigation.defer_report lthy pos Markup.tfree
+        val _ = Navigation.defer_report_text lthy pos Markup.typing
+          (Syntax.string_of_typ (Config.put show_sorts true lthy) (TFree hol))
+        fun report_final_reference use_pos =
+          (report_reference use_pos;
+           Navigation.defer_report_text lthy use_pos Markup.typing
+             (rust ^ " = " ^
+               Syntax.string_of_typ (Config.put show_sorts true lthy) (TFree hol)))
+      in {rust = rust, pos = pos, kind = kind, hol = hol, bounds = bounds,
+        report_reference = report_final_reference}: URust_Type_Mappings.generic_parameter end
+  in {parameters = map finalize parameters}: URust_Type_Mappings.generic_scope end
+
+fun function_body_context scope lthy =
+  lthy |> URust_Type_Mappings.with_generic_scope scope
+  |> fold (Variable.declare_typ o TFree o #hol) (#parameters scope)
+
+fun report_where_parameters lthy ({parameters}: URust_Type_Mappings.generic_scope) function =
+  List.app (fn (rust, pos, _) =>
+    (case find_first (fn parameter => #rust parameter = rust) parameters of
+       SOME {hol, report_reference, ...} =>
+         (report_reference pos;
+          Navigation.defer_report lthy pos Markup.tfree;
+          Navigation.defer_report_text lthy pos Markup.typing
+            (Syntax.string_of_typ (Config.put show_sorts true lthy) (TFree hol)))
+     | NONE => raise Fail "urust_fn: validated where parameter is absent"))
+    (#where_clause (URust_AST.function_generics function))
 
 (* A declared type is read like a urust_expr declaration type and alone supplies the parameter
    slots: the Rust parameter and return types are never resolved and do not constrain it. Lifetime
@@ -1415,39 +1507,49 @@ fun reject_function_type_generics function =
    Otherwise resolve the optional channels and every Rust signature type together. Shared names
    retain their sorts and relationships; independent inference holes stay distinct. The constructed
    complete type supplies the lexical parameter slots and the sole body-checking pipeline. *)
-fun prepare_function_signature lthy (Declared_Signature declared) function =
+fun prepare_function_signature lthy overrides signature_source function =
+  let
+    val (initial_scope, report_declarations) = prepare_function_scope lthy overrides function
+    val scoped = URust_Type_Mappings.with_generic_scope initial_scope lthy
+    val arguments = function_arguments scoped function
+    val (complete_type, type_pos) =
+      (case signature_source of
+         Declared_Signature declared =>
       let
-        val _ = reject_function_type_generics function
-        val arguments = function_arguments lthy function
         val rust_types =
-          function_parameter_types lthy function @
+          function_parameter_types scoped function @
             the_list (URust_AST.function_return_type function)
         val _ =
           URust_Type_Mappings.check_lifetimes
             (URust_AST.function_lifetime_parameters function) rust_types
-        val _ = URust_Type_Mappings.check_signature_syntax lthy rust_types
-        val (complete_type, type_pos) =
-          URust_Report_Transaction.native lthy (fn read_ctxt =>
+        val _ = URust_Type_Mappings.check_signature_syntax scoped rust_types
+        val (read_type, type_pos) =
+          URust_Report_Transaction.native scoped (fn read_ctxt =>
             read_declared_type read_ctxt Function declared)
+        fun strengthen (TFree (name, sort)) =
+              (case find_first (fn parameter => fst (#hol parameter) = name)
+                  (#parameters initial_scope) of
+                 SOME parameter => TFree (name, Sign.minimize_sort
+                   (Proof_Context.theory_of lthy) (sort @ snd (#hol parameter)))
+               | NONE => TFree (name, sort))
+          | strengthen typ = typ
+        val complete_type = Term.map_atyps strengthen read_type
         val _ = terminal_value_type Function type_pos complete_type
         val _ =
           validate_argument_count Function type_pos arguments (binder_types complete_type)
       in
-        (SOME (complete_type, type_pos),
-         typed_arguments arguments (binder_types complete_type))
+        (complete_type, type_pos)
       end
-  | prepare_function_signature lthy (Rust_Signature channels) function =
+       | Rust_Signature channels =>
       let
-        val _ = reject_function_type_generics function
-        val arguments = function_arguments lthy function
-        val parameter_types = function_parameter_types lthy function
+        val parameter_types = function_parameter_types scoped function
         val return_type =
           the_default
             (URust_AST.Primitive_Type
               (URust_AST.DPT_Unit, URust_AST.function_item_position function))
             (URust_AST.function_return_type function)
         val complete_type =
-          URust_Type_Mappings.resolve_function_signature lthy channels
+          URust_Type_Mappings.resolve_function_signature scoped channels
             (URust_AST.function_lifetime_parameters function)
             parameter_types return_type
         (* An inherited default belongs to an earlier command; only authored channels position the
@@ -1461,22 +1563,27 @@ fun prepare_function_signature lthy (Declared_Signature declared) function =
              pos :: _ => pos
            | [] => URust_AST.rust_type_position return_type)
       in
-        (SOME (complete_type, type_pos),
-         typed_arguments arguments (binder_types complete_type))
-      end
+        (complete_type, type_pos)
+      end)
+    val scope = final_function_scope lthy initial_scope complete_type
+    val _ = report_where_parameters lthy scope function
+  in
+    (SOME (complete_type, type_pos), typed_arguments arguments (binder_types complete_type),
+     scope, function_body_context scope scoped, report_declarations)
+  end
 
-fun elaborate_function_item pp_test lthy signature_source source function =
+fun elaborate_function_item pp_test lthy overrides signature_source source function =
   let
     val arguments = function_arguments lthy function
     val body_source = function_body_source source function
-    val (declared_type, arguments_with_types) =
-      prepare_function_signature lthy signature_source function
+    val (declared_type, arguments_with_types, scope, body_lthy, report_declarations) =
+      prepare_function_signature lthy overrides signature_source function
     val _ =
       if pp_test
       then function_pretty_roundtrip lthy source function
       else ()
     val {term, ...} =
-      elaborate_prepared_ast lthy
+      elaborate_prepared_ast body_lthy
         {kind = Function,
          source = body_source,
          declared_type = declared_type,
@@ -1486,7 +1593,8 @@ fun elaborate_function_item pp_test lthy signature_source source function =
     {term = term,
      arguments = arguments,
      declared_type = declared_type,
-     arguments_with_types = arguments_with_types}
+     arguments_with_types = arguments_with_types,
+     scope = scope, body_lthy = body_lthy, report_declarations = report_declarations}
   end
 
 fun declaration_registered_term
@@ -1532,7 +1640,7 @@ fun reserve_impl_owner (Impl_Function {associated_key, self_type, identity, ...}
 fun register_function_result target registration bare_name (rust_name, rust_pos) declaration
     lthy =
   (case target of
-     Anonymous_Target _ => lthy
+     Anonymous_Target _ => ([], lthy)
    | Named_Target _ =>
        let
          val term = declaration_registered_term declaration
@@ -1573,22 +1681,45 @@ fun register_function_result target registration bare_name (rust_name, rust_pos)
                      (if method then [(bare_name, method_serial)] else []))
                 end)
        in
-         lthy |> Local_Theory.declaration {pervasive = false, syntax = true, pos = rust_pos} declare
+         (map #2 registrations,
+          lthy |> Local_Theory.declaration {pervasive = false, syntax = true, pos = rust_pos} declare
          |> tap (fn completed =>
            (Navigation.defer_report completed rust_pos Markup.keyword3;
             List.app
               (fn (name, s) => Micro_Rust_Names.report_registration completed name rust_pos s)
-              registrations))
+              registrations)))
        end)
+
+(* Native abbreviations export their local Free to an expanded body. Keep the existing named
+   background Const privately, at the exact source-context type instance, without changing any
+   ordinary notation entry or its source constant. *)
+fun function_scheme_identity abbreviation binding term source_lthy installed declaration =
+  if not abbreviation then declaration_registered_term declaration
+  else
+    let
+      val name = Local_Theory.full_name source_lthy binding
+      val global_type = Consts.type_scheme (Proof_Context.consts_of installed) name
+      val (_, (_, (_, term_parameters))) = Generic_Target.export_abbrev source_lthy I term
+      val exported = Assumption.export_term source_lthy (Local_Theory.target_of source_lthy) term
+      val source_type = map fastype_of term_parameters ---> fastype_of exported
+      val tyenv = Sign.typ_match (Proof_Context.theory_of installed)
+        (global_type, source_type) Vartab.empty
+      val identity = Const (name, Envir.subst_type tyenv global_type)
+      (* Certification validates the instance but expands internal input abbreviations. The
+         separately retained native Const is the private declaration identity. *)
+      val _ = Proof_Context.cert_term installed identity
+    in identity end
 
 fun declare_urust_function_result pp_test render_pretty
     abbreviation application_definition attributes binding
-    target register_notation registration rust_name elaboration signature_source source function lthy =
+    target register_notation registration rust_name elaboration overrides signature_source source
+    function lthy =
   let
     (* Elaboration reads in the member context; the declaration installs in lthy. *)
     val elaboration_lthy = elaboration lthy
-    val {term, arguments, declared_type, arguments_with_types} =
-      elaborate_function_item pp_test elaboration_lthy signature_source source function
+    val {term, arguments, declared_type, arguments_with_types, scope, body_lthy,
+      report_declarations} =
+      elaborate_function_item pp_test elaboration_lthy overrides signature_source source function
     val pretty_body =
       if render_pretty then
         let
@@ -1596,12 +1727,12 @@ fun declare_urust_function_result pp_test render_pretty
           fun reparse pretty_source =
             let
               val ast =
-                (case URust_Parser.parse_source elaboration_lthy pretty_source of
+                (case URust_Parser.parse_source body_lthy pretty_source of
                    SOME ast => ast
                  | NONE => error "urust_fn: empty pretty replay")
             in
               ignore
-                (elaborate_prepared_ast elaboration_lthy
+                (elaborate_prepared_ast body_lthy
                   {kind = Function,
                    source = pretty_source,
                    declared_type = declared_type,
@@ -1620,12 +1751,21 @@ fun declare_urust_function_result pp_test render_pretty
         val (declaration, installed) =
           install_urust_result abbreviation application_definition
             Function attributes binding arguments pretty_body term backend_lthy
+        val (sources, registered) =
+          if register_notation then
+            register_function_result target registration
+              (#1 (URust_AST.function_name function)) rust_name declaration installed
+          else ([], reserve_impl_owner registration rust_name installed)
+        val schemed = if null (#parameters scope) then registered
+          else URust_Type_Mappings.register_generic_scheme
+          {identity = function_scheme_identity abbreviation binding term
+             backend_lthy installed declaration,
+           backend = declaration_registered_term declaration, sources = sources,
+           parameters = map (fn {rust, kind, hol, ...} => {rust = rust, kind = kind, hol = hol})
+             (#parameters scope),
+           pos = #2 rust_name} registered
       in
-        (declaration,
-         if register_notation then
-           register_function_result target registration
-             (#1 (URust_AST.function_name function)) rust_name declaration installed
-         else reserve_impl_owner registration rust_name installed)
+        (declaration, schemed)
       end
     val (declaration, lthy') =
       (case target of
@@ -1649,8 +1789,9 @@ fun declare_urust_function_result pp_test render_pretty
                (Proof_Context.intern_const lthy'
                  (Local_Theory.full_name lthy binding)))
        | Anonymous_Target _ => ())
+    val _ = report_declarations ()
   in
-    (declaration, lthy')
+    (declaration, lthy', scope)
   end
 fun verbosity_output_enabled interactive lthy =
   interactive orelse Config.get lthy Proof_Display.show_results
@@ -1929,7 +2070,7 @@ datatype prepared_function =
     {interactive: bool, pp_test: bool, verbosity: int, pretty: bool, render_pretty: bool,
      abbreviation: bool, application_definition: bool, attributes: Token.src list,
      binding: binding, target: declaration_target, register_notation: bool,
-     signature_source: function_signature,
+     signature_source: function_signature, parameter_overrides: URust_Datatype.rename list,
      rust_name: string * Position.T, registration: function_registration,
      impl_self: URust_Type_Mappings.impl_self option,
      source: Input.source, function: URust_AST.urust_function, warnings: unit -> unit}
@@ -1987,6 +2128,9 @@ fun prepare_function lthy
        binding = target_binding Function target, target = target,
        register_notation = register_notation,
        signature_source = configured_signature lthy rust_name options declared_type,
+       parameter_overrides =
+         (case Symtab.lookup options hol_type_parameters_option of
+            SOME (Renames_Value renames, _) => renames | _ => []),
        rust_name = rust_name, registration = Free_Function, impl_self = NONE,
        source = source, function = function, warnings = warnings}
   end
@@ -2018,6 +2162,22 @@ fun print_registration interactive verbosity lthy binding register_notation targ
        else ()
    | _ => ())
 
+fun print_function_generics interactive verbosity lthy
+    ({parameters}: URust_Type_Mappings.generic_scope) =
+  if verbosity >= 1 andalso verbosity_output_enabled interactive lthy andalso
+      not (null parameters) then
+    Pretty.writeln (Pretty.block
+      [Pretty.keyword1 "generics", Pretty.brk 1,
+       Pretty.block (Pretty.commas (map (fn {rust, kind, hol, ...} =>
+         Pretty.block
+           [Pretty.str
+              ((case kind of URust_AST.Type_Parameter => ""
+                | URust_AST.Const_Parameter => "const ") ^ rust),
+            Pretty.brk 1, Pretty.str "\<mapsto>", Pretty.brk 1,
+            Syntax.pretty_typ (Config.put show_sorts true lthy) (TFree hol)])
+         parameters))])
+  else ()
+
 (* The shared function declaration operation for an already prepared item. Registration
    conflicts and signature types depend on earlier declarations and are checked here. uRust
    reports join the enclosing report transaction; the successful result output is returned for
@@ -2036,7 +2196,7 @@ fun declare_prepared_function
     (Prepared_Function
       {interactive, pp_test, verbosity, pretty, render_pretty, abbreviation,
        application_definition, attributes, binding, target, register_notation, signature_source,
-       rust_name, registration, impl_self, source, function, warnings}) lthy =
+       parameter_overrides, rust_name, registration, impl_self, source, function, warnings}) lthy =
   let
     val _ =
       check_registration_conflict lthy
@@ -2046,22 +2206,25 @@ fun declare_prepared_function
            application_definition = application_definition, attributes = attributes,
            binding = binding, target = target, register_notation = register_notation,
            signature_source = signature_source, rust_name = rust_name,
+           parameter_overrides = parameter_overrides,
            registration = registration,
            impl_self = impl_self, source = source, function = function, warnings = warnings})
     val elaboration =
       (case impl_self of
          SOME self => URust_Type_Mappings.with_impl_self self
        | NONE => I)
-    val (result, lthy') =
+    val (result, lthy', scope) =
       declare_urust_function_result pp_test render_pretty
         abbreviation application_definition attributes binding
-        target register_notation registration rust_name elaboration signature_source source
+        target register_notation registration rust_name elaboration parameter_overrides
+        signature_source source
         function lthy
     val bare_name = #1 (URust_AST.function_name function)
   in
     (fn () =>
       (warnings ();
        print_declaration interactive verbosity pretty lthy' result;
+       print_function_generics interactive verbosity lthy' scope;
        print_registration interactive verbosity lthy' binding register_notation target
          registration bare_name result),
      lthy')
@@ -2331,9 +2494,9 @@ fun reject_annotation_option kind other_configs (name, pos) =
 (* An impl annotation supplies function defaults to every member; the HOL binding belongs to
    one member. *)
 fun reject_impl_option (name, pos) =
-  if name = name_option then
+  if name = name_option orelse name = hol_type_parameters_option then
     error
-      ("urust: option " ^ quote name_option ^ " names one function; supply it in an " ^
+      ("urust: option " ^ quote name ^ " names one function; supply it in an " ^
         "\<omega> annotation on the member" ^ Position.here pos)
   else reject_annotation_option "impl" datatype_annotation_configs (name, pos)
 
@@ -2350,7 +2513,8 @@ datatype option_schema =
   Impl_Member_Annotation
 
 fun schema_configs Chunk_Defaults = (reject_chunk_option, chunk_option_configs)
-  | schema_configs Impl_Annotation = (reject_impl_option, function_option_configs)
+  | schema_configs Impl_Annotation =
+      (reject_impl_option, Symtab.delete hol_type_parameters_option function_option_configs)
   | schema_configs Impl_Member_Annotation =
       (reject_impl_member_option, Symtab.delete pp_test_option function_annotation_configs)
   | schema_configs Function_Annotation =
@@ -2479,7 +2643,8 @@ fun prepare_impl_item lthy {interactive, options, impl} =
 fun impl_member_function_of
     ({prepared = Prepared_Function {interactive, pp_test, verbosity, pretty, render_pretty,
        abbreviation, application_definition, attributes, binding, target, register_notation,
-       signature_source, rust_name = (name, pos), source, function, warnings, ...}, method, ...}
+       signature_source, parameter_overrides, rust_name = (name, pos), source, function,
+       warnings, ...}, method, ...}
      : prepared_impl_member)
     (self as {canonical_path, self_type, ...}: URust_Type_Mappings.impl_self) =
   let val associated_key = canonical_path ^ "::" ^ name in
@@ -2489,6 +2654,7 @@ fun impl_member_function_of
        application_definition = application_definition, attributes = attributes,
        binding = binding, target = target, register_notation = register_notation,
        signature_source = signature_source, rust_name = (associated_key, pos),
+       parameter_overrides = parameter_overrides,
        registration =
          Impl_Function
            {associated_key = associated_key, method = method, self_type = self_type,

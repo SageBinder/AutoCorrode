@@ -141,7 +141,172 @@ lemma syntax_declared_literal_equivalent: \<open> syntax_declared_literal = synt
 
 chapter\<open> Signatures \<close>
 
-text\<open> Reserved for U3 generic signature examples. \<close>
+text\<open>
+Generic headers introduce signature-named HOL variables. Each definition below has the same
+checked HOL value as its explicit type-escape twin. Ordered Rust scheme metadata, including
+unused parameters, is audited separately in the ML companion.
+\<close>
+
+urust_fn \<open> fn SignatureIdentity<T>(value: T) -> T { value } \<close>
+urust_fn \<open>
+fn SignatureIdentityTwin(value: \<tau>\<open>'t\<close>) -> \<tau>\<open>'t\<close> { value }
+\<close>
+lemma signature_identity_twin: \<open> signature_identity = signature_identity_twin \<close>
+  unfolding signature_identity_def signature_identity_twin_def by (rule refl)
+
+urust_fn \<open>
+fn SignatureArray<const N: usize>(value: [u8; N]) -> [u8; N] { value }
+\<close>
+urust_fn \<open>
+fn SignatureArrayTwin(value: [u8; \<tau>\<open>'n::len\<close>]) -> [u8; \<tau>\<open>'n::len\<close>] { value }
+\<close>
+lemma signature_array_twin: \<open> signature_array = signature_array_twin \<close>
+  unfolding signature_array_def signature_array_twin_def by (rule refl)
+
+urust_fn \<open>
+fn SignatureMixed<'a, T, const N: usize>(value: (T, [u8; N])) -> (T, [u8; N]) { value }
+\<close>
+urust_fn \<open>
+fn SignatureMixedTwin(value: (\<tau>\<open>'t\<close>, [u8; \<tau>\<open>'n::len\<close>]))
+  -> (\<tau>\<open>'t\<close>, [u8; \<tau>\<open>'n::len\<close>]) { value }
+\<close>
+lemma signature_mixed_twin: \<open> signature_mixed = signature_mixed_twin \<close>
+  unfolding signature_mixed_def signature_mixed_twin_def by (rule refl)
+
+urust_fn \<open> fn SignatureBorrow<'a, T>(value: &'a mut T) -> &'a mut T { value } \<close>
+urust_fn \<open>
+fn SignatureBorrowTwin<'a>(value: &'a mut \<tau>\<open>'t\<close>) -> &'a mut \<tau>\<open>'t\<close> { value }
+\<close>
+lemma signature_borrow_twin: \<open> signature_borrow = signature_borrow_twin \<close>
+  unfolding signature_borrow_def signature_borrow_twin_def by (rule refl)
+
+urust_fn \<open> fn SignaturePointer<T>(value: *mut T) -> *mut T { value } \<close>
+urust_fn \<open>
+fn SignaturePointerTwin(value: *mut \<tau>\<open>'t\<close>) -> *mut \<tau>\<open>'t\<close> { value }
+\<close>
+lemma signature_pointer_twin: \<open> signature_pointer = signature_pointer_twin \<close>
+  unfolding signature_pointer_def signature_pointer_twin_def by (rule refl)
+
+urust_type "SignatureBag<'t>" = \<open> 't list \<close>
+urust_type_alias \<open> type SignatureAlias<T> = SignatureBag<T>; \<close>
+urust_fn \<open>
+fn SignatureMapped<T>(value: SignatureAlias<T>) -> SignatureBag<T> { value }
+\<close>
+urust_fn \<open>
+fn SignatureMappedTwin(value: SignatureAlias<\<tau>\<open>'t\<close>>)
+  -> SignatureBag<\<tau>\<open>'t\<close>> { value }
+\<close>
+lemma signature_mapped_twin: \<open> signature_mapped = signature_mapped_twin \<close>
+  unfolding signature_mapped_def signature_mapped_twin_def by (rule refl)
+
+urust_fn [state = \<open>'t\<close>, abort = \<open>bool\<close>,
+  input = \<open>'t prompt\<close>, output = \<open>unit prompt_output\<close>] \<open>
+fn SignatureChannels<T>(value: T) -> T { value }
+\<close>
+urust_fn [state = \<open>'t\<close>, abort = \<open>bool\<close>,
+  input = \<open>'t prompt\<close>, output = \<open>unit prompt_output\<close>] \<open>
+fn SignatureChannelsTwin(value: \<tau>\<open>'t\<close>) -> \<tau>\<open>'t\<close> { value }
+\<close>
+lemma signature_channels_twin: \<open> signature_channels = signature_channels_twin \<close>
+  unfolding signature_channels_def signature_channels_twin_def by (rule refl)
+
+urust_trait "Ordered" = \<open> ord \<close>
+urust_fn [hol_type_parameters = ["T" \<rightarrow> \<open>'element::type\<close>]] \<open>
+fn SignatureBounds<T: Scale>(value: T) -> T where T: Ordered + Marker { value }
+\<close>
+urust_fn \<open>
+fn SignatureBoundsTwin(value: \<tau>\<open>'element::{trait_scale, ord}\<close>)
+  -> \<tau>\<open>'element::{trait_scale, ord}\<close> { value }
+\<close>
+lemma signature_bounds_twin: \<open> signature_bounds = signature_bounds_twin \<close>
+  unfolding signature_bounds_def signature_bounds_twin_def by (rule refl)
+
+urust_fn \<open> fn SignatureUnused<T: Ordered, const N: usize>(value: u8) -> u8 { value } \<close>
+urust_fn \<open> fn SignatureUnusedTwin(value: u8) -> u8 { value } \<close>
+lemma signature_unused_twin: \<open> signature_unused = signature_unused_twin \<close>
+  unfolding signature_unused_def signature_unused_twin_def by (rule refl)
+
+urust_fn [register_notation = false] \<open> fn SignatureDisabled<T>(value: T) -> T { value } \<close>
+urust_fn [register_notation = false] \<open>
+fn SignatureDisabledTwin(value: \<tau>\<open>'t\<close>) -> \<tau>\<open>'t\<close> { value }
+\<close>
+lemma signature_disabled_twin: \<open> signature_disabled = signature_disabled_twin \<close>
+  unfolding signature_disabled_def signature_disabled_twin_def by (rule refl)
+
+urust_fn [abbrev] \<open> fn SignatureAbbrev<T>(value: T) -> T { value } \<close>
+urust_fn [abbrev] \<open>
+fn SignatureAbbrevTwin(value: \<tau>\<open>'t\<close>) -> \<tau>\<open>'t\<close> { value }
+\<close>
+lemma signature_abbrev_twin: \<open> signature_abbrev = signature_abbrev_twin \<close> by (rule refl)
+
+urust_fn [abbrev] \<open>
+fn SignatureAbbrevOther<T, U: Ordered>(value: T) -> T { value }
+\<close>
+lemma signature_named_abbreviations: \<open> signature_abbrev = signature_abbrev_other \<close>
+  by (rule refl)
+
+urust_fn [abbrev, register_notation = false] \<open>
+fn SignatureAbbrevDisabled<T, U: Ordered>(value: T) -> T { value }
+\<close>
+urust_fn [abbrev, register_notation = false] \<open>
+fn SignatureAbbrevDisabledTwin(value: \<tau>\<open>'t\<close>) -> \<tau>\<open>'t\<close> { value }
+\<close>
+lemma signature_abbrev_disabled_twin: \<open> signature_abbrev_disabled = signature_abbrev_disabled_twin \<close>
+  by (rule refl)
+
+urust_fn \<open>
+fn SignatureAbbrevCaller(value: u8) -> u8 { SignatureAbbrev(value) }
+\<close>
+urust_fn \<open>
+fn SignatureAbbrevOtherCaller(value: u8) -> u8 { SignatureAbbrevOther(value) }
+\<close>
+lemma signature_abbreviation_calls: \<open> signature_abbrev_caller = signature_abbrev_other_caller \<close>
+  unfolding signature_abbrev_caller_def signature_abbrev_other_caller_def by (rule refl)
+
+urust_fn [application_def] \<open> fn SignatureApplication<T>(value: T) -> T { value } \<close>
+urust_fn [application_def] \<open>
+fn SignatureApplicationTwin(value: \<tau>\<open>'t\<close>) -> \<tau>\<open>'t\<close> { value }
+\<close>
+lemma signature_application_twin: \<open> signature_application = signature_application_twin \<close>
+  unfolding signature_application_def signature_application_twin_def by (rule refl)
+
+urust_fn \<open> fn SignatureCaller(value: u8) -> u8 { SignatureIdentity(value) } \<close>
+urust_fn \<open> fn SignatureCallerTwin(value: u8) -> u8 { SignatureIdentityTwin(value) } \<close>
+lemma signature_ordinary_call_twin: \<open> signature_caller = signature_caller_twin \<close>
+  unfolding signature_caller_def signature_caller_twin_def
+    signature_identity_def signature_identity_twin_def by (rule refl)
+
+locale signature_seed =
+  fixes seed :: 'ambient
+begin
+urust_fn \<open>
+fn SignatureLocale<T>(value: T) -> T { let spare = seed; value }
+\<close>
+urust_fn \<open>
+fn SignatureLocaleTwin(value: \<tau>\<open>'t\<close>) -> \<tau>\<open>'t\<close> { let spare = seed; value }
+\<close>
+lemma signature_locale_twin: \<open> signature_locale = signature_locale_twin \<close>
+  unfolding signature_locale_def signature_locale_twin_def by (rule refl)
+end
+
+interpretation signature_nat: signature_seed \<open>3 :: nat\<close> by unfold_locales
+
+locale signature_abbrev_seed =
+  fixes seed :: 'ambient
+begin
+urust_fn [abbrev] \<open>
+fn SignatureAbbrevLocale<T, U: Ordered>(value: T) -> T { let spare = seed; value }
+\<close>
+urust_fn [abbrev] \<open>
+fn SignatureAbbrevLocaleTwin(value: \<tau>\<open>'t\<close>) -> \<tau>\<open>'t\<close> { let spare = seed; value }
+\<close>
+lemma signature_abbrev_locale_twin: \<open> signature_abbrev_locale = signature_abbrev_locale_twin \<close>
+  by (rule refl)
+end
+
+interpretation signature_abbrev_three: signature_abbrev_seed \<open>3 :: nat\<close> by unfold_locales
+interpretation signature_abbrev_four: signature_abbrev_seed \<open>4 :: nat\<close> by unfold_locales
+interpretation signature_abbrev_bool: signature_abbrev_seed True by unfold_locales
 
 chapter\<open> Bodies \<close>
 
