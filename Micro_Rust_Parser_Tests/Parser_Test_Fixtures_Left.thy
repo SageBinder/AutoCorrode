@@ -5,6 +5,7 @@
 theory Parser_Test_Fixtures_Left
   imports
     Parser_Test_Fixtures
+    Micro_Rust_Parser_Impl.Parser_Impl_Trait_Mappings
     Enum_Theory.Enum_Theory
     Misc.Simple_Word_Enums
 begin
@@ -65,5 +66,16 @@ local_setup \<open>
             (Morphism.term phi backend) NONE pos method_serial)
     end
 \<close>
+
+chapter\<open> Trait mapping merge fixtures \<close>
+
+urust_trait "merge::SharedMarker" = \<open> type \<close>
+  urust_consts "COUNT" = \<open> \<lambda>(_ :: 'a itself). (5 :: nat) \<close>
+
+urust_trait "merge::LeftMarker" = \<open> type \<close>
+
+urust_trait "merge::Polymorphic" = \<open> type \<close>
+  urust_consts "MERGE_EMPTY" = \<open> \<lambda>(_ :: 'a itself). ([] :: 'b::ord list) \<close>
+    and "MERGE_PAIR" = \<open> \<lambda>(_ :: 'a itself). (([] :: 'b list), ([] :: 'b list)) \<close>
 
 end

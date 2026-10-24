@@ -85,7 +85,12 @@ struct
 
   fun capture action =
     (case Thread_Data.get active_reports of
-       SOME _ => (action (), [])
+       SOME reports =>
+         let val mark = !reports in
+           (case Exn.capture action () of
+              Exn.Res result => (result, [])
+            | Exn.Exn exn => (reports := mark; Exn.reraise exn))
+         end
      | NONE =>
          let
            val reports =

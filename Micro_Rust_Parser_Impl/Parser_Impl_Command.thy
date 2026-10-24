@@ -347,7 +347,7 @@ val urust_pretty =
   Attrib.setup_config_bool \<^binding>\<open>urust_pretty\<close> (K false)
 
 val urust_verbosity =
-  Attrib.setup_config_int \<^binding>\<open>urust_verbosity\<close> (K 0)
+  URust_Parser_Config.verbosity
 
 val urust_abbrev =
   Attrib.setup_config_bool \<^binding>\<open>urust_abbrev\<close> (K false)
