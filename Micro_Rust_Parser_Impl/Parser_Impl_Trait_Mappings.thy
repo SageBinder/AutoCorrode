@@ -12,8 +12,15 @@ constants, each represented by a polymorphic function from a type witness to a v
 does not depend on that witness. Mappings follow native context and locale scoping; interpreting a
 locale transports their associated terms.
 
-Lookups do not add reports. Resolving a source bound reports its trait declaration and its mapped
-sort through the existing semantic-navigation transaction.
+Sort intersections use native minimized sorts. A template must admit a fresh generic witness at
+the trait sort; an ambient fixed witness domain is rejected. Independent result variables retain
+their sharing and sorts, and locale morphisms transport fixed type and value parameters. Identical
+redeclared mappings, including alpha-equivalent templates, are accepted; conflicting mappings
+retain both declaration positions. Every registered trait is in scope for concrete-head lookup.
+
+Lookups do not add reports. Resolving a positioned AST bound reports its trait declaration and its
+mapped sort through the existing semantic-navigation transaction. The compatibility bound
+constructor uses the same shared AST representation.
 \<close>
 
 ML\<open>
@@ -291,8 +298,9 @@ end
 section\<open> Initial trait mappings \<close>
 
 text\<open>
-Marker and equality traits impose no additional HOL class requirement. Both Rust ordering trait
-spellings map to \<open>ord\<close>, the operand sort of the shallow comparison operators.
+Copy, Clone, PartialEq, Eq, Hash and Debug map to \<open>type\<close>, imposing no additional HOL class
+requirement. PartialOrd and Ord map to \<open>ord\<close>, the operand sort of the shallow comparison
+operators. These are registry declarations rather than resolver special cases.
 \<close>
 
 urust_trait "Copy" = \<open> type \<close>

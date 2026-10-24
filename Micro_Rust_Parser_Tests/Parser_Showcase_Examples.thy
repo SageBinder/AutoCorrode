@@ -248,6 +248,73 @@ lemma self_packet_length_equivalent:
   \<open>self_packet_length packet = packet_length packet\<close>
   unfolding self_packet_length_def packet_length_def by (rule refl)
 
+subsection\<open> Generic functions and trait constants \<close>
+
+text\<open>
+A trait mapping supplies the HOL sort and its associated-constant template. Here words implement a
+capacity scale with a ceiling of sixteen. Inline and \<open>where\<close> bounds combine on \<open>T\<close>;
+\<open>FixedBuffer<T, N>\<close> anchors both parameters in the signature. The value \<open>N\<close> is the
+length witness converted to \<open>usize\<close>. The escape twin has the same HOL type and definition.
+\<close>
+
+class showcase_scale =
+  fixes showcase_ceiling :: \<open> 'a itself \<Rightarrow> 64 word \<close>
+
+instantiation word :: (len0) showcase_scale
+begin
+
+definition showcase_ceiling_word :: \<open> 'a::len0 word itself \<Rightarrow> 64 word \<close> where
+  \<open> showcase_ceiling_word _ = 16 \<close>
+
+instance ..
+
+end
+
+urust_trait "CapacityScale" = \<open> showcase_scale \<close>
+  urust_consts "CEILING" = \<open> showcase_ceiling \<close>
+
+urust_fn \<open>
+  fn BoundedCapacity<T: CapacityScale, const N: usize>(buffer: FixedBuffer<T, N>) -> usize
+    where T: Ord {
+    if N < T::CEILING { N } else { T::CEILING }
+  }
+\<close>
+
+urust_fn \<open>
+  fn BoundedCapacityTwin(buffer: FixedBuffer<\<tau>\<open>'t::{showcase_scale, ord}\<close>,
+      \<tau>\<open>'n::len\<close>>) -> usize {
+    if \<llangle>of_nat LENGTH('n) :: 64 word\<rrangle> < \<llangle>showcase_ceiling TYPE('t)\<rrangle> {
+      \<llangle>of_nat LENGTH('n) :: 64 word\<rrangle>
+    } else { \<llangle>showcase_ceiling TYPE('t)\<rrangle> }
+  }
+\<close>
+
+lemma bounded_capacity_twin:
+  \<open> bounded_capacity = bounded_capacity_twin \<close>
+  unfolding bounded_capacity_def bounded_capacity_twin_def by (rule refl)
+
+urust_fn \<open>
+  fn FourByteCapacity(buffer: FixedBuffer<u8, 4>) -> usize {
+    BoundedCapacity::<u8, 4>(buffer)
+  }
+\<close>
+
+urust_fn \<open>
+  fn FourByteCapacityTwin(buffer: FixedBuffer<u8, 4>) -> usize {
+    \<epsilon>\<open>bounded_capacity\<close>(buffer)
+  }
+\<close>
+
+lemma four_byte_capacity_twin:
+  \<open> four_byte_capacity = four_byte_capacity_twin \<close>
+  unfolding four_byte_capacity_def four_byte_capacity_twin_def by (rule refl)
+
+text\<open>
+The concrete call supplies type and const arguments in their declaration order. Calls without
+\<open>::<...>\<close> retain ordinary HOL inference; lifetimes are omitted from this argument list.
+Both declarations and their escape twins use the showcase's enabled parse-print roundtrip check.
+\<close>
+
 text\<open>
 The item command generates the HOL datatype, field lenses, and exact Rust constructor paths in one
 local-theory transaction. The parser then uses those identities consistently for construction,

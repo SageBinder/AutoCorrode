@@ -1842,9 +1842,9 @@ urust_expr_rejects \<open>
 \<close> \<open>generic arguments are not supported on generated Rust function paths\<close>
 
 text\<open>
-A name whose every registration is a generated function takes no generic arguments, even when a
-payload would type-check as a leading argument; explicit call notations keep their turbofish
-payloads.
+A name whose generated functions are monomorphic takes no generic arguments, even when a
+payload would type-check as a leading argument. Generated generic functions instead consume their
+source-ordered type/const parameters; explicit-only call notations keep their value payloads.
 \<close>
 
 urust_fn \<open> fn TurbofishPair(first: u8, second: u8) -> u8 { second } \<close>
@@ -1852,8 +1852,10 @@ urust_fn \<open> fn TurbofishPair(first: u8, second: u8) -> u8 { second } \<clos
 urust_expr_rejects \<open> TurbofishPair::<1>(2u8) \<close> \<open>generic arguments are not supported on generated Rust function paths\<close>
 
 text\<open>
-When an explicit call notation shares the name, a turbofish call dispatches among the explicit
-backends only, while a call without generic arguments still reaches the generated function.
+These monomorphic legacy controls retain explicit-backend payload dispatch when an explicit
+notation shares the name; an ordinary call still reaches the generated function. A key with an
+eligible generated generic scheme and explicit call notations instead rejects turbofish as
+ambiguous, as audited in the Generics pair.
 \<close>
 
 urust_fn [register_notation = false] \<open> fn TurbofishPairWide(first: u64, second: u64) -> u64 { second } \<close>

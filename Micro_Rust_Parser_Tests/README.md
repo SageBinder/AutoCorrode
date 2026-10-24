@@ -6,6 +6,7 @@ and combined showcase examples in one registered session.
 
 ## Test organization
 
+The ROOT registers 22 theories: four support owners, ten readable Examples and eight ML suites.
 The session separates human-readable tests from ML tests. Most topics have two theories:
 
 - `Parser_<Topic>_Examples.thy` contains only Isar: µRust declarations, kernel `refl` equations
@@ -26,6 +27,7 @@ The session separates human-readable tests from ML tests. Most topics have two t
 | `urust_datatype`, simple word enums, cast-target and type aliases, raw pointers, generic datatypes, Rust type mappings | `Parser_Datatype_Examples` | `Parser_Datatype_ML_Tests` |
 | Source-ordered `urust` chunks and Rust `use` imports in chunks and blocks | `Parser_Chunk_Use_Examples` | `Parser_Chunk_Use_ML_Tests` |
 | Inherent `impl` blocks: syntax, member declarations and registrations, `Self`, receivers, path selection, type heads, direct calls and imports | `Parser_Impl_Examples` | `Parser_Impl_ML_Tests` |
+| Trait mappings, generic function syntax/signatures, scoped bodies and generated turbofish | `Parser_Generics_Examples` | `Parser_Generics_ML_Tests` |
 | Combined showcase | `Parser_Showcase_Examples` | |
 
 Four theories provide shared support. `Parser_Test_Utils.thy` holds the shared ML support
@@ -35,7 +37,9 @@ fixtures for iterators, registered constructors and cast-target aliases.
 merge diamond: their constructor and struct basenames become ambiguous only in a theory that
 imports both, so they remain separate theories. Each also holds one impl-member registration
 (the same keys at different Self types) for the registry merge tests of
-`Parser_Function_ML_Tests`, which imports both. The use-import targets, which need the chunk
+`Parser_Function_ML_Tests`, which imports both. The diamond also contains alpha-equivalent trait
+templates, independent result sorts and locale-transport fixtures for the Generics merge audits.
+The use-import targets, which need the chunk
 command, open `Parser_Chunk_Use_Examples.thy`.
 
 The theory boundaries follow the contexts that the tests need:
@@ -45,6 +49,8 @@ The theory boundaries follow the contexts that the tests need:
   that import it do.
 - `Parser_Datatype_Examples` and `Parser_Datatype_ML_Tests` do not import the chunk command, so the
   `simple_word_enum … urust_name:` clause is checked next to the single-item commands only.
+- The Generics pair explicitly imports `Parser_Impl_Chunk` for real chunk/member examples; the
+  trait mapping owner remains available independently of that opt-in command.
 
 A few suites stay entirely in an ML theory although they contain readable declarations, because
 their audits observe the theory before later declarations of the same suite: the generic datatype
@@ -70,8 +76,9 @@ Function declarations take one complete Rust item:
 
 ```isabelle
 urust_expr [OPTIONS] NAME [:: TYPE] [(ARG, ...)] ‹ body ›
-urust_fn [OPTIONS] [HOL_NAME|_] [:: TYPE] ‹ fn RustName(PARAMETER: RUST_TYPE, ...) [-> RUST_TYPE] { body } ›
+urust_fn [OPTIONS] [HOL_NAME|_] [:: TYPE] ‹ fn RustName[<'a, T: TRAIT, const N: usize, ...>](PARAMETER: RUST_TYPE, ...) [-> RUST_TYPE] [where T: TRAIT, ...] { body } ›
 urust [OPTIONS] ‹ [ω‹OPTIONS›] ITEM ... ›
+urust_trait "PATH" = ‹SORT› [urust_consts "NAME" = ‹TERM› and ...]
 ```
 
 The plain `urust` command declares a nonempty source-ordered chunk of complete `fn`, `struct`,
@@ -96,7 +103,9 @@ resolved. Type alias items are rejected as chunk members.
 An inherent `impl PATH { fn … }` member declares each member function in source order, through the
 same prepared-function operation, with the default HOL name `<target>_<member>` from the final
 written target segment. Its annotation supplies defaults for its members (member, impl, outer,
-configuration); `name` is rejected on the impl and `pp_test` on members. Every member registers
+configuration); `name` and `hol_type_parameters` are rejected as impl defaults and `pp_test` on
+members. Functions and concrete impl members accept their own generic headers and bounds; a
+member annotation may supply its inline-only `hol_type_parameters` override. Every member registers
 its associated path `T::f` as an associated-function owner of the impl's Self type; a first
 `self` receiver adds the method-only entry `f`. `impl` is a reserved word, as in Rust: a
 use path, a `let` binding, a function name or a field named `impl` is a syntax error. Header
@@ -134,14 +143,17 @@ single-item declaration, or the failing member of a chunk, releases its own queu
 error. A chunk additionally buffers the check-time markup of embedded HOL sources, so a failing
 chunk leaves only lexical markup for its earlier members at theory level, in locales and in
 nested contexts.
-Background code-generator `consts` listings of earlier datatype members are the accepted
-exception: they are printed through `show_results` of the background theory, which has no
-faithful non-persistent control.
+Native result scopes also suppress successful background datatype `consts` listings before a
+later member fails. Complete ordinary, urgent and report streams are tested without source-message
+filtering, alongside exact callback/configuration restoration, absent/default/merged settings,
+unchanged native artifacts, nested targets and successful recovery. Authored successful output
+stays outside native suppression and is released only after the whole command succeeds.
 
 The expression argument list is optional, may be empty, and accepts one trailing comma. Arguments are
 allocated as typed lexical locals before body elaboration. Every lexical binding therefore shadows existing
 unqualified HOL constants and direct-call registrations in value and direct-call positions.
-Every multi-segment path instead requires an exact role-appropriate registration: `(literal)` for
+Mapped trait associated constants additionally resolve value paths; other multi-segment paths
+require an exact role-appropriate registration: `(literal)` for
 values, places, and constructor/struct patterns; `(call)` for calls, struct
 expressions, and registered macros, whose key includes the trailing `!`. A registration in another
 role does not satisfy the check. A direct call follows block-import shadowing, then selects its
@@ -240,6 +252,58 @@ The semantic type tests check complete annotated type schemes, unused callback
 relationships through direct and registered method calls, fixed-channel contracts and local proof
 expressions, independent holes and call instances, type synonyms, pointer backends, locales,
 declaration artifacts and positioned transactional failures.
+
+## Generic functions and trait mappings
+
+Read the five chapters of `Parser_Generics_Examples` in order: Trait mappings, Syntax, Signatures,
+Bodies and Turbofish. `Parser_Generics_ML_Tests` audits each owning layer. The showcase combines a
+trait constant, inline/where bounds, a type/value const parameter and a generated turbofish call.
+New generic declarations compare with explicit escape twins by kernel `refl`; their HOL types,
+unfolded definitions and native artifacts agree. The ordered Rust scheme and generic manifest
+intentionally describe the declaration's own positioned header.
+
+Type/const parameters follow lifetimes, with empty lists and trailing commas supported. Type names
+default to lower-case HOL variables; const `usize` parameters use `len0`, strengthened to `len` by
+arrays or mapped const slots. Inline and own-parameter `where` bounds combine registered trait
+sorts. `hol_type_parameters` selects distinct declaration-local names/sorts, in functions and member
+annotations only. Type and const roles are checked through grouped, tuple, pointer, reference,
+array and mapped positions; kind-neutral checked HOL escapes retain native type behavior. Explicit
+HOL declaration types bypass resolution of retained Rust signature types while preserving header,
+bound, override, lifetime and `Self` checks.
+
+Entirely unused parameters are accepted. An actual authored body use must occur in the complete
+final HOL signature, including channels, even when a mapped type or callee erases it. The header
+reports `urust: generic parameter T does not occur in the signature` otherwise. Lexical values keep
+precedence; an unshadowed type parameter is not a value. Const values and repeats use the finalized
+length witness. The direct audits distinguish real reads from inference seeds, native checked HOL
+sources, foreign/replaced records and copied callbacks; nested captures, failures and actual
+interrupts preserve original scopes/callbacks and clean subsequent captures.
+
+Trait templates accept a generic witness and an independent result type; sort intersections,
+alpha-equivalent redeclarations/merges, independent channels and fixed locale type/value transport
+are tested. Six builtins map to `type` (`Copy`, `Clone`, `PartialEq`, `Eq`, `Hash`, `Debug`), and two
+to `ord` (`PartialOrd`, `Ord`). `T::C` selects declared bounds before literals. Concrete heads use
+exact literals first, then compatible registered traits, also through aliases, imports and `Self`.
+All registered traits count as in scope; multiple constant candidates remain an error.
+
+Generated turbofish follows source type/const order, including unused parameters, omitting
+lifetimes. The four member forms are concrete associated paths, selected type instances, dot
+methods and `Self` calls. Wrong counts, kinds and sorts retain list/argument spans and source-owner
+navigation even under overloads. Calls without turbofish retain inference; explicit-only notations
+retain leading value payloads. Eligible generated-generic/explicit mixed keys reject turbofish,
+including explicitly covered automatic entries. Genuine method/impl filters, ordinary dispatch,
+maximal schemes, deduplication and ambiguity remain authoritative.
+
+Coverage includes native definitions and `[abbrev]` declarations with equivalent expanded bodies
+and distinct unused headers, disabled registration, current source-serial schemes, locale/replay/
+merge transport, final labelled header/use sorts and separate declaration/bound/constant entities.
+Complete output/report atomicity retains the exact earlier sources and wrapper controls, including
+successful generic prefixes followed by genuine later failures, namespace snapshots and recovery.
+
+Generic impls, parameter defaults, const types other than `usize`, `?Sized`, lifetime and generic
+trait bounds, parenthesized `Fn` bounds, const bounds and non-parameter `where` heads remain
+unsupported. Shared references still require declared HOL signature types or explicit escapes;
+automatic reads are outside this feature.
 
 ## Rust use imports
 
@@ -349,10 +413,11 @@ to it. The compiler keeps no parser-private constructor families or separate gua
 Array repeats evaluate the length first. Ordinary `[value; length]` evaluates the value once,
 including at length zero; `[const { value }; length]` uses
 `list_sequence (List.replicate (unat length) value)` and executes the body once per element.
-Lengths admit integer literals, parentheses, `+ - * / %`, and `as usize`. Symbolic lengths may
+Lengths admit integer literals, parentheses, `+ - * / %`, and `as usize`. Scoped const parameters
+and trait associated constants share ordinary contextual value resolution. Other symbolic lengths may
 be direct Isabelle fixed parameters, exact literal registrations whose backends depend on the
-proof context, or genuine unqualified HOL constants. Qualified paths require exact literal
-registration; µRust lexical locals and unresolved names are rejected.
+proof context, or genuine unqualified HOL constants. Qualified paths accept mapped trait constants
+or exact literal registration; µRust lexical locals and unresolved names are rejected.
 
 Constructor resolution follows one chain:
 
@@ -383,8 +448,9 @@ length first and the value exactly once, then returns `List.replicate (unat leng
 Repeat-local `[const { value }; length]` evaluates the length first and uses
 `list_sequence (List.replicate (unat length) value)`, so its body executes once per element.
 Lengths are restricted to integer literals, contextual symbolic paths, parentheses, `+ - * / %`,
-and `as usize`. A symbolic path may be a direct Isabelle fixed parameter, an exact registered
-literal whose backend can depend on the surrounding proof context, or a genuine global constant.
+and `as usize`. A symbolic path may be a scoped const parameter, mapped trait associated constant, direct Isabelle
+fixed parameter, exact registered literal whose backend can depend on the surrounding proof
+context, or a genuine global constant.
 µRust lexical locals and unresolved names remain rejected. The legacy frontend interprets
 `[value; length]` as a one-element array containing a sequence, so array repeats require
 conformance-disabled declarations.
@@ -406,8 +472,9 @@ shifts. Ambiguous cast comparisons require Rust grouping. Repeat lengths accept 
 `as usize`; aliases do not bypass that policy. Explicit rejection covers the retired command.
 
 Exact registered associated items may use the existing integer primitive tokens as path heads:
-`u8`, `u16`, `u32`, `u64`, `usize`, `i32`, and `i64`. Literal-role registration is mandatory for
-values, patterns, and repeat lengths; call-role registration is mandatory for calls. The primitive
+`u8`, `u16`, `u32`, `u64`, `usize`, `i32`, and `i64`. Mapped trait associated constants additionally serve ordinary values and repeat lengths, with exact
+literals taking precedence. Patterns still require literal-role registration and calls require
+call-role registration. The primitive
 head does not participate in lexical, HOL-name, unresolved-free, or native-constructor fallback.
 
 The generic datatype suite in `Parser_Datatype_ML_Tests.thy` covers generic type/const schemes,
@@ -491,12 +558,20 @@ restricted turbofish and log-data syntax continue to reject it. Documentation-sh
 `/** ... */` and `/*! ... */` are expression layout, without documentation-item semantics.
 
 The following remain deliberately unsupported: one-element tuples, general postfix invocation, open
-ranges, unary numeric negation, `/=`, leading `::`, full Rust generics, universal macro
+ranges, unary numeric negation, `/=`, leading `::`, generic impls and the unsupported generic
+forms listed above, universal macro
 trailing commas, signed integers, `u128`, and floating/character/scientific literals. Focused
 negative rows preserve these boundaries.
 
 ## Theory contents
 
+- `Parser_Generics_Examples.thy`: five readable chapters of trait templates, mixed headers, final
+  signature schemes, native body values and associated constants, and source-ordered generic
+  calls through all concrete member forms, with escape twins and kernel equations.
+- `Parser_Generics_ML_Tests.thy`: registry merges and locale transport, ASTs/printer roundtrips,
+  final type/const roles and spans, ordered used/unused schemes, abbreviations and source identity,
+  labelled typing/navigation, body-use capture and cleanup, overload/filter/provenance selection,
+  atomic output/report streams, native artifacts and recovery.
 - `Parser_Function_Examples.thy`: the declaration-first `urust_fn` reading entry point:
   complete-item syntax, signatures, mappings, options, lexical binding and locale examples,
   iterator semantic regressions, full declaration types and kernel equalities, holes and

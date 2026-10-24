@@ -25,11 +25,12 @@ It infers an untyped expression or accepts a complete declaration type. A termin
 
 The function surface is
 \<open>urust_fn [OPTIONS] [HOL_NAME|_] [:: TYPE] src\<close>, where the cartouche contains one complete
-\<open>fn RustName[<'lifetime, ...>](parameter: RustType, ...) [-> RustType] { body }\<close> item.
+\<open>fn RustName[<'lifetime, T: Trait, const N: usize, ...>](parameter: RustType, ...) [-> RustType] [where T: Trait, ...] { body }\<close> item.
 A declared \<open>TYPE\<close> is the complete curried HOL declaration type, with one argument type per
 Rust parameter and a terminal \<open>function_body\<close>, or an exact terminal \<open>_\<close> that infers every
 channel. It replaces the Rust signature's types, which are then neither resolved nor checked;
-only the parameter count and the lifetime scope rules below still apply. Named variables, sorts,
+the parameter count, generic header/bound/override validation, lifetime scope and structural
+Self rules still apply. Body-only generic uses are checked against the final declared type. Named variables, sorts,
 locale variables and \<open>_\<close> holes follow ordinary HOL type reading, as for \<open>urust_expr\<close>. The
 declared type also supplies every channel: it cannot be combined with the channel options below,
 and scoped channel defaults do not apply to it.
@@ -43,8 +44,22 @@ complete signature, constrained by its body and expected types. Datatype fields 
 backend parameters for raw pointers while continuing to reject unrelated free type variables.
 The optional generic list declares type, const and lifetime parameters. Type parameters become
 named HOL type variables; const parameters become type variables with sort \<open>len0\<close>.
-Bounds and \<open>hol_type_parameters\<close> overrides constrain their sorts, which type mappings may
-strengthen further. Reference and generic-argument lifetimes,
+Inline and own-parameter \<open>where\<close> bounds combine registered trait sorts. The inline-only
+\<open>hol_type_parameters\<close> option selects distinct HOL names and adds sorts; type mappings may
+strengthen the final sorts further. Function and member annotations accept this option, while
+impl-default annotations reject it. Type parameters occupy type slots and const parameters occupy
+const slots and array lengths; checked HOL escapes remain kind-neutral. Entirely unused parameters
+are allowed. An authored body use, including one whose witness is later erased, must occur in the
+complete final HOL signature or receives a header-positioned error. Const values and repeat lengths
+use \<open>of_nat LENGTH('n) :: 64 word\<close>; bound associated constants use their typed templates.
+Parameter declarations and uses display Rust-name-labelled final sorts and declaration navigation.
+Generated calls accept type/const arguments in source order, omitting lifetimes; ordinary calls keep
+native inference. Eligible generated-generic/explicit mixed keys reject turbofish.
+
+Generic definitions and abbreviations have the same HOL types, unfolded definitions and native
+artifacts as their escape twins. Ordered used/unused Rust scheme metadata and the verbosity
+manifest's generic clause intentionally describe their own headers, including when callable
+registration is disabled. Reference and generic-argument lifetimes,
 such as \<open>&'a mut T\<close> and \<open>Cursor<'a, T>\<close>,
 must be declared there unless they are \<open>'static\<close> or \<open>'_\<close>; lifetimes are then erased and
 never change the definition. Lifetime bounds are rejected. Literal function-pointer

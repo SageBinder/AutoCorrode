@@ -37,6 +37,9 @@ annotation that cannot carry them. Its default HOL name is the snake case of the
 written segment and of the member name. It registers the associated path \<open>T::f\<close> and, with a
 \<open>self\<close> receiver first, the method entry \<open>f\<close>; neither is an import entity. \<open>Self\<close>
 names the target in types and path heads, and the shorthand receivers are its typed spellings.
+Functions and concrete impl members accept their own type/const parameters, inline bounds and
+own-parameter where clauses. Their \<open>hol_type_parameters\<close> annotation is member-local and
+is rejected as an impl default. Generic impl headers remain unsupported.
 
 A use member is one complete Rust use item; it takes no options, so
 an annotation before it is rejected. The chunk's imports form one batch, validated as a whole

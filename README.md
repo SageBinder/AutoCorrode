@@ -123,20 +123,21 @@ This session define locales for modelling the verification context. For example,
 ### Parser_Common
 
 This session provides language-neutral source-position, reporting, parser-driver, and runtime-lock
-support for Isabelle_Lex-Yacc frontends. Language-specific grammar, AST, binder, and elaboration
+support for Isabelle_Lex-Yacc frontends, including scoped native output ownership. Language-specific grammar, AST, binder, and elaboration
 policy remains in each frontend. See the session [README](Parser_Common/README.md).
 
 ### Micro_Rust_Parser_Impl and Micro_Rust_Parser_Tests
 
 The implementation session provides the production `urust_expr`, `urust_fn`, `urust_type`,
-`urust_type_alias`, and `urust_datatype` commands:
+`urust_type_alias`, `urust_datatype`, and `urust_trait` commands:
 
 ```isabelle
 urust_expr [OPTIONS] NAME [:: TYPE] [(ARG|_, ...)] ‹ body ›
-urust_fn [OPTIONS] [HOL_NAME|_] [:: TYPE] ‹ fn RustName[<'LIFETIME, ...>](PARAMETER: RUST_TYPE, ...) [-> RUST_TYPE] { body } ›
+urust_fn [OPTIONS] [HOL_NAME|_] [:: TYPE] ‹ fn RustName[<'LIFETIME, T: TRAIT, const N: usize, ...>](PARAMETER: RUST_TYPE, ...) [-> RUST_TYPE] [where T: TRAIT, ...] { body } ›
 urust_type "RUST_TYPE['PARAMETER, ...]" = ‹HOL_TYPE›
 urust_type_alias ["QUALIFIED_PATH"] ‹ type RustName<T, ...> = RUST_TYPE; ›
 urust_datatype [OPTIONS] [HOL_NAME] ‹ struct-or-enum ›
+urust_trait "PATH" = ‹SORT› [urust_consts "NAME" = ‹TERM› and ...]
 ```
 
 `urust_fn` requires one complete Rust-shaped free-function item. Named declarations automatically
@@ -162,8 +163,9 @@ A declared `:: TYPE` instead gives the complete curried HOL type, as for `urust_
 type per Rust parameter and a terminal `function_body`, or a terminal `_` that infers every channel.
 The Rust parameter and return types are then ignored. They are neither resolved nor checked, so
 they may name unmapped types, shared references or slices, and an omitted return no longer means
-`()`. Only the parameter count and the lifetime scope rules still apply. The declared type supplies
-every channel, so it cannot be combined with the channel options, and scoped channel defaults do
+`()`. The parameter count, generic header/bound/override validation, lifetime scope and structural
+`Self` rules still apply. Body-only generic uses are checked against the final declared type.
+The declared type supplies every channel, so it cannot be combined with the channel options, and scoped channel defaults do
 not apply to it. `urust` chunk members have no declared-type form.
 
 ```isabelle
@@ -204,9 +206,72 @@ One address/global pair is shared across a complete signature; the body and expe
 it, and unconstrained parameters generalize. Fixed arrays and declared const arguments use the shared
 type registry. Lifetimes are accepted in function signatures and erased: `fn F<'a>(x: &'a mut u8)`
 declares `'a`, `'static` and `'_` need no declaration, and undeclared or duplicate lifetimes are
-rejected. Lifetime bounds, lifetime generic arguments and type generics are not supported. Shared
+rejected. Lifetime bounds and lifetime generic arguments are not interpreted by inferred signatures;
+a declared HOL signature retains literal Rust types under the rules above. Shared
 references `&T` and slices still require an explicit HOL escape to supply semantics, and references
 are not supported in datatype fields, aliases or casts.
+
+Function items declare type and const parameters in any order after their lifetimes. An empty
+`<>` and a trailing comma are accepted. A type parameter resolves before type mappings, aliases,
+imports and the parameter hook. `T` defaults to HOL `'t`; `const N: usize` defaults to `'n::len0`,
+strengthened to `len` by fixed arrays or mapped const slots. Const names are accepted only in const
+slots and array lengths; type names occupy type slots. Checked `τ‹…›` escapes remain kind-neutral.
+The same finalized variables are shared by signature/body escapes and channel options.
+
+Inline `T: A + B` and `where T: C` bounds resolve registered traits and combine their minimized HOL
+sorts. Only the function's own type parameters may head a `where` clause. The inline-only
+`hol_type_parameters = ["T" → ‹'element::ord›, "N" → ‹'length::len›]` option chooses distinct HOL
+names and adds sorts; explicit sorts must satisfy final inferred requirements and names cannot
+capture ambient fixed type variables. It is allowed on a function or concrete impl member,
+including in a chunk annotation, but not as an impl default.
+
+Entirely unused parameters are allowed and retained in the ordered callable scheme, including
+abbreviations and declarations with registration disabled. An authored body use must occur in the
+complete final HOL signature, including its channels, even if a mapped type or callee erases the
+witness. Otherwise the parameter's header reports `urust: generic parameter T does not occur in the
+signature`. Value locals keep precedence over generic names; using an unshadowed type parameter as
+a value is an error. A const value `N` denotes `of_nat LENGTH('n) :: 64 word`, also in array repeats.
+Parameter declarations and uses have Rust-name-labelled tooltips with final sorts; uses navigate to
+the header. Bounds navigate to their trait mapping.
+
+`urust_trait` maps a Rust path to a native HOL sort, or a sort intersection. `Copy`, `Clone`,
+`PartialEq`, `Eq`, `Hash` and `Debug` map to `type`; `PartialOrd` and `Ord` map to `ord`.
+An associated template must accept a generic witness `'a itself` at the trait's sort and return a
+value whose type is independent of `'a`. Context-local mappings follow locale morphisms;
+identical redeclarations are accepted and conflicting mappings report both declaration positions.
+
+```isabelle
+urust_trait "Scale" = ‹ord›
+  urust_consts "CEILING" = ‹λ(_ :: 'a::ord itself). (16 :: 64 word)›
+urust_datatype ‹ struct SizedBuffer<T, const N: usize> { values: [T; N] } ›
+urust_fn ‹
+  fn Capacity<T: Scale, const N: usize>(buffer: SizedBuffer<T, N>) -> usize
+    where T: Copy { N + T::CEILING }
+›
+urust_fn ‹
+  fn ByteCapacity(buffer: SizedBuffer<u8, 4>) -> usize { Capacity::<u8, 4>(buffer) }
+›
+```
+
+`T::C` selects `C` from `T`'s declared bounds before any literal notation. For a concrete mapped
+head, an exact full-path literal notation wins; otherwise all registered traits with that constant
+and a compatible sort participate, including through aliases, imports and `Self`. No candidate
+keeps ordinary lookup errors; multiple candidates report the conflicting traits. These rules apply
+to ordinary values and repeat lengths.
+
+Generated generic functions accept `::<TYPE, CONST, ...>` in source parameter order, including
+unused parameters, with lifetimes omitted. Type arguments are Rust types or checked HOL types;
+const arguments are unsuffixed integers, scoped const names or HOL length types. Wrong counts,
+kinds and bounds report at the list or offending argument. Native typed dispatch still selects
+overloads and reports ambiguity. An eligible key mixing generated generic and explicit call
+notations rejects turbofish, including explicitly covered generated registrations; keys with only
+explicit call notations keep their leading value payload. Generated monomorphic functions retain
+their generic-argument rejection. Calls without turbofish keep ordinary inference.
+
+Function parameter defaults, const types other than `usize`, generic trait arguments, `?Sized`,
+lifetime bounds, parenthesized `Fn` bounds and bounds on const parameters remain unsupported.
+Generic declarations use the same HOL lowering as their explicit escape twins. Their ordered Rust
+generic schemes and generic verbosity clause intentionally reflect their own source headers.
 
 Named functions register their Rust name by default. The Boolean `register_notation` option uses
 the shared `urust_register_notation` scoped setting, with inline values taking precedence.
@@ -240,7 +305,8 @@ urust ‹
 ›
 ```
 
-- **Members.** Each member is declared exactly as the equivalent `urust_fn` with a typed
+- **Members.** Concrete impl members may declare their own type/const parameters and bounds.
+  Each member is declared exactly as the equivalent `urust_fn` with a typed
   receiver; `self`, `mut self` and `&'a mut self` mean `self: Self`, `mut self: Self` and
   `self: &'a mut Self`. The default HOL name is the snake case of the target's final written
   segment and the member (`counter_get`); `ω‹name = …›` on a member overrides it. Annotations on
@@ -255,7 +321,9 @@ urust ‹
 - **Registrations.** Every member registers its associated path `Counter::f`; a member whose first
   parameter is `self` also registers a method entry `f`, so `x.f(..)` and `Counter::f(x, ..)`
   call it. Direct calls `f(..)` never reach method entries (the hint names the method forms), and
-  associated functions and methods are not importable.
+  associated functions and methods are not importable. Generic calls include `Counter::f::<u8>(x)`,
+  `Holder::<u16>::f::<u8>(x)`, `owner.f::<u8>(x)` and `Self::f::<T>(x)` inside a concrete impl.
+  The first argument list selects the implementing type; the member list instantiates its own header.
 - **`Self`.** In member types, and as a path head in calls, values, struct expressions,
   constructors and patterns, `Self` is the implementing type with its generic arguments;
   `Self::f(..)` calls this impl's own member. In a pattern (`let`, parameters, closure formals,
@@ -277,7 +345,7 @@ urust ‹
   (`use Pair as P; P::f()`) is ambiguous, as in Rust. Type alias and imported heads denote their
   target, with its generic arguments, in every path role, unless the written key has an exact
   registration.
-- **Not supported.** `impl<…>` generics, trait impls, `where`, `unsafe impl`, associated
+- **Not supported.** `impl<…>` generics, trait impls, impl-header `where`, `unsafe impl`, associated
   `const`/`type` items, `pub`, `&self` (until the shared-reference model is chosen), autoref and
   autoderef at method calls, and order-independent member visibility (members and items are seen
   in source order). Method calls can still reach free functions and explicit notations of the same
@@ -350,7 +418,8 @@ every declared field and evaluates initializers in source order, assembling cons
 in declaration order. Matching reuses Isabelle's native constructor and case infrastructure.
 Const lengths accept complete unsuffixed decimal, binary, octal and hexadecimal literals, including
 digit separators, or explicit HOL length types. Additive const expressions are rejected. Generated
-Rust functions reject turbofish arguments in both direct and method calls.
+monomorphic Rust functions reject turbofish arguments in both direct and method calls; generic
+function calls follow the source-ordered rules above.
 
 Unused (phantom) type parameters are retained. Automatic `PhantomData` field handling is deferred;
 no field, initializer, or pattern slot is discarded automatically. An unmapped `PhantomData` field
@@ -366,7 +435,7 @@ source and existing HOL constructor signatures need not change. Choosing singlet
 representations with source adapters belongs to a separate increment.
 
 Recursive and mutually recursive declarations, general const evaluation, zero-length fixed arrays,
-lifetimes, and Rust trait-bound/default translation remain unsupported.
+lifetimes, and Rust trait-bound/default translation on datatype declarations remain unsupported.
 
 Declaration-local `hol_names` chooses named-struct HOL selectors, enum HOL constructors, and enum
 payload selectors:
@@ -550,7 +619,7 @@ command spans and therefore need string quoting, for example `("lemma")`. A chos
 that lexical argument in value positions and as an unqualified direct-call head, even if a HOL
 constant or call registration has the same spelling. A bare `_` consumes one argument type and
 creates a typed anonymous abstraction without entering lexical name resolution; it may be repeated
-or mixed with named arguments. Duplicate named arguments remain errors. Every multi-segment path
+or mixed with named arguments. Duplicate named arguments remain errors. Apart from mapped trait associated constants in value positions, every multi-segment path
 requires an exact role-appropriate `micro_rust_notation`: values and places use `(literal)`, while
 calls, struct expressions, and registered macros use `(call)` (with `!` included in a macro key).
 Method names remain single-segment; like field names, they use registered, context-fixed or HOL
@@ -617,13 +686,15 @@ exact registered literal paths, genuine global constants, parentheses, `+ - * / 
 `usize` literals are accepted directly, while other word widths require the cast. Ordinary operands
 run exactly once, including at length zero. Inline-const bodies run once per element and not at all
 at length zero.
-Qualified length paths require exact literal registration. Unqualified lengths may resolve to
+Qualified length paths accept mapped trait associated constants or exact literal registration.
+Scoped const parameters supply length values through the same resolution rules. Unqualified lengths may resolve to
 genuine HOL constants or Isabelle fixed parameters; µRust lexical locals and unresolved names
 are rejected.
 
 The existing integer primitive tokens may head exact registered associated-item paths such as
-`u64::MAX`, `u8::MAX as u64`, and `u64::from(x)`. Literal positions, patterns, repeat lengths, and
-calls select their own registration roles; primitive-headed paths never fall back to lexical names,
+`u64::MAX`, `u8::MAX as u64`, and `u64::from(x)`. Ordinary values and repeat lengths additionally accept mapped trait associated constants, with
+explicit literals taking precedence. Patterns and calls select their own registration roles;
+primitive-headed paths never fall back to lexical names,
 HOL names, unresolved frees, or native constructors. Bare primitive values and primitive-headed
 places, struct/macro heads, field labels, and method names remain invalid.
 
@@ -652,7 +723,8 @@ are still reported as ordinary errors. Braced arm bodies such as `{ return value
 ordinary statement semicolons. Complete guard bodies also retain return statements.
 Deliberately deferred Rust surface includes general
 postfix calls, one-element tuples, open ranges, unary numeric negation, `/=`, leading
-`::`, full Rust generics, universal macro trailing commas, and additional numeric families.
+`::`, generic impls and the unsupported bounds/const forms listed above, universal macro trailing
+commas, and additional numeric families.
 
 The parser implementation depends only on `Shallow_Micro_Rust` and `Isabelle_Lex-Yacc`.
 The shallow theories remain parser-independent; parser-backed production sessions

@@ -10,6 +10,22 @@ begin
 
 section\<open> Names, binders, and metadata \<close>
 
+text\<open>
+Value lookup preserves lexical binding precedence. Unshadowed scoped const parameters supply
+length values; a scoped type parameter used as a value is a positioned error. Associated constants
+through a parameter head use its declared trait bounds, while concrete heads prefer exact literal
+notations and then compatible registered traits, including aliases, imports and Self. Repeat
+lengths use the same contextual constant resolution.
+
+Generated generic calls obtain the current source-specific schemes and instantiate type/const
+arguments in declared order. Genuine method and impl-source filters remain authoritative, and
+responsible-owner arity, kind and bound failures retain their list or argument positions. The native
+notation dispatcher owns final fresh candidate unification, covering, deduplication, ambiguity and
+selected-backend navigation. Calls without generic arguments and explicit-only payloads keep their
+ordinary behavior. Generic reference events use the lower context-aware reporter, retaining exact
+scope records, callbacks and native report order.
+\<close>
+
 ML\<open>
 signature URUST_RESOLUTION =
 sig

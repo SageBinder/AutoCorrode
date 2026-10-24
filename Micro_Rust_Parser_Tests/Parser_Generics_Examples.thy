@@ -89,8 +89,8 @@ lemma interpreted_offset_ceiling:
   unfolding trait_offset.offset_ceiling_def by (rule refl)
 
 text\<open>
-The registry is available independently of generic function syntax. Function bounds and
-associated-constant expressions consume it in the later units.
+The registry is available independently of generic function syntax. The following chapters use
+these mappings for function bounds and associated-constant expressions.
 \<close>
 
 chapter\<open> Syntax \<close>
@@ -405,7 +405,9 @@ chapter\<open> Bodies \<close>
 
 text\<open>
 Scoped type and const names share the signature's finalized HOL variables. Associated constants
-and const values use the ordinary literal lowering, including array repeat lengths.
+and const values use the ordinary literal lowering, including array repeat lengths. Entirely
+unused parameters remain valid; actual body uses must occur in the complete final signature,
+even when a mapped type or generated callee erases their witness.
 \<close>
 
 urust_fn \<open>
@@ -685,8 +687,11 @@ lemma body_concrete_self_twin: \<open> body_concrete_nat_capacity = body_concret
 chapter\<open> Turbofish \<close>
 
 text\<open>
-Generated generic functions consume ordered type witnesses, while explicit call notations retain
-their leading value arguments. Calls without turbofish keep ordinary native inference.
+Generated generic functions consume type and const arguments in source declaration order,
+including unused parameters and omitting lifetimes. Concrete associated paths, selected type
+instances, dot methods and Self calls use the same native dispatch. Explicit-only call notations
+retain their leading value arguments; eligible generated-generic/explicit mixed keys reject
+turbofish. Calls without turbofish keep ordinary native inference.
 \<close>
 
 urust_fn \<open>

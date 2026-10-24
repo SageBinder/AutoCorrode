@@ -30,6 +30,22 @@ lexical restrictions on Self and self in Rust type paths.
 An impl target resolves like a signature type, expanding type aliases to their nominal target; its
 canonical registry key and HOL Self type form the context of the impl's members, in which every
 type resolution reads \<open>Self\<close> as that type. Outside such a context \<open>Self\<close> is rejected.
+
+The per-function Proof_Data generic scope resolves after Self and before the parameter hook or
+registry. Type and const roles are checked recursively through tuples, references, pointers and
+arrays; grouped errors retain the parameter leaf position. Named HOL variables share final sorts
+with checked escapes and channel types. The scope never enters a later declaration's context.
+This lower owner also stores source-specific ordered generic schemes: native named identities,
+complete backends and used/unused parameter witnesses are jointly typed and morphism-transformed.
+Existing registration serials distinguish equal expanded abbreviation bodies. Candidate alignment
+uses the native-fresh backend without freshening caller variables again; final unification and
+selection remain in the notation dispatcher.
+
+\<open>capture_generic_uses\<close> observes actual body reads and checked HOL source types before
+erasure, excluding inference seeds and foreign scopes. \<open>report_generic_reference\<close> checks
+the current full parameter identity and forwards the original reference callback exactly once.
+Scope records and callbacks remain unchanged. Nested captures retain actual same-scope observations
+and deactivate on every exit; no observer or captured context is installed in declarations.
 \<close>
 
 ML\<open>
