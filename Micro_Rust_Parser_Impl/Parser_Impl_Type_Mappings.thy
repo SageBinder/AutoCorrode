@@ -102,6 +102,8 @@ sig
   type generic_scope = {parameters: generic_parameter list}
   val with_generic_scope: generic_scope -> Proof.context -> Proof.context
   val generic_scope: Proof.context -> generic_scope option
+   val capture_generic_uses:
+     Proof.context -> (Proof.context -> 'a) -> 'a * string list
   val parameter_names:
     Proof.context -> URust_AST.generic_parameter list ->
       ((string * Position.T) * (string * Position.T)) list -> (string * sort) list
@@ -831,6 +833,63 @@ struct
 
   fun scope_parameters ctxt =
     (case generic_scope ctxt of NONE => [] | SOME {parameters} => parameters)
+
+   structure Generic_Uses = Proof_Data
+   (
+     type T = (generic_parameter list -> typ list -> unit) option
+     fun init _ = NONE
+   )
+
+   fun capture_generic_uses ctxt action =
+     (case generic_scope ctxt of
+        NONE => (action ctxt, [])
+      | SOME {parameters = []} => (action ctxt, [])
+      | SOME {parameters} =>
+          let
+            val uses = Unsynchronized.ref ([]: string list)
+            val active = Unsynchronized.ref true
+            fun note name =
+              if !active then uses := insert (op =) name (!uses) else ()
+            fun observe (parameter as {rust, pos, kind, hol, bounds, report_reference}
+                : generic_parameter) =
+              ({rust = rust, pos = pos, kind = kind, hol = hol, bounds = bounds,
+                report_reference = fn use_pos => (note (fst hol); report_reference use_pos)}
+                 : generic_parameter, parameter)
+            val observed = map observe parameters
+            fun same_parameter (left: generic_parameter, right: generic_parameter) =
+              #rust left = #rust right andalso #kind left = #kind right andalso
+              #hol left = #hol right andalso #bounds left = #bounds right andalso
+              Position.properties_of (#pos left) = Position.properties_of (#pos right) andalso
+              pointer_eq (#report_reference left, #report_reference right)
+            val parent = Generic_Uses.get ctxt
+            (* Nested reads reach the parent through the original scope identities. A replaced
+               scope cannot turn an independent native variable into this declaration's use. *)
+            fun observe_types current types =
+              let
+                val names = maps (fn typ => map fst (Term.add_tfreesT typ [])) types
+                fun restore parameter =
+                  (case find_first (fn (tracked, _) => same_parameter (parameter, tracked))
+                      observed of
+                     SOME (_, original) =>
+                       (if member (op =) names (fst (#hol original))
+                        then note (fst (#hol original)) else (); original)
+                   | NONE => parameter)
+                val original = map restore current
+              in Option.app (fn observe_parent => observe_parent original types) parent end
+            val observed_ctxt =
+              ctxt |> with_generic_scope {parameters = map fst observed}
+              |> Generic_Uses.put (SOME observe_types)
+          in
+            Thread_Attributes.uninterruptible_body (fn run =>
+              let
+                val result = Exn.capture0 (run (fn () => action observed_ctxt)) ()
+                val recorded = rev (!uses)
+                val _ = active := false
+              in (Exn.release result, recorded) end)
+          end)
+
+   fun note_generic_types ctxt types =
+     Option.app (fn observe => observe (scope_parameters ctxt) types) (Generic_Uses.get ctxt)
 
   fun resolve_generic ctxt normalize base arities pos =
     (case find_index (fn ({rust, ...}: generic_parameter) => rust = base)
@@ -1750,6 +1809,7 @@ struct
                 (map (TFree o #hol) parameters @ parsed))
           end)
       val (parameter_types, checked) = chop (length parameters) checked_all
+       val _ = note_generic_types ctxt checked
 
       (* Keep sort inference shared across the whole signature. Only fresh
          signature variables are flexible; ambient variables remain rigid. *)

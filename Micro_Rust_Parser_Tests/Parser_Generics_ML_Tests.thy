@@ -3257,6 +3257,331 @@ local
 in end
 \<close>
 
+section\<open> Authored generic uses before native erasure \<close>
+
+text\<open>
+An erased callee slot still records the caller's authored generic use. O7 requires that
+parameter in the final HOL signature; an entirely unused parameter remains valid.
+The native capture controls distinguish real reads from signature seeds and foreign scopes,
+retain actual enclosing reads across caught nested failures, and restore invocation state
+on both exceptions and interrupts. Exact reviewer sources retain their header ranges and
+complete output, namespace, callback and recovery controls.
+\<close>
+
+ML_val\<open>
+local
+  structure M = URust_Type_Mappings
+  val ctxt = \<^context>
+  fun require label test = if test then () else error ("O7 capture probe: " ^ label)
+  val reports = Unsynchronized.ref ([]: string list)
+  fun parameter rust hol kind : M.generic_parameter =
+    {rust = rust, pos = Position.none, kind = kind, hol = hol, bounds = [],
+     report_reference = fn _ => reports := !reports @ [rust]}
+  val t = parameter "T" ("'body_capture_t", \<^sort>\<open>type\<close>) URust_AST.Type_Parameter
+  val n = parameter "N" ("'body_capture_n", \<^sort>\<open>len0\<close>) URust_AST.Const_Parameter
+  val scoped = M.with_generic_scope {parameters = [t, n]} ctxt
+  fun read current text =
+    ignore (M.resolve_signature current
+      [URust_Parser.parse_type_source current (Parser_Lex_Util.text_source text)])
+  fun escaped name = "\<tau>" ^ Symbol.open_ ^ name ^ Symbol.close
+  fun names label wanted action =
+    let val (_, used) = M.capture_generic_uses scoped action
+    in require label (sort_strings used = sort_strings wanted) end
+  val (same, none) = M.capture_generic_uses ctxt (fn current => pointer_eq (ctxt, current))
+  val _ = require "absent scope is the ordinary context" (same andalso null none)
+  val empty = M.with_generic_scope {parameters = []} ctxt
+  val (same_empty, none_empty) =
+    M.capture_generic_uses empty (fn current => pointer_eq (empty, current))
+  val _ = require "empty scope is the ordinary context" (same_empty andalso null none_empty)
+  val _ = names "all-parameter seed list is not a use" [] (fn current => read current (escaped "nat"))
+  val _ = require "seed list emits no scope references" (null (!reports))
+  val _ = names "bare/grouped/nested Rust reads" ["'body_capture_t", "'body_capture_n"]
+    (fn current => read current "(T, [T; N])")
+  val _ = require "original reference callbacks and read order" (!reports = ["T", "T", "N"])
+  val _ = names "named type escape" ["'body_capture_t"]
+    (fn current => read current (escaped "'body_capture_t"))
+  val _ = names "named const escape" ["'body_capture_n"]
+    (fn current => read current (escaped "'body_capture_n::len0"))
+  val _ = names "independent native escape" []
+    (fn current => read current (escaped "'independent_capture"))
+  val foreign = parameter "Foreign" (#hol t) URust_AST.Type_Parameter
+  val replacement = parameter "T" (#hol t) URust_AST.Type_Parameter
+  val _ = names "foreign scope, identical native variable" []
+    (fn current => read (M.with_generic_scope {parameters = [foreign]} current)
+      (escaped "'body_capture_t"))
+  val _ = names "replaced scope, identical names but new callback" []
+    (fn current => read (M.with_generic_scope {parameters = [replacement]} current) "T")
+  val ((_, inner), outer) = M.capture_generic_uses scoped (fn current =>
+    M.capture_generic_uses current (fn nested =>
+      read nested (escaped "'body_capture_n::len0")))
+  val _ = require "same-scope nested native reads reach both captures"
+    (inner = ["'body_capture_n"] andalso outer = inner)
+  val ((_, foreign_inner), foreign_outer) = M.capture_generic_uses scoped (fn current =>
+    M.capture_generic_uses (M.with_generic_scope {parameters = [foreign]} current)
+      (fn nested => read nested (escaped "'body_capture_t")))
+  val _ = require "foreign nested reads do not reach the parent"
+    (foreign_inner = ["'body_capture_t"] andalso null foreign_outer)
+  val failed = Exn.capture (fn () => M.capture_generic_uses scoped
+    (fn current => (read current "T"; error "capture failure"))) ()
+  val _ = require "failure propagates unchanged"
+    (case failed of Exn.Exn (ERROR "capture failure") => true | _ => false)
+  val _ = names "failure leaves original context and next capture clean" []
+    (fn current => read current (escaped "nat"))
+  val (_, caught_trace) = M.capture_generic_uses scoped (fn current =>
+    let
+      val failed_inner = Exn.capture (fn () => M.capture_generic_uses current
+        (fn nested => (read nested (escaped "'body_capture_n::len0");
+          error "nested capture failure"))) ()
+      val _ = require "caught nested exception unchanged"
+        (case failed_inner of Exn.Exn (ERROR "nested capture failure") => true | _ => false)
+    in read current "T" end)
+  val _ = require "actual same-scope reads survive caught nested failure"
+    (sort_strings caught_trace = ["'body_capture_n", "'body_capture_t"])
+  val SOME {parameters = after} = M.generic_scope scoped
+  val _ = require "original parameter callbacks were never replaced"
+    (pointer_eq (#report_reference t, #report_reference (hd after)) andalso
+      pointer_eq (#report_reference n, #report_reference (nth after 1)))
+in
+  val _ = writeln "O7 native capture probes PASS"
+end
+\<close>
+
+ML_val\<open>
+local
+  structure M = URust_Type_Mappings
+  val ctxt = \<^context>
+  fun require label test = if test then () else error ("O7 interruption probe: " ^ label)
+  fun parameter rust hol kind : M.generic_parameter =
+    {rust = rust, pos = Position.none, kind = kind, hol = hol, bounds = [],
+     report_reference = fn _ => ()}
+  val t = parameter "T" ("'body_capture_t", \<^sort>\<open>type\<close>) URust_AST.Type_Parameter
+  val n = parameter "N" ("'body_capture_n", \<^sort>\<open>len0\<close>) URust_AST.Const_Parameter
+  val scoped = M.with_generic_scope {parameters = [t, n]} ctxt
+  fun read current text =
+    ignore (M.resolve_signature current
+      [URust_Parser.parse_type_source current (Parser_Lex_Util.text_source text)])
+  fun escaped name = "\<tau>" ^ Symbol.open_ ^ name ^ Symbol.close
+  val (_, parent_uses) = M.capture_generic_uses scoped (fn parent =>
+    let
+      val entered = Single_Assignment.var "O7 capture interrupt entry"
+      val blocked = Single_Assignment.var "O7 capture interrupt blocker"
+      val finished = Single_Assignment.var "O7 capture interrupt result"
+      val thread = Isabelle_Thread.fork
+        (Isabelle_Thread.interrupts (Isabelle_Thread.params "O7 capture interruption"))
+        (fn () => Single_Assignment.assign finished
+          (Exn.capture (fn () => M.capture_generic_uses parent (fn current =>
+            let
+              val read_result = Exn.capture
+                (fn () => read current (escaped "'body_capture_n::len0")) ()
+              val _ = Single_Assignment.assign entered ()
+              val _ = Exn.release read_result
+            in Single_Assignment.await blocked end)) ()))
+      val _ = Single_Assignment.await entered
+      val _ = Isabelle_Thread.interrupt_thread thread
+      val _ = Isabelle_Thread.join thread
+      val _ = require "actual nested interrupt propagates unchanged"
+        (case Single_Assignment.await finished of
+           Exn.Exn exn => Exn.is_interrupt exn | _ => false)
+    in read parent "T" end)
+  val _ = require "same-scope reads remain in the live parent after caught interrupt"
+    (sort_strings parent_uses = ["'body_capture_n", "'body_capture_t"])
+  val (_, fresh) = M.capture_generic_uses scoped
+    (fn current => read current (escaped "nat"))
+  val _ = require "fresh capture has no interrupted state" (null fresh)
+  val SOME {parameters = original} = M.generic_scope scoped
+  val _ = require "original context/callbacks are unchanged"
+    (pointer_eq (#report_reference t, #report_reference (hd original)) andalso
+      pointer_eq (#report_reference n, #report_reference (nth original 1)))
+in
+  val _ = writeln "O7 actual nested interrupt cleanup PASS"
+end
+\<close>
+
+ML_val\<open>
+local
+  open Generic_Signature_Test
+  structure M = URust_Type_Mappings
+  val root = \<^theory>
+  fun declaration target options declared rust =
+    "urust_fn [" ^ options ^ "verbosity = 0] " ^ target ^ " " ^ declared ^ cartouche rust
+  fun fn_command target rust = declaration target "" "" rust
+  val setup =
+    fn_command "r01_erase_type" "fn R01EraseType<T>(value: u8) -> u8 { value }" ^ "\n" ^
+    fn_command "r01_erase_const" "fn R01EraseConst<const N: usize>(value: u8) -> u8 { value }" ^ "\n" ^
+    fn_command "r01_erase_dual" "fn R01EraseDual<T, const N: usize>(value: u8) -> u8 { value }" ^ "\n" ^
+    "urust_type \"R01O7Owner\" = " ^ cartouche "unit"
+  val (model_result, _) = capture (fn () => run root "o7-erased-model" setup)
+  val thy = Exn.release model_result |> Toplevel.theory_of
+  val ctxt = Proof_Context.init_global thy
+  val prior = snapshot ctxt
+  val prior_schemes = scheme_snapshot ctxt
+  val rows =
+    [("erased-type", "fn", "T", 0, "",
+       "fn R01BodyOnly<T>(value: u8) -> u8 { R01EraseType::<T>(value) }"),
+     ("erased-const", "fn", "N", 0, "",
+       "fn R01BodyOnly<const N: usize>(value: u8) -> u8 { R01EraseConst::<N>(value) }"),
+     ("erased-type-and-const", "fn", "T", 0, "",
+       "fn R01BodyOnly<T, const N: usize>(value: u8) -> u8 { R01EraseDual::<T, N>(value) }"),
+     ("erased-type-under-value-shadow", "fn", "T", 0, "",
+       "fn R01BodyOnly<T>(value: u8) -> u8 { let T = value; R01EraseType::<T>(T) }"),
+     ("erased-type-in-closure", "fn", "T", 0, "",
+       "fn R01BodyOnly<T>(value: u8) -> u8 {" ^
+         " let forward = |input| { R01EraseType::<T>(input) }; forward(value) }"),
+     ("erased-const-hol-escape", "fn", "N", 0, "",
+       "fn R01BodyOnly<const N: usize>(value: u8) -> u8 { R01EraseConst::<\<tau>" ^
+         cartouche "'n::len0" ^ ">(value) }"),
+     ("erased-self-forward", "chunk", "T", 1, "",
+       "impl R01O7Owner { fn erase<T>(value: u8) -> u8 { value }" ^
+         " fn body_only<T>(value: u8) -> u8 { Self::erase::<T>(value) } }"),
+     ("erased-only-second-const", "fn", "N", 0, "",
+       "fn R01BodyOnly<T, const N: usize>(value: u8) -> u8 { R01EraseConst::<N>(value) }"),
+     ("erased-type-hol-escape", "fn", "T", 0, "",
+       "fn R01BodyOnly<T>(value: u8) -> u8 { R01EraseType::<\<tau>" ^ cartouche "'t" ^ ">(value) }"),
+     ("erased-renamed-type", "fn", "T", 1,
+       "hol_type_parameters = [\"T\" \<rightarrow> " ^ cartouche "'renamed" ^ "], ",
+       "fn R01BodyOnly<T>(value: u8) -> u8 { R01EraseType::<\<tau>" ^ cartouche "'renamed" ^ ">(value) }"),
+     ("erased-renamed-const", "fn", "N", 1,
+       "hol_type_parameters = [\"N\" \<rightarrow> " ^ cartouche "'size::len0" ^ "], ",
+       "fn R01BodyOnly<const N: usize>(value: u8) -> u8 { R01EraseConst::<\<tau>" ^
+         cartouche "'size::len0" ^ ">(value) }"),
+     ("erased-type-in-nested-block", "fn", "T", 0, "",
+       "fn R01BodyOnly<T>(value: u8) -> u8 { { R01EraseType::<T>(value) } }")]
+  fun check (label, wrapper, parameter, occurrence, options, rust) =
+    let
+      val source = (if wrapper = "fn" then fn_command "r01_body_only"
+        else fn text => "urust [verbosity = 0] " ^ cartouche text) ("/* \<alpha> */ " ^ rust)
+      val source = if options = "" then source else
+        declaration "r01_body_only" options "" ("/* \<alpha> */ " ^ rust)
+      val callbacks = saved_callbacks ()
+      val reporter = !Private_Output.report_fn
+      val (result, events) = capture (fn () => run thy label source)
+      val raw = (case result of Exn.Res _ => error (label ^ ": unexpectedly accepted")
+        | Exn.Exn exn => if Exn.is_interrupt exn then Exn.reraise exn else Runtime.exn_message exn)
+      val plain = XML.content_of (YXML.parse_body raw)
+      val expected = "urust: generic parameter " ^ parameter ^ " does not occur in the signature"
+      val _ = require (label ^ ": exact settled O7 diagnostic") (String.isPrefix expected plain)
+      val _ = require (label ^ ": header leaf and native command positions")
+        (map position_range (message_positions raw) =
+          [range_of source parameter occurrence, (1, if wrapper = "fn" then 9 else 6)])
+      val _ = require (label ^ ": complete ordinary/urgent and declaration report streams suppressed")
+        (null (ordinary events) andalso null (declaration_reports events))
+      val _ = require (label ^ ": original namespace, artifacts, source registrations, schemes and callbacks")
+        (snapshot ctxt = prior andalso scheme_snapshot ctxt = prior_schemes andalso
+          same_callbacks callbacks andalso PolyML.pointerEq (reporter, !Private_Output.report_fn))
+      val _ = require_scope_closed label ctxt
+      val (recovery, recovery_events) = capture (fn () => run thy (label ^ "-recovery")
+        (fn_command "r01_recovery" "fn R01Recovery(value: u8) -> u8 { value }"))
+      val recovered = Exn.release recovery |> Toplevel.context_of
+      val _ = require (label ^ ": ordinary recovery and declaration reports")
+        (is_some (Parser_Test_Calls.lookup recovered "R01Recovery") andalso
+          not (null (declaration_reports recovery_events)))
+      val _ = require (label ^ ": recovery preserves exact native callbacks")
+        (same_callbacks callbacks andalso PolyML.pointerEq (reporter, !Private_Output.report_fn))
+      val _ = require_scope_closed (label ^ "-recovery") recovered
+    in () end
+  val _ = List.app check rows
+  val declared = ":: " ^ cartouche "8 word => ('s, 8 word, 'abort, 'i, 'o) function_body" ^ " "
+  val literal = declaration "r01_body_only" "" declared
+    "/* \<alpha> */ fn R01BodyOnly<T>(value: T) -> T { R01EraseType::<T>(value) }"
+  val (literal_result, literal_events) = capture (fn () => run thy "erased-declared-literal" literal)
+  val literal_raw = case literal_result of Exn.Exn exn => Runtime.exn_message exn
+    | _ => error "declared literal lost O7 body-only rejection"
+  val _ = require "D175 literal HOL signature bypass retains O7 final-HOL anchoring"
+    (String.isPrefix "urust: generic parameter T does not occur in the signature"
+      (XML.content_of (YXML.parse_body literal_raw)) andalso
+      map position_range (message_positions literal_raw) = [range_of literal "T" 0, (1, 9)] andalso
+      null (ordinary literal_events) andalso null (declaration_reports literal_events))
+in
+  val _ = writeln "U4 A31 exact seven erased-slot negatives plus named/renamed/dual/nested/D175 controls PASS"
+end
+\<close>
+
+ML_val\<open>
+local
+  open Generic_Signature_Test
+  structure M = URust_Type_Mappings
+  val root = \<^theory>
+  fun declaration target options declared rust =
+    "urust_fn [" ^ options ^ "verbosity = 0] " ^ target ^ " " ^ declared ^ cartouche rust
+  fun fn_command target rust = declaration target "" "" rust
+  val setup =
+    fn_command "r01_erase_type" "fn R01EraseType<T>(value: u8) -> u8 { value }" ^ "\n" ^
+    fn_command "r01_erase_const" "fn R01EraseConst<const N: usize>(value: u8) -> u8 { value }" ^ "\n" ^
+    fn_command "r01_erase_dual" "fn R01EraseDual<T, const N: usize>(value: u8) -> u8 { value }" ^ "\n" ^
+    "urust_type \"R01O7Owner\" = " ^ cartouche "unit"
+  val (model_result, _) = capture (fn () => run root "o7-erased-model" setup)
+  val thy = Exn.release model_result |> Toplevel.theory_of
+  val ctxt = Proof_Context.init_global thy
+  val prior = snapshot ctxt
+  val prior_schemes = scheme_snapshot ctxt
+  fun tau text = "\<tau>" ^ cartouche text
+  fun body native = "\<epsilon>" ^ cartouche native ^ "(value)"
+  fun override name hol = "hol_type_parameters = [\"" ^ name ^ "\" \<rightarrow> " ^ cartouche hol ^ "], "
+  val literal_type = ":: " ^ cartouche "'t => 8 word => ('s, 8 word, 'abort, 'i, 'o) function_body" ^ " "
+  val renamed_type = ":: " ^ cartouche "'renamed => 8 word => ('s, 8 word, 'abort, 'i, 'o) function_body" ^ " "
+  val rows =
+    [("unused-type", "", "", ["'t"],
+       "fn R01UnusedType<T>(value: u8) -> u8 { value }",
+       "fn R01UnusedTypeControl(value: u8) -> u8 { value }"),
+     ("unused-const", "", "", ["'n"],
+       "fn R01UnusedConst<const N: usize>(value: u8) -> u8 { value }",
+       "fn R01UnusedConstControl(value: u8) -> u8 { value }"),
+     ("unused-dual", "", "", ["'t", "'n"],
+       "fn R01UnusedDual<T, const N: usize>(value: u8) -> u8 { value }",
+       "fn R01UnusedDualControl(value: u8) -> u8 { value }"),
+     ("unused-local-value-shadow", "", "", ["'t", "'n"],
+       "fn R01UnusedShadow<T, const N: usize>(value: u8) -> u8 { let T = value; let N = T; N }",
+       "fn R01UnusedShadowControl(value: u8) -> u8 { let T = value; let N = T; N }"),
+     ("unused-independent-escape", "", "", ["'t", "'n"],
+       "fn R01UnusedEscape<T, const N: usize>(value: u8) -> u8 { R01EraseType::<" ^ tau "nat" ^ ">(value) }",
+       "fn R01UnusedEscapeControl(value: u8) -> u8 { " ^ body "r01_erase_type" ^ " }"),
+     ("anchored-type", "", "", ["'t"],
+       "fn R01AnchorType<T>(marker: T, value: u8) -> u8 { R01EraseType::<T>(value) }",
+       "fn R01AnchorTypeControl(marker: " ^ tau "'t" ^ ", value: u8) -> u8 { " ^ body "r01_erase_type" ^ " }"),
+     ("anchored-const", "", "", ["'n"],
+       "fn R01AnchorConst<const N: usize>(marker: [u8; N], value: u8) -> u8 { R01EraseConst::<N>(value) }",
+       "fn R01AnchorConstControl(marker: [u8; " ^ tau "'n::len" ^ "], value: u8) -> u8 { " ^ body "r01_erase_const" ^ " }"),
+     ("anchored-dual", "", "", ["'t", "'n"],
+       "fn R01AnchorDual<T, const N: usize>(marker: (T, [u8; N]), value: u8) -> u8 { R01EraseDual::<T, N>(value) }",
+       "fn R01AnchorDualControl(marker: (" ^ tau "'t" ^ ", [u8; " ^ tau "'n::len" ^ "]), value: u8) -> u8 { " ^ body "r01_erase_dual" ^ " }"),
+     ("anchored-renamed-type", override "T" "'renamed", "", ["'renamed"],
+       "fn R01RenamedType<T>(marker: T, value: u8) -> u8 { R01EraseType::<" ^ tau "'renamed" ^ ">(value) }",
+       "fn R01RenamedTypeControl(marker: " ^ tau "'renamed" ^ ", value: u8) -> u8 { " ^ body "r01_erase_type" ^ " }"),
+     ("anchored-renamed-const", override "N" "'size::len", "", ["'size"],
+       "fn R01RenamedConst<const N: usize>(marker: [u8; N], value: u8) -> u8 { R01EraseConst::<" ^ tau "'size::len" ^ ">(value) }",
+       "fn R01RenamedConstControl(marker: [u8; " ^ tau "'size::len" ^ "], value: u8) -> u8 { " ^ body "r01_erase_const" ^ " }"),
+     ("declared-HOL-anchor-bypass", "", literal_type, ["'t"],
+       "fn R01LiteralAnchor<T>(marker: UnknownAnchor, value: UnknownValue) -> UnknownReturn { R01EraseType::<T>(value) }",
+       "fn R01LiteralAnchorControl(marker: UnknownAnchor, value: UnknownValue) -> UnknownReturn { " ^ body "r01_erase_type" ^ " }"),
+     ("declared-renamed-HOL-anchor-bypass", override "T" "'renamed", renamed_type, ["'renamed"],
+       "fn R01LiteralRenamed<T>(marker: UnknownAnchor, value: UnknownValue) -> UnknownReturn { R01EraseType::<" ^ tau "'renamed" ^ ">(value) }",
+       "fn R01LiteralRenamedControl(marker: UnknownAnchor, value: UnknownValue) -> UnknownReturn { " ^ body "r01_erase_type" ^ " }")]
+  val _ = List.app (fn (label, options, declared, expected_names, actual, twin) =>
+    let
+      val callbacks = saved_callbacks ()
+      val reporter = !Private_Output.report_fn
+      val source = declaration "o7_actual" options declared actual ^ "\n" ^
+        declaration "o7_twin" "" declared twin ^ "\nlemma o7_twin_identity: " ^
+        cartouche "o7_actual = o7_twin" ^ " unfolding o7_actual_def o7_twin_def by (rule refl)"
+      val (result, events) = capture (fn () => run thy label source)
+      val completed = Exn.release result |> Toplevel.context_of
+      val (rust, _) = URust_AST.function_name (parse completed label actual)
+      val actual_entry = entry completed rust
+      val parameters = entry_scheme completed actual_entry
+      val _ = require (label ^ ": ordered including unused/renamed scheme metadata retained")
+        (map (fst o #hol) parameters = expected_names)
+      val _ = require (label ^ ": complete authored declaration reports retained")
+        (not (null (declaration_reports events)))
+      val _ = require (label ^ ": registry isolation and original native callbacks")
+        (snapshot ctxt = prior andalso scheme_snapshot ctxt = prior_schemes andalso
+          same_callbacks callbacks andalso PolyML.pointerEq (reporter, !Private_Output.report_fn))
+      val _ = require_scope_closed label completed
+    in () end) rows
+in
+  val _ = writeln "U4 A31 unused/anchored Type Const Dual, local shadow, independent escapes, rename and D175 kernel twins PASS"
+end
+\<close>
+
 chapter\<open> Turbofish \<close>
 
 section\<open> Concrete member composition through all four call forms \<close>
@@ -3314,18 +3639,61 @@ local
      ("bounded", "T: Scale", "T", "T", "T"),
      ("unused", "T: Scale", "T", "u8", "u8"),
      ("capacity", "const N: usize", "N", "[u8; N]", "usize")]
-  val _ = List.app (fn (member, generics, arguments, parameter_type, result_type) =>
+  fun self_source anchored (member, generics, arguments, parameter_type, result_type) =
     let
-      val parameter_clause = "<" ^ generics ^ ">(self, value: " ^ parameter_type ^ ") -> " ^ result_type
+      val marker = if anchored then "marker: T, " else ""
+      val parameter_clause = "<" ^ generics ^ ">(self, " ^ marker ^ "value: " ^ parameter_type ^ ") -> " ^ result_type
       val actual = "urust [verbosity = 0] " ^ cartouche
         ("impl CallMatrixOwner {\n\<omega>" ^ cartouche "name = \"matrix_actual\"" ^
           "\nfn Forward" ^ parameter_clause ^ " { Self::" ^ member ^ "::<" ^ arguments ^ ">(self, value) } }")
       val twin = "urust_fn [verbosity = 0] matrix_twin " ^ cartouche
-        ("fn MatrixTwin<" ^ generics ^ ">(self: CallMatrixOwner, value: " ^ parameter_type ^ ") -> " ^
+        ("fn MatrixTwin<" ^ generics ^ ">(self: CallMatrixOwner, " ^ marker ^ "value: " ^ parameter_type ^ ") -> " ^
           result_type ^ " { \<epsilon>" ^ cartouche ("call_matrix_owner_" ^ member) ^ "(self, value) }")
-      val source = actual ^ "\n" ^ twin ^ "\nlemma matrix_refl: " ^ cartouche "matrix_actual = matrix_twin" ^
-        " unfolding matrix_actual_def matrix_twin_def by (rule refl)"
-    in ignore (run model ("call-matrix-Self-" ^ member) source) end) self_rows
+    in (actual, twin, actual ^ "\n" ^ twin ^ "\nlemma matrix_refl: " ^ cartouche "matrix_actual = matrix_twin" ^
+        " unfolding matrix_actual_def matrix_twin_def by (rule refl)") end
+  val _ = List.app (fn row =>
+    ignore (run model ("call-matrix-Self-" ^ #1 row) (#3 (self_source (#1 row = "unused") row)))) self_rows
+  (* The original erased-slot caller is preserved in full as a positioned atomic O7 negative.
+     Its exact escape declaration remains a successful unused-parameter control. *)
+  val original_unused = ("unused", "T: Scale", "T", "u8", "u8")
+  val (_, original_twin, original_source) = self_source false original_unused
+  val model_ctxt = Proof_Context.init_global model
+  val model_snapshot = snapshot model_ctxt
+  val model_schemes = scheme_snapshot model_ctxt
+  val callbacks = saved_callbacks ()
+  val reporter = !Private_Output.report_fn
+  val (rejected, failed_events) = capture (fn () =>
+    run model "call-matrix-Self-unused-original" original_source)
+  val diagnostic = case rejected of Exn.Exn exn => Runtime.exn_message exn
+    | _ => error "original body-only Self forwarding unexpectedly accepted"
+  val _ = require "exact original Self forwarding has O7 header/native command positions"
+    (String.isPrefix "urust: generic parameter T does not occur in the signature"
+      (XML.content_of (YXML.parse_body diagnostic)) andalso
+      map position_range (message_positions diagnostic) = [range_of original_source "T" 0, (1, 6)])
+  val _ = require "original Self failure preserves complete streams, namespace, schemes and callbacks"
+    (null (ordinary failed_events) andalso null (declaration_reports failed_events) andalso
+      snapshot model_ctxt = model_snapshot andalso scheme_snapshot model_ctxt = model_schemes andalso
+      same_callbacks callbacks andalso PolyML.pointerEq (reporter, !Private_Output.report_fn))
+  val (escape_result, escape_events) = capture (fn () => run model "call-matrix-Self-unused-escape"
+    (original_twin ^ "\nurust_fn [verbosity = 0] matrix_escape_control " ^ cartouche
+      ("fn MatrixEscapeControl(self: CallMatrixOwner, value: u8) -> u8 { \<epsilon>" ^
+        cartouche "call_matrix_owner_unused" ^ "(self, value) }") ^
+      "\nlemma original_escape_identity: " ^ cartouche "matrix_twin = matrix_escape_control" ^
+      " unfolding matrix_twin_def matrix_escape_control_def by (rule refl)"))
+  val escape_ctxt = Exn.release escape_result |> Toplevel.context_of
+  val _ = require "exact original escape keeps unused T and declaration reports"
+    (map #rust (entry_scheme escape_ctxt (entry escape_ctxt "MatrixTwin")) = ["T"] andalso
+      not (null (declaration_reports escape_events)))
+  val concrete_unused = ("unused", "T: Scale", "\<tau>" ^ cartouche "nat", "u8", "u8")
+  val (unused_result, unused_events) = capture (fn () => run model "call-matrix-Self-genuinely-unused"
+    (#3 (self_source false concrete_unused)))
+  val unused_ctxt = Exn.release unused_result |> Toplevel.context_of
+  val _ = require "unused caller T accepts concrete erased-slot forwarding and native twin"
+    (map #rust (entry_scheme unused_ctxt (entry unused_ctxt "CallMatrixOwner::Forward")) = ["T"] andalso
+      not (null (declaration_reports unused_events)))
+  val _ = require "original/anchored/concrete forwarding restores callbacks and closes scope"
+    (same_callbacks callbacks andalso PolyML.pointerEq (reporter, !Private_Output.report_fn))
+  val _ = List.app (require_scope_closed "Self erased-slot reconciliation") [escape_ctxt, unused_ctxt, model_ctxt]
 in end
 \<close>
 

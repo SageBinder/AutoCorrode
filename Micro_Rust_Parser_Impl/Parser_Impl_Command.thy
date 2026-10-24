@@ -795,17 +795,18 @@ fun reject_unresolved Function lthy source checked =
       end
   | reject_unresolved Expression _ _ _ = ()
 
-fun close_typed_term kind lthy type_pos checked =
+fun close_typed_term kind lthy type_pos authored_generics checked =
   let
     val declaration_type = fastype_of checked
-    (* Closing unconstrained internal variables must not erase an authored generic that occurs
-       only in the body. The source scope distinguishes it from ordinary inference variables. *)
+    (* Semantic reads and the unchecked term retain uses whose native callee slots are erased.
+       Only the complete checked type supplies a signature anchor. *)
     val _ =
       if kind = Function then
         (case URust_Type_Mappings.generic_scope lthy of
            SOME {parameters} =>
              List.app (fn {rust, pos, hol = (name, _), ...} =>
-               if exists (fn (used, _) => used = name) (Term.add_tfrees checked []) andalso
+                if (member (op =) authored_generics name orelse
+                      exists (fn (used, _) => used = name) (Term.add_tfrees checked [])) andalso
                    not (exists (fn (used, _) => used = name)
                      (Term.add_tfreesT declaration_type []))
                then error ("urust: generic parameter " ^ rust ^
@@ -975,22 +976,25 @@ fun elaborate_prepared_ast lthy
           URust_Item_Scope.capture_field_reports (fn () =>
           URust_Import_Scope.capture_reports (fn () =>
             let
-              val unchecked =
-                lower kind lthy arguments_with_types ast
-              val checked =
+              fun check body_ctxt =
                 let
+                  val unchecked = lower kind body_ctxt arguments_with_types ast
                   val constrained =
                     (case declared_type of
                        SOME (complete_type, _) =>
                          Type.constraint complete_type unchecked
                      | NONE => unchecked)
-                in
-                  URust_Report_Transaction.check_term lthy constrained
-                end
+                  val checked = URust_Report_Transaction.check_term body_ctxt constrained
+                in (unchecked, checked) end
+              val ((unchecked, checked), generic_uses) =
+                if kind = Function then URust_Type_Mappings.capture_generic_uses lthy check
+                else (check lthy, [])
+              val authored_generics =
+                fold (insert (op =) o fst) (Term.add_tfrees unchecked []) generic_uses
               val closed =
                 (case declared_type of
                    SOME (_, type_pos) =>
-                     close_typed_term kind lthy type_pos checked
+                     close_typed_term kind lthy type_pos authored_generics checked
                  | NONE => checked)
               val _ =
                 reject_unresolved kind lthy source closed
