@@ -2,7 +2,7 @@
    `Tokens.*` constructors remain inside each generated lexer's SML environment. *)
 
 theory Parser_Common
-  imports Main
+  imports Native_Output_Ownership
 begin
 
 text\<open> The generated lexer reports character offsets, while Isabelle positions index symbols. Build one

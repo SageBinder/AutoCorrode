@@ -1813,10 +1813,10 @@ fun declare_prepared
                     (overloaded_settings := (depth, Config.get ctxt Typedef.overloaded) ::
                         !overloaded_settings;
                      Config.put Typedef.overloaded true ctxt))
-                |> Config.put Proof_Display.show_results false
               val (generated, generated_lthy) =
-                generate_urust_datatype selected plugins width values register_notation
-                  resolved_renames all_parameters types type_binding item generation_lthy
+                URust_Report_Transaction.quiet_native_results (fn () =>
+                  generate_urust_datatype selected plugins width values register_notation
+                    resolved_renames all_parameters types type_binding item generation_lthy)
               val native_parameters = #backend_parameters generated
               val (native_source, native_backend) = chop (length source_parameters) native_parameters
               val generated = finish_metadata selected native_source native_backend generated
@@ -1834,8 +1834,6 @@ fun declare_prepared
                      backend_parameters = #backend_parameters generated}
               val restored_lthy =
                 registered_lthy
-                |> Config.put Proof_Display.show_results
-                    (Config.get backend_lthy Proof_Display.show_results)
                 |> Local_Theory.map_contexts (fn depth =>
                     Config.put Typedef.overloaded
                       (the (AList.lookup (op =) (!overloaded_settings) depth)))

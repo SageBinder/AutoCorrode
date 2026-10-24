@@ -34,6 +34,7 @@ sig
   val release_on_failure: Proof.context -> (unit -> 'a) -> 'a
   val capture_members: (unit -> 'a) -> 'a * reports
   val check_term: Proof.context -> term -> term
+  val quiet_native_results: (unit -> 'a) -> 'a
   val invisible_declarations:
     (morphism -> 'a -> 'a) -> (local_theory -> 'a * local_theory) -> local_theory ->
       'a * local_theory
@@ -54,6 +55,8 @@ struct
   type transaction = {events: event list Unsynchronized.ref, buffer_checks: bool}
 
   val active: transaction Thread_Data.var = Thread_Data.var ()
+
+  val quiet_native_results = Native_Output_Ownership.quiet_results
 
   fun enqueue event ({events, ...}: transaction) = events := event :: !events
 

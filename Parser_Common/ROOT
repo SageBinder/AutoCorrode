@@ -1,4 +1,5 @@
 session Parser_Common = HOL +
   options [document = false]
   theories [document = false]
+    Native_Output_Ownership
     Parser_Common
