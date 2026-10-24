@@ -148,6 +148,8 @@ $(TEST_CLASSES_DIR)/.compiled: $(TEST_SOURCES) $(CLASSES_DIR)/.compiled | $(TEST
 # Install target
 .PHONY: install
 install: $(JAR_FILE)
+	echo "Registering the I/Q source component dependency..."
+	$(ISABELLE) components -u "$(realpath $(PLUGIN_DIR))"
 	echo "Installing I/Q plugin to $(INSTALL_DIR)..."
 	mkdir -p $(INSTALL_DIR)
 	@set -eu; \
@@ -158,8 +160,9 @@ install: $(JAR_FILE)
 	echo "JAR file: $(JAR_FILE)"
 	echo "Installed to: $(INSTALL_DIR)/iq_plugin.jar"
 	echo ""
-	echo "NOTE: If Isabelle/jEdit is currently running, restart it now to reload the updated plugin JAR."
-	echo "      Atomic install avoids partial writes, but a running classloader keeps old JAR state."
+	echo "NOTE: Keep the registered I/Q source component available for its native session dependency."
+	echo "      Restart Isabelle/jEdit after updating the plugin or its stateful ML foundation."
+	echo "      Atomic install avoids partial writes, but a running process keeps old tool state."
 	echo ""
 	echo "To use the plugin:"
 	echo "1. Start Isabelle/jEdit: $(ISABELLE_INSTALLATION_HOME)/bin/isabelle jedit"
@@ -190,7 +193,7 @@ help:
 	echo "  build      - Build the plugin JAR file"
 	echo "  test       - Build and run I/Q regression tests"
 	echo "  check-docs - Validate docs (tool list + internal links)"
-	echo "  install    - Build and install the plugin"
+	echo "  install    - Build, register the source dependency, and install the plugin"
 	echo "  clean      - Remove build directory"
 	echo "  uninstall  - Remove installed plugin"
 	echo "  help       - Show this help message"
@@ -205,6 +208,9 @@ help:
 	echo "  SCALAC_FLAGS  - Scala compiler warning/error flags (default: $(SCALAC_FLAGS))"
 	echo "  SCALA         - Scala runner path (default: $(SCALA))"
 	echo "  BUILD_DIR     - Build output directory (default: $(BUILD_DIR))"
+	echo ""
+	echo "Installation requires the canonical I/Q source component to remain available."
+	echo "Restart Isabelle/jEdit after updating the plugin or its stateful ML foundation."
 	echo ""
 	echo "Examples:"
 	echo "  make                              # Build with quiet output"

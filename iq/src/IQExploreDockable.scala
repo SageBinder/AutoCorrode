@@ -95,7 +95,37 @@ object IQExploreDockable {
     // session-generic IRLauncher, driven here with the live PIDE session. Run it
     // on a background thread so ensureStarted() returns immediately and
     // awaitClient() polls for the result, as before.
-    val launcher = new IRLauncher(PIDE.session, onStatus)
+    val nativeSession = PIDE.session
+    def nativePrerequisite(node: Document.Node.Name): Either[String, Unit] = {
+      // The canonical owner and ordinary I/R consumer share this native route.
+      // Read only an absent model; provide_files rechecks ownership on the GUI
+      // thread and preserves any model or unsaved buffer already there.
+      val source =
+        if (Document_Model.get_model(node).isDefined) Right(None)
+        else nativeSession.resources.read_file_content(node) match {
+          case Some(text) => Right(Some(text))
+          case None => Left("Native I/R source not found: " + node.node)
+        }
+      source.flatMap { text =>
+        GUI_Thread.now {
+          val currentSession =
+            try Option(PIDE.session)
+            catch {
+              case scala.util.control.NonFatal(exn) if !Exn.is_interrupt(exn) => None
+            }
+          if (!currentSession.exists(_ eq nativeSession))
+            Left("I/R native source session changed or is unavailable")
+          else {
+            text.foreach(content =>
+              Document_Model.provide_files(nativeSession, List(node -> content)))
+            Document_Model.node_required(node, set = true)
+            PIDE.editor.flush()
+            Right(())
+          }
+        }
+      }
+    }
+    val launcher = new IRLauncher(nativeSession, onStatus, Some(nativePrerequisite))
     new Thread(() => {
       launcher.launch(irDir) match {
         case Right(res) =>

@@ -59,72 +59,74 @@ fun is_server_context () = is_some (find_connection_message ());
 val wrapped : bool Synchronized.var = Synchronized.var "ML_Repl.wrapped" false;
 
 fun install_wrappers () =
-  Synchronized.change wrapped (fn already =>
-    if already then true
-    else
-      let
-        (* Build capture functions that delegate to the calling thread's
-           connection message function via find_connection_message().
-           These match isabelle_process.ML's message_context exactly. *)
-        fun standard_message props name ss =
-          if forall (fn s => s = "") ss then ()
-          else
+  if Synchronized.value wrapped then ()
+  else Native_Output_Ownership.publish_hooks (fn () =>
+    Synchronized.change wrapped (fn already =>
+      if already then true
+      else
+        let
+          (* Build capture functions that delegate to the calling thread's
+             connection message function via find_connection_message().
+             These match isabelle_process.ML's message_context exactly. *)
+          fun standard_message props name ss =
+            if forall (fn s => s = "") ss then ()
+            else
+              case find_connection_message () of
+                NONE => ()
+              | SOME msg =>
+                  let val pos_props =
+                        if exists Markup.position_property props then props
+                        else props @ Position.properties_of (Position.thread_data ())
+                  in msg name pos_props [XML.blob ss] end;
+
+          val serial_props = Markup.serial_properties o serial;
+
+          fun cap_writeln ss =
+            standard_message (serial_props ()) Markup.writelnN ss;
+          fun cap_writeln_urgent ss =
+            standard_message (serial_props () @ Markup.urgent_properties) Markup.writelnN ss;
+          fun cap_state ss =
+            standard_message (serial_props ()) Markup.stateN ss;
+          fun cap_information ss =
+            standard_message (serial_props ()) Markup.informationN ss;
+          fun cap_tracing ss =
+            standard_message (serial_props ()) Markup.tracingN ss;
+          fun cap_warning ss =
+            standard_message (serial_props ()) Markup.warningN ss;
+          fun cap_legacy ss =
+            standard_message (serial_props ()) Markup.legacyN ss;
+          fun cap_error (i, ss) =
+            standard_message (Markup.serial_properties i) Markup.errorN ss;
+          fun cap_system ss =
             case find_connection_message () of
               NONE => ()
-            | SOME msg =>
-                let val pos_props =
-                      if exists Markup.position_property props then props
-                      else props @ Position.properties_of (Position.thread_data ())
-                in msg name pos_props [XML.blob ss] end;
+            | SOME msg => msg Markup.systemN [] [XML.blob ss];
+          fun cap_status ss =
+            standard_message [] Markup.statusN ss;
+          fun cap_report ss =
+            standard_message [] Markup.reportN ss;
 
-        val serial_props = Markup.serial_properties o serial;
+          fun wrap cap (r : (string list -> unit) Unsynchronized.ref) =
+            let val orig = !r
+            in r := (fn ss => if is_server_context () then cap ss else orig ss) end;
 
-        fun cap_writeln ss =
-          standard_message (serial_props ()) Markup.writelnN ss;
-        fun cap_writeln_urgent ss =
-          standard_message (serial_props () @ Markup.urgent_properties) Markup.writelnN ss;
-        fun cap_state ss =
-          standard_message (serial_props ()) Markup.stateN ss;
-        fun cap_information ss =
-          standard_message (serial_props ()) Markup.informationN ss;
-        fun cap_tracing ss =
-          standard_message (serial_props ()) Markup.tracingN ss;
-        fun cap_warning ss =
-          standard_message (serial_props ()) Markup.warningN ss;
-        fun cap_legacy ss =
-          standard_message (serial_props ()) Markup.legacyN ss;
-        fun cap_error (i, ss) =
-          standard_message (Markup.serial_properties i) Markup.errorN ss;
-        fun cap_system ss =
-          case find_connection_message () of
-            NONE => ()
-          | SOME msg => msg Markup.systemN [] [XML.blob ss];
-        fun cap_status ss =
-          standard_message [] Markup.statusN ss;
-        fun cap_report ss =
-          standard_message [] Markup.reportN ss;
-
-        fun wrap cap (r : (string list -> unit) Unsynchronized.ref) =
-          let val orig = !r
-          in r := (fn ss => if is_server_context () then cap ss else orig ss) end;
-
-        fun wrap_err cap (r : (serial * string list -> unit) Unsynchronized.ref) =
-          let val orig = !r
-          in r := (fn (i, ss) => if is_server_context () then cap (i, ss) else orig (i, ss)) end;
-      in
-        wrap cap_writeln Private_Output.writeln_fn;
-        wrap cap_writeln_urgent Private_Output.writeln_urgent_fn;
-        wrap cap_state Private_Output.state_fn;
-        wrap cap_information Private_Output.information_fn;
-        wrap cap_tracing Private_Output.tracing_fn;
-        wrap cap_warning Private_Output.warning_fn;
-        wrap cap_legacy Private_Output.legacy_fn;
-        wrap cap_system Private_Output.system_message_fn;
-        wrap cap_status Private_Output.status_fn;
-        wrap cap_report Private_Output.report_fn;
-        wrap_err cap_error Private_Output.error_message_fn;
-        true
-      end);
+          fun wrap_err cap (r : (serial * string list -> unit) Unsynchronized.ref) =
+            let val orig = !r
+            in r := (fn (i, ss) => if is_server_context () then cap (i, ss) else orig (i, ss)) end;
+        in
+          wrap cap_writeln Private_Output.writeln_fn;
+          wrap cap_writeln_urgent Private_Output.writeln_urgent_fn;
+          wrap cap_state Private_Output.state_fn;
+          wrap cap_information Private_Output.information_fn;
+          wrap cap_tracing Private_Output.tracing_fn;
+          wrap cap_warning Private_Output.warning_fn;
+          wrap cap_legacy Private_Output.legacy_fn;
+          wrap cap_system Private_Output.system_message_fn;
+          wrap cap_status Private_Output.status_fn;
+          wrap cap_report Private_Output.report_fn;
+          wrap_err cap_error Private_Output.error_message_fn;
+          true
+        end));
 
 
 (** Server lifecycle **)

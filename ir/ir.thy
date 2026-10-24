@@ -24,7 +24,7 @@
 *)
 
 theory ir
-  imports Main
+  imports Main "Parser_Common.Native_Output_Ownership"
 begin
 
 declare [[ML_write_global = true]]
