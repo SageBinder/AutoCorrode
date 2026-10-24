@@ -3582,6 +3582,378 @@ in
 end
 \<close>
 
+text\<open>
+Generic use capture observes the actual current scope records without replacing callbacks.
+The retained independent observations distinguish native HOL reads from Rust references;
+fresh-context, complete-identity, nested and real-interrupt controls exercise both readers.
+\<close>
+
+ML_val\<open>
+local
+  open Generic_Signature_Test
+  open URust_AST
+  structure M = URust_Type_Mappings
+  val ctxt = \<^context>
+  val forwarded = Unsynchronized.ref ([]: string list)
+  val original : M.generic_parameter =
+    {rust = "T", pos = Position.none, kind = Type_Parameter,
+     hol = ("'replaced_t", \<^sort>\<open>type\<close>), bounds = [],
+     report_reference = fn _ => forwarded := !forwarded @ ["T"]}
+  val scoped = M.with_generic_scope {parameters = [original]} ctxt
+  val layout = Source_Layout (Position.none, [])
+  fun named name =
+    Path_Type ([Rust_Type_Path_Segment (name, Position.none, NONE, layout)], layout)
+  fun escaped text = HOL_Type_Source (Input.string text)
+  fun replace changed_name changed_hol (current: M.generic_parameter) : M.generic_parameter =
+    {rust = changed_name, hol = changed_hol, pos = #pos current, kind = #kind current,
+     bounds = #bounds current, report_reference = #report_reference current}
+  fun observation (label, changed_name, changed_hol, rust_read) =
+    let
+      val before = length (!forwarded)
+      val (_, used) = M.capture_generic_uses scoped (fn observed =>
+        let
+          val SOME {parameters = [inherited]} = M.generic_scope observed
+          val foreign = replace changed_name changed_hol inherited
+          val _ = require (label ^ ": fixture changed the inherited callback object")
+            (PolyML.pointerEq (#report_reference inherited, #report_reference foreign))
+          val replaced = M.with_generic_scope {parameters = [foreign]} observed
+          val operand = if rust_read then named changed_name else escaped (fst changed_hol)
+          val resolved = the_single (M.resolve_signature replaced [operand])
+        in require (label ^ ": did not actually resolve the replacement HOL identity")
+          (resolved = TFree changed_hol) end)
+      val calls = length (!forwarded) - before
+      val _ = require (label ^ ": suppressed or invented original callback calls")
+        (if rust_read then calls > 0 else calls = 0)
+      val _ = require (label ^ ": exact original callback count")
+        (calls = (if rust_read then 1 else 0))
+      val _ = Output.writeln ("U4R02-A31-REPLACED-CALLBACK-OBSERVATION " ^ label ^ "\n" ^
+        "CAPTURED " ^ ML_Syntax.print_list ML_Syntax.print_string used ^
+        "\nORIGINAL-CALLS " ^ string_of_int calls)
+    in (label, used) end
+  val rows =
+    [("changed-HOL-native-control", "T", ("'foreign_t", \<^sort>\<open>type\<close>), false),
+     ("changed-HOL-Rust-reference", "T", ("'foreign_t", \<^sort>\<open>type\<close>), true),
+     ("changed-Rust-native-control", "U", ("'replaced_t", \<^sort>\<open>type\<close>), false),
+     ("changed-Rust-reference", "U", ("'replaced_t", \<^sort>\<open>type\<close>), true)]
+  val outcomes = map observation rows
+  val SOME {parameters = [after]} = M.generic_scope scoped
+  val _ = require "scope replacement changed original context/callbacks"
+    (#hol after = #hol original andalso #rust after = #rust original andalso
+     PolyML.pointerEq (#report_reference after, #report_reference original) andalso
+     is_none (M.generic_scope ctxt))
+  val (_, fresh) = M.capture_generic_uses scoped (fn current =>
+    ignore (M.resolve_signature current [escaped "nat"]))
+  val _ = require "replacement capture contaminated a fresh invocation" (null fresh)
+  val unexpected = map #1 (filter_out (null o #2) outcomes)
+  val _ = require ("foreign/replaced records retaining inherited callbacks were attributed " ^
+    "to the original parameter: " ^ commas unexpected) (null unexpected)
+in val _ = Output.writeln "U4R02-A31-REPLACED-CALLBACK-PASS" end
+\<close>
+
+ML_val\<open>
+local
+  open Generic_Signature_Test
+  open URust_AST
+  structure M = URust_Type_Mappings
+  val ctxt = \<^context>
+  val calls = Unsynchronized.ref ([]: string list)
+  val callback = fn _ => calls := !calls @ ["original"]
+  val replacement_callback = fn _ => calls := !calls @ ["replacement"]
+  val original: M.generic_parameter =
+    {rust = "T", pos = Position.none, kind = Type_Parameter,
+     hol = ("'identity_t", \<^sort>\<open>type\<close>), bounds = [], report_reference = callback}
+  val scoped = M.with_generic_scope {parameters = [original]} ctxt
+  val layout = Source_Layout (Position.none, [])
+  fun named name = Path_Type
+    ([Rust_Type_Path_Segment (name, Position.none, NONE, layout)], layout)
+  fun escaped text = HOL_Type_Source (Input.string text)
+  fun read current operand = the_single (M.resolve_signature current [operand])
+  fun replace rust pos kind hol bounds report_reference: M.generic_parameter =
+    {rust = rust, pos = pos, kind = kind, hol = hol, bounds = bounds,
+     report_reference = report_reference}
+  val changed =
+    [("Rust name", replace "U" (#pos original) (#kind original) (#hol original) [] callback),
+     ("HOL name", replace "T" (#pos original) (#kind original)
+       ("'identity_foreign", \<^sort>\<open>type\<close>) [] callback),
+     ("native sort", replace "T" (#pos original) (#kind original)
+       ("'identity_t", \<^sort>\<open>len0\<close>) [] callback),
+     ("canonical bounds", replace "T" (#pos original) (#kind original)
+       (#hol original) ["Scale"] callback),
+     ("complete position", replace "T"
+       (Position.of_properties [(Markup.fileN, "a32-identity"), (Markup.offsetN, "9"),
+         (Markup.end_offsetN, "10")]) (#kind original) (#hol original) [] callback),
+     ("callback pointer", replace "T" (#pos original) (#kind original)
+       (#hol original) [] replacement_callback)]
+  fun observe fresh rust_read (label, foreign: M.generic_parameter) =
+    let
+      val prior = length (!calls)
+      val (_, used) = M.capture_generic_uses scoped (fn current =>
+        let
+          val SOME {parameters = [inherited]} = M.generic_scope current
+          val _ = require (label ^ ": capture preserves exact original scope/callback")
+            (pointer_eq (original, inherited) andalso pointer_eq (callback, #report_reference inherited))
+          val context = if fresh then Proof_Context.init_global (Proof_Context.theory_of current)
+            else current
+          val context = M.with_generic_scope {parameters = [foreign]} context
+          val operand = if rust_read then named (#rust foreign)
+            else escaped (fst (#hol foreign) ^
+              (if snd (#hol foreign) = \<^sort>\<open>len0\<close> then "::len0" else ""))
+          val actual = read context operand
+        in require (label ^ ": replacement resolves actual native identity")
+          (actual = TFree (#hol foreign)) end)
+      val count = length (!calls) - prior
+      val _ = require (label ^ ": excludes complete foreign identity") (null used)
+      val _ = require (label ^ ": exact original callback forwarding")
+        (count = (if rust_read then 1 else 0))
+    in () end
+  val _ = List.app (fn row =>
+    (observe false true row; observe false false row;
+     observe true true row; observe true false row)) changed
+  val detached_before = length (!calls)
+  val (_, detached) = M.capture_generic_uses scoped (fn current =>
+    let
+      val independent = Proof_Context.init_global (Proof_Context.theory_of current)
+        |> M.with_generic_scope {parameters = [original]}
+      val actual = read independent (named "T")
+    in require "fresh context preserves exact copied original native identity"
+      (actual = TFree (#hol original)) end)
+  val _ = require "fresh context with exact original record/callback cannot reach ancestor"
+    (null detached andalso length (!calls) = detached_before + 1)
+  val len_original = replace "T" Position.none Type_Parameter
+    ("'identity_len", \<^sort>\<open>len\<close>) [] callback
+  val len_foreign = replace "T" Position.none Const_Parameter (#hol len_original) [] callback
+  val len_scoped = M.with_generic_scope {parameters = [len_original]} ctxt
+  val (_, kind_uses) = M.capture_generic_uses len_scoped (fn current =>
+    let
+      val foreign = M.with_generic_scope {parameters = [len_foreign]} current
+      val array = URust_Parser.parse_type_source foreign
+        (Parser_Lex_Util.text_source "[u8; T]")
+      val actual = read foreign array
+    in require "kind-only replacement retains correct const length"
+      (actual = Type (\<^type_name>\<open>array\<close>, [\<^typ>\<open>8 word\<close>, TFree (#hol len_foreign)])) end)
+  val _ = require "kind-only replacement is excluded" (null kind_uses)
+  val (_, native_kind) = M.capture_generic_uses len_scoped (fn current =>
+    ignore (read (M.with_generic_scope {parameters = [len_foreign]} current)
+      (escaped "'identity_len::len")))
+  val _ = require "kind-only native observation excluded" (null native_kind)
+  val (_, stale) = M.capture_generic_uses scoped (fn current =>
+    M.report_generic_reference
+      (M.with_generic_scope {parameters = [hd (map #2 changed)]} current)
+      original Position.none)
+  val _ = require "stale explicit record cannot bypass actual installed scope" (null stale)
+  val foreign = hd (map #2 changed)
+  val (_, shared) = M.capture_generic_uses scoped (fn current =>
+    let
+      val same_hol = M.with_generic_scope {parameters = [original, foreign]} current
+      (* The real value reader reports the chosen Rust parameter before rejecting a
+         type-as-value; the type inference seed table requires distinct HOL names. *)
+      val result = Exn.capture (fn () => URust_Resolution.literal_identifier_value
+        same_hol URust_Resolution.empty_environment (#rust foreign, Position.none)) ()
+    in require "shared HOL name retains actual Rust type-as-value diagnostic"
+      (case result of Exn.Exn (ERROR message) => String.isSubstring
+        "type parameter U cannot be used as a value" message | _ => false) end)
+  val _ = require "unrelated current record sharing HOL name does not claim Rust reference"
+    (null shared)
+  val reorder_foreign = replace "U" Position.none Type_Parameter
+    ("'identity_foreign", \<^sort>\<open>type\<close>) [] callback
+  val (_, legitimate) = M.capture_generic_uses scoped (fn current =>
+    ignore (read (M.with_generic_scope {parameters = [reorder_foreign, original]} current) (named "T")))
+  val _ = require "reordered unchanged record is a legitimate read" (legitimate = ["'identity_t"])
+  val start = length (!calls)
+  val _ = M.report_generic_reference ctxt original Position.none
+  val _ = require "ordinary report callback forwards exactly once without observer"
+    (length (!calls) = start + 1)
+  val escaped_context = Unsynchronized.ref (NONE: Proof.context option)
+  val (_, used) = M.capture_generic_uses scoped (fn current =>
+    (escaped_context := SOME current; ignore (read current (named "T"))))
+  val _ = require "same-scope Rust read counts" (used = ["'identity_t"])
+  val _ = ignore (read (the (!escaped_context)) (named "T"))
+  val (_, clean) = M.capture_generic_uses scoped (fn current => ignore (read current (escaped "nat")))
+  val _ = require "deactivated invocation does not contaminate later capture" (null clean)
+  val SOME {parameters = [after]} = M.generic_scope scoped
+  val _ = require "original scope record/callback remain exact" (pointer_eq (original, after)
+    andalso pointer_eq (callback, #report_reference after))
+in val _ = writeln "U4 A32 complete identity, fresh contexts, installed membership and exact callbacks PASS" end
+\<close>
+
+ML_val\<open>
+local
+  open Generic_Signature_Test
+  open URust_AST
+  structure M = URust_Type_Mappings
+  structure R = URust_Resolution
+  val base = \<^context>
+  val calls = Unsynchronized.ref ([]: (string * Position.T) list)
+  fun parameter rust hol kind bounds: M.generic_parameter =
+    {rust = rust, pos = Position.none, kind = kind, hol = hol, bounds = bounds,
+     report_reference = fn pos => calls := !calls @ [(rust, pos)]}
+  val t = parameter "T" ("'a32_t", \<^sort>\<open>trait_scale\<close>) Type_Parameter ["Scale"]
+  val n = parameter "N" ("'a32_n", \<^sort>\<open>len\<close>) Const_Parameter []
+  val scoped = M.with_generic_scope {parameters = [t, n]} base
+  val use_pos = Position.of_properties [(Markup.fileN, "a32-routes"),
+    (Markup.offsetN, "20"), (Markup.end_offsetN, "21")]
+  val layout = Source_Layout (use_pos, [])
+  fun named name = Path_Type
+    ([Rust_Type_Path_Segment (name, use_pos, NONE, layout)], layout)
+  fun path names = UR_Path (Identifier_Head,
+    map (fn name => Path_Segment (name, use_pos, NONE)) names, use_pos)
+  val env = R.empty_environment
+  fun checked current term = Syntax.check_term current (Term_Position.strip_positions term)
+  fun equivalent current label actual wanted = require label
+    (checked current actual aconv Syntax.read_term current wanted)
+  fun routes current t_hol n_hol =
+    let
+      val SOME {parameters} = M.generic_scope current
+      val current = fold (Variable.declare_typ o TFree o #hol) parameters current
+      val start = length (!calls)
+      val _ = equivalent current "const value route" (R.literal_path_value current env (path ["N"]))
+        ("of_nat LENGTH(" ^ n_hol ^ ") :: 64 word")
+      val _ = equivalent current "const ordinary route"
+        (R.ordinary_identifier_value current env ("N", use_pos))
+        ("of_nat LENGTH(" ^ n_hol ^ ") :: 64 word")
+      val _ = equivalent current "const repeat route"
+        (R.global_constant_path_value current env (path ["N"]))
+        ("of_nat LENGTH(" ^ n_hol ^ ") :: 64 word")
+      val _ = equivalent current "associated value route"
+        (R.literal_path_value current env (path ["T", "CEILING"]))
+        ("trait_ceiling TYPE(" ^ t_hol ^ ")")
+      val _ = equivalent current "associated repeat route"
+        (R.global_constant_path_value current env (path ["T", "CEILING"]))
+        ("trait_ceiling TYPE(" ^ t_hol ^ ")")
+      val argument_source = Input.source false "N"
+        (Position.of_properties [(Markup.fileN, "a32-routes"), (Markup.offsetN, "20")],
+         Position.of_properties [(Markup.fileN, "a32-routes"), (Markup.offsetN, "21")])
+      val generic = Generic_Args ([Generic_Arg ("N", argument_source)], use_pos)
+      val generic_path = UR_Path (Identifier_Head,
+        [Path_Segment ("SignatureArray", use_pos, SOME generic)], use_pos)
+      val _ = R.function_path current env generic_path 1
+      val seen = drop start (!calls)
+      val _ = require "all six private reporter consumers forward original callback once"
+        (map #1 seen = ["N", "N", "N", "T", "T", "N"] andalso
+          forall (fn (_, pos) => Position.properties_of pos = Position.properties_of use_pos) seen)
+    in () end
+  val (_, same) = M.capture_generic_uses scoped (fn current => routes current "'a32_t" "'a32_n")
+  val _ = require "Resolution actual const, associated and turbofish reads captured"
+    (sort_strings same = ["'a32_n", "'a32_t"])
+  fun changed hol (p: M.generic_parameter): M.generic_parameter =
+    {rust = #rust p, pos = #pos p, kind = #kind p, hol = hol, bounds = #bounds p,
+     report_reference = #report_reference p}
+  val foreign_t = changed ("'a32_foreign_t", \<^sort>\<open>trait_scale\<close>) t
+  val foreign_n = changed ("'a32_foreign_n", \<^sort>\<open>len\<close>) n
+  fun foreign current = M.with_generic_scope {parameters = [foreign_t, foreign_n]} current
+  val (_, replaced) = M.capture_generic_uses scoped
+    (fn current => routes (foreign current) "'a32_foreign_t" "'a32_foreign_n")
+  val _ = require "all Resolution reporter routes exclude inherited foreign identities" (null replaced)
+  val (_, independent) = M.capture_generic_uses scoped (fn current =>
+    routes (foreign (Proof_Context.init_global (Proof_Context.theory_of current)))
+      "'a32_foreign_t" "'a32_foreign_n")
+  val _ = require "fresh context with copied callbacks cannot reach ancestor" (null independent)
+  val ((_, inner), outer) = M.capture_generic_uses scoped (fn parent =>
+    M.capture_generic_uses parent (fn child => routes child "'a32_t" "'a32_n"))
+  val _ = require "same-scope callback observations reach nested parent once"
+    (sort_strings inner = ["'a32_n", "'a32_t"] andalso inner = outer)
+  val ((_, foreign_inner), foreign_outer) = M.capture_generic_uses scoped (fn parent =>
+    M.capture_generic_uses (foreign parent)
+      (fn child => routes child "'a32_foreign_t" "'a32_foreign_n"))
+  val _ = require "foreign child captures itself while excluding parent"
+    (sort_strings foreign_inner = ["'a32_foreign_n", "'a32_foreign_t"] andalso null foreign_outer)
+  val ((_, restored_inner), restored_outer) = M.capture_generic_uses scoped (fn parent =>
+    M.capture_generic_uses (foreign parent) (fn child =>
+      routes (M.with_generic_scope {parameters = [t, n]} child) "'a32_t" "'a32_n"))
+  val _ = require "restoring actual original records reaches original parent only"
+    (null restored_inner andalso sort_strings restored_outer = ["'a32_n", "'a32_t"])
+  val before_error = length (!calls)
+  val bad = parameter "Bad" ("'a32_bad", \<^sort>\<open>type\<close>) Type_Parameter []
+  val errors = Unsynchronized.ref 0
+  val error_callback = fn _ => (errors := !errors + 1; error "A32 exact original callback error")
+  val throwing: M.generic_parameter =
+    {rust = #rust bad, pos = #pos bad, kind = #kind bad, hol = #hol bad,
+     bounds = #bounds bad, report_reference = error_callback}
+  val throwing_scope = M.with_generic_scope {parameters = [throwing]} base
+  val escaped_context = Unsynchronized.ref (NONE: Proof.context option)
+  val (_, error_trace) = M.capture_generic_uses throwing_scope (fn parent =>
+    let
+      val failed = Exn.capture (fn () => M.capture_generic_uses parent (fn child =>
+        (escaped_context := SOME child;
+         ignore (M.resolve_signature child [named "Bad"])))) ()
+    in require "original callback error propagates unchanged"
+      (case failed of Exn.Exn (ERROR "A32 exact original callback error") => true | _ => false) end)
+  val _ = require "real reference before caught callback error retained in parent"
+    (error_trace = ["'a32_bad"] andalso !errors = 1 andalso length (!calls) = before_error)
+  val later_error = Exn.capture (fn () =>
+    M.report_generic_reference (the (!escaped_context)) throwing use_pos) ()
+  val _ = require "deactivated collector preserves later original callback error"
+    (case later_error of Exn.Exn (ERROR "A32 exact original callback error") => !errors = 2 | _ => false)
+  val (_, clean) = M.capture_generic_uses throwing_scope (fn current =>
+    ignore (M.resolve_signature current [HOL_Type_Source (Input.string "nat")]))
+  val _ = require "failure and escaped derived context leave fresh capture clean" (null clean)
+  val SOME {parameters = original} = M.generic_scope scoped
+  val _ = require "route captures preserve complete original records and callback objects"
+    (pointer_eq (t, hd original) andalso pointer_eq (n, nth original 1) andalso
+      pointer_eq (#report_reference t, #report_reference (hd original)) andalso
+      pointer_eq (#report_reference n, #report_reference (nth original 1)))
+in val _ = writeln "U4 A32 actual Resolution routes, fresh contexts, nested identity and callback errors PASS" end
+\<close>
+
+ML_val\<open>
+local
+  open Generic_Signature_Test
+  open URust_AST
+  structure M = URust_Type_Mappings
+  val ctxt = \<^context>
+  val layout = Source_Layout (Position.none, [])
+  fun named name = Path_Type
+    ([Rust_Type_Path_Segment (name, Position.none, NONE, layout)], layout)
+  fun check foreign_read =
+    let
+      val entered = Single_Assignment.var "A32 original callback entry"
+      val blocked = Single_Assignment.var "A32 original callback blocker"
+      val finished = Single_Assignment.var "A32 original callback interruption result"
+      val calls = Unsynchronized.ref 0
+      val callback = fn _ =>
+        (calls := !calls + 1; Single_Assignment.assign entered (); Single_Assignment.await blocked)
+      val original: M.generic_parameter =
+        {rust = "T", pos = Position.none, kind = Type_Parameter,
+         hol = ("'a32_interrupt_t", \<^sort>\<open>type\<close>), bounds = [], report_reference = callback}
+      val foreign: M.generic_parameter =
+        {rust = "U", pos = #pos original, kind = #kind original,
+         hol = ("'a32_interrupt_foreign", \<^sort>\<open>type\<close>),
+         bounds = #bounds original, report_reference = #report_reference original}
+      val scoped = M.with_generic_scope {parameters = [original]} ctxt
+      val (_, parent_trace) = M.capture_generic_uses scoped (fn parent =>
+        let
+          val current = if foreign_read then M.with_generic_scope {parameters = [foreign]} parent
+            else parent
+          val parameter = if foreign_read then foreign else original
+          val thread = Isabelle_Thread.fork
+            (Isabelle_Thread.interrupts (Isabelle_Thread.params "A32 reference interruption"))
+            (fn () => Single_Assignment.assign finished
+              (Exn.capture (fn () => M.capture_generic_uses current (fn child =>
+                let
+                  val SOME {parameters = [actual]} = M.generic_scope child
+                  val _ = require "interrupt capture preserves actual parameter and callback objects"
+                    (pointer_eq (parameter, actual) andalso
+                      pointer_eq (#report_reference parameter, #report_reference actual))
+                in ignore (M.resolve_signature child [named (#rust parameter)]) end)) ()))
+          val _ = Single_Assignment.await entered
+          val _ = Isabelle_Thread.interrupt_thread thread
+          val _ = Isabelle_Thread.join thread
+        in require "actual original callback interrupt propagates unchanged"
+          (case Single_Assignment.await finished of Exn.Exn exn => Exn.is_interrupt exn | _ => false) end)
+      val _ = require "interrupted actual Rust reference retains only same-scope parent trace"
+        (parent_trace = (if foreign_read then [] else ["'a32_interrupt_t"]) andalso !calls = 1)
+      val (_, fresh) = M.capture_generic_uses scoped (fn current =>
+        ignore (M.resolve_signature current [HOL_Type_Source (Input.string "nat")]))
+      val _ = require "interrupted collector deactivates and fresh capture is clean" (null fresh)
+      val SOME {parameters = [after]} = M.generic_scope scoped
+      val _ = require "actual interrupt preserves original caller scope/callback"
+        (pointer_eq (original, after) andalso pointer_eq (callback, #report_reference after))
+    in () end
+  val _ = check false
+  val _ = check true
+in val _ = writeln "U4 A32 actual same-scope and inherited foreign callback interrupt cleanup PASS" end
+\<close>
+
 chapter\<open> Turbofish \<close>
 
 section\<open> Concrete member composition through all four call forms \<close>

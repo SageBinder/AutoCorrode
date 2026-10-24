@@ -104,6 +104,8 @@ sig
   val generic_scope: Proof.context -> generic_scope option
    val capture_generic_uses:
      Proof.context -> (Proof.context -> 'a) -> 'a * string list
+  val report_generic_reference:
+    Proof.context -> generic_parameter -> Position.T -> unit
   val parameter_names:
     Proof.context -> URust_AST.generic_parameter list ->
       ((string * Position.T) * (string * Position.T)) list -> (string * sort) list
@@ -840,6 +842,12 @@ struct
      fun init _ = NONE
    )
 
+   fun same_generic_parameter (left: generic_parameter, right: generic_parameter) =
+     #rust left = #rust right andalso #kind left = #kind right andalso
+     #hol left = #hol right andalso #bounds left = #bounds right andalso
+     Position.properties_of (#pos left) = Position.properties_of (#pos right) andalso
+     pointer_eq (#report_reference left, #report_reference right)
+
    fun capture_generic_uses ctxt action =
      (case generic_scope ctxt of
         NONE => (action ctxt, [])
@@ -850,35 +858,19 @@ struct
             val active = Unsynchronized.ref true
             fun note name =
               if !active then uses := insert (op =) name (!uses) else ()
-            fun observe (parameter as {rust, pos, kind, hol, bounds, report_reference}
-                : generic_parameter) =
-              ({rust = rust, pos = pos, kind = kind, hol = hol, bounds = bounds,
-                report_reference = fn use_pos => (note (fst hol); report_reference use_pos)}
-                 : generic_parameter, parameter)
-            val observed = map observe parameters
-            fun same_parameter (left: generic_parameter, right: generic_parameter) =
-              #rust left = #rust right andalso #kind left = #kind right andalso
-              #hol left = #hol right andalso #bounds left = #bounds right andalso
-              Position.properties_of (#pos left) = Position.properties_of (#pos right) andalso
-              pointer_eq (#report_reference left, #report_reference right)
             val parent = Generic_Uses.get ctxt
-            (* Nested reads reach the parent through the original scope identities. A replaced
-               scope cannot turn an independent native variable into this declaration's use. *)
+            (* Observe actual scope identities without rewriting their callbacks. Nested reads
+               forward the same identities, so foreign scopes cannot become original reads. *)
             fun observe_types current types =
               let
                 val names = maps (fn typ => map fst (Term.add_tfreesT typ [])) types
-                fun restore parameter =
-                  (case find_first (fn (tracked, _) => same_parameter (parameter, tracked))
-                      observed of
-                     SOME (_, original) =>
-                       (if member (op =) names (fst (#hol original))
-                        then note (fst (#hol original)) else (); original)
-                   | NONE => parameter)
-                val original = map restore current
-              in Option.app (fn observe_parent => observe_parent original types) parent end
-            val observed_ctxt =
-              ctxt |> with_generic_scope {parameters = map fst observed}
-              |> Generic_Uses.put (SOME observe_types)
+                fun observe parameter =
+                  if exists (fn tracked => same_generic_parameter (parameter, tracked))
+                      parameters andalso member (op =) names (fst (#hol parameter))
+                  then note (fst (#hol parameter)) else ()
+                val _ = List.app observe current
+              in Option.app (fn observe_parent => observe_parent current types) parent end
+            val observed_ctxt = Generic_Uses.put (SOME observe_types) ctxt
           in
             Thread_Attributes.uninterruptible_body (fn run =>
               let
@@ -891,19 +883,27 @@ struct
    fun note_generic_types ctxt types =
      Option.app (fn observe => observe (scope_parameters ctxt) types) (Generic_Uses.get ctxt)
 
+   fun report_generic_reference ctxt parameter pos =
+     (if exists (fn installed => same_generic_parameter (parameter, installed))
+         (scope_parameters ctxt)
+      then Option.app (fn observe => observe [parameter] [TFree (#hol parameter)])
+        (Generic_Uses.get ctxt)
+      else ();
+      #report_reference parameter pos)
+
   fun resolve_generic ctxt normalize base arities pos =
     (case find_index (fn ({rust, ...}: generic_parameter) => rust = base)
         (scope_parameters ctxt) of
        ~1 => NONE
      | index =>
          let
-           val {hol, kind, report_reference, ...} =
+           val parameter as {hol, kind, ...} =
              nth (scope_parameters ctxt) index
            val _ = if arities = [0] then ()
              else error ("urust: generic parameter " ^ base ^
                " takes no generic arguments" ^ Position.here pos)
            val _ = Navigation.defer_report ctxt pos Markup.tfree
-           val _ = report_reference pos
+           val _ = report_generic_reference ctxt parameter pos
          in
            SOME {typ = normalize (TFree hol),
              meaning = (case kind of Type_Parameter => Meaning_Parameter index

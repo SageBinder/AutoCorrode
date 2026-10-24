@@ -517,11 +517,11 @@ struct
            rust = name) parameters)
 
   fun report_scope_parameter ctxt pos
-      ({rust, hol, report_reference, ...}: URust_Type_Mappings.generic_parameter) =
+      (parameter as {rust, hol, ...}: URust_Type_Mappings.generic_parameter) =
     (Micro_Rust_Semantic_Navigation.defer_report ctxt pos Markup.tfree;
      Micro_Rust_Semantic_Navigation.defer_report_text ctxt pos Markup.typing
        (rust ^ " = " ^ Syntax.string_of_typ (Config.put show_sorts true ctxt) (TFree hol));
-     report_reference pos)
+     URust_Type_Mappings.report_generic_reference ctxt parameter pos)
 
   fun scope_value ctxt (name, pos) =
     Option.map
