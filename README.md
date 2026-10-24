@@ -221,7 +221,8 @@ The same finalized variables are shared by signature/body escapes and channel op
 Inline `T: A + B` and `where T: C` bounds resolve registered traits and combine their minimized HOL
 sorts. Only the function's own type parameters may head a `where` clause. The inline-only
 `hol_type_parameters = ["T" → ‹'element::ord›, "N" → ‹'length::len›]` option chooses distinct HOL
-names and adds sorts; explicit sorts must satisfy final inferred requirements and names cannot
+names and adds sorts that are minimized together with default and bound requirements and may be
+strengthened further during signature inference; names cannot
 capture ambient fixed type variables. It is allowed on a function or concrete impl member,
 including in a chunk annotation, but not as an impl default.
 
