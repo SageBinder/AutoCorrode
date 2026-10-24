@@ -724,6 +724,44 @@ fun is_backend_identity_wrapper ctxt name =
     (Backend_Identity_Wrappers.get (Proof_Context.theory_of ctxt))
     name;
 
+type generic_arguments =
+  {arguments: (typ * Position.T) list, pos: Position.T};
+
+type generic_source_selection =
+  {sources: serial list, kinds: bool option list};
+
+type generic_candidate_sources =
+  {name: string, eligible: Micro_Rust_Names.entry list,
+   maximal: Micro_Rust_Names.entry list};
+
+type generic_candidate_transform =
+  Proof.context -> generic_arguments -> generic_source_selection option -> typ ->
+    generic_candidate_sources ->
+    (Micro_Rust_Names.entry -> term -> term option);
+
+type generic_registration =
+  {identity: serial, binding: binding, transform: generic_candidate_transform};
+
+structure Generic_Transform = Theory_Data
+(
+  type T = generic_registration option;
+  val empty = NONE;
+  fun merge (NONE, registration) = registration
+    | merge (registration, NONE) = registration
+    | merge (SOME (left: generic_registration), SOME (right: generic_registration)) =
+        if #identity left = #identity right then SOME left
+        else error ("Conflicting uRust generic candidate transformations" ^
+          Position.here_list [Binding.pos_of (#binding left), Binding.pos_of (#binding right)]);
+);
+
+fun register_generic_candidate_transform binding transform =
+  let val registration = {identity = serial (), binding = binding, transform = transform} in
+    Generic_Transform.map (fn NONE => SOME registration
+      | SOME (active: generic_registration) =>
+          error ("uRust generic candidate transformation is already registered" ^
+            Position.here_list [Binding.pos_of (#binding active), Binding.pos_of binding]))
+  end;
+
 \<comment>\<open>The marker's payload encodes the registration kind and name together
   with the terminal source position and any qualified-path segment positions
   as a bare \<^verbatim>\<open>Free\<close> with the data packed into the variable's name.
@@ -885,11 +923,119 @@ fun mk_payload kind name pos =
 
 \<comment>\<open>Recognise the payload \<^verbatim>\<open>Free\<close> and recover
   \<open>(kind, name, marker_positions, filters)\<close>.\<close>
-fun dest_payload (Free (s, _)) =
+fun dest_plain_payload (Free (s, _)) =
       if String.isPrefix payload_prefix s
       then SOME (decode_payload (String.extract (s, size payload_prefix, NONE)))
       else NONE
-  | dest_payload _ = NONE;
+  | dest_plain_payload _ = NONE;
+
+val generic_payload_prefix = "_urust_generic_arguments_";
+val generic_source_prefix = "_urust_generic_sources_";
+
+fun malformed_generic_payload () = error "malformed urust_dispatch generic arguments";
+
+fun generic_position_name positions =
+  generic_payload_prefix ^ Micro_Rust_Semantic_Navigation.escape_payload_name
+    (Micro_Rust_Semantic_Navigation.encode_positions positions);
+
+fun generic_positions name =
+  (case Micro_Rust_Semantic_Navigation.unescape_payload_name
+      (String.extract (name, size generic_payload_prefix, NONE)) of
+     SOME encoded =>
+       (case Micro_Rust_Semantic_Navigation.decode_positions encoded of
+          SOME positions => positions
+        | NONE => malformed_generic_payload ())
+   | NONE => malformed_generic_payload ());
+
+fun generic_source_name ({sources, kinds}: generic_source_selection) =
+  let
+    fun kind (SOME true) = "t"
+      | kind (SOME false) = "c"
+      | kind NONE = "n";
+  in generic_source_prefix ^ Micro_Rust_Semantic_Navigation.escape_payload_name
+    (encode_filter (Micro_Rust_Names.Only_Sources sources) ^ payload_sep ^
+      implode (map kind kinds)) end;
+
+fun generic_source_selection name =
+  let
+    fun kind #"t" = SOME true
+      | kind #"c" = SOME false
+      | kind #"n" = NONE
+      | kind _ = malformed_generic_payload ();
+    val encoded = String.extract (name, size generic_source_prefix, NONE);
+    val fields =
+      (case Micro_Rust_Semantic_Navigation.unescape_payload_name encoded of
+         SOME decoded => String.fields (fn ch => ch = Char.chr 0) decoded
+       | NONE => malformed_generic_payload ());
+  in
+    (case fields of
+       [sources, kinds] =>
+         (case decode_filter sources of
+            SOME (Micro_Rust_Names.Only_Sources serials) =>
+              {sources = serials, kinds = map kind (String.explode kinds)}
+          | _ => malformed_generic_payload ())
+     | _ => malformed_generic_payload ())
+  end;
+
+fun read_generic_payload payload =
+  let
+    fun witnesses (Const (\<^const_name>\<open>Pair\<close>, _) $ witness $ rest) =
+          Logic.dest_type witness :: witnesses rest
+      | witnesses (Const (\<^const_name>\<open>Unity\<close>, _)) = []
+      | witnesses _ = malformed_generic_payload ();
+    fun tagged term =
+      Term.exists_subterm (fn Free (name, _) =>
+        String.isPrefix generic_payload_prefix name orelse
+          String.isPrefix generic_source_prefix name | _ => false) term;
+    fun selection (term as Const (\<^const_name>\<open>Pair\<close>, _) $ Free (name, _) $ types) =
+          if String.isPrefix generic_source_prefix name
+          then (SOME (generic_source_selection name), types)
+          else (NONE, term)
+      | selection types = (NONE, types);
+  in
+    (case payload of
+       Const (\<^const_name>\<open>Pair\<close>, _) $ base $
+         (Const (\<^const_name>\<open>Pair\<close>, _) $ Free (name, _) $ types) =>
+           if String.isPrefix generic_payload_prefix name then
+             let
+               val _ = if is_some (dest_plain_payload base) then ()
+                 else malformed_generic_payload ();
+               val positions = generic_positions name;
+               val (sources, witnesses_term) = selection types;
+               val arguments = witnesses witnesses_term handle TERM _ => malformed_generic_payload ();
+               val _ =
+                 (case sources of
+                    SOME {kinds, ...} =>
+                      if length kinds = length arguments then () else malformed_generic_payload ()
+                  | NONE => ());
+             in
+               (case positions of
+                  pos :: argument_positions =>
+                    if length arguments = length argument_positions then
+                      SOME {base = base,
+                        arguments = {pos = pos, arguments = arguments ~~ argument_positions},
+                        sources = sources}
+                    else malformed_generic_payload ()
+                | [] => malformed_generic_payload ())
+             end
+           else if tagged payload then malformed_generic_payload () else NONE
+     | _ => if tagged payload then malformed_generic_payload () else NONE)
+  end;
+
+fun dest_generic_payload payload =
+  Option.map (fn {base, arguments, ...} => (base, arguments)) (read_generic_payload payload);
+
+fun dest_payload payload =
+  dest_plain_payload
+    (case dest_generic_payload payload of SOME (base, _) => base | NONE => payload);
+
+fun map_payload_base transform payload =
+  (case dest_generic_payload payload of
+     SOME _ =>
+       (case payload of
+          pair $ base $ metadata => pair $ transform base $ metadata
+        | _ => malformed_generic_payload ())
+   | NONE => transform payload);
 
 \<comment>\<open>Construct a marker \<open>urust_dispatch (STR ''<tag>'') opt\<close>:
 
@@ -954,6 +1100,53 @@ fun mk_marker_positions_with_backend_targets
 fun mk_marker kind name pos witness =
   mk_marker_positions kind name pos [] witness;
 
+fun with_generic_arguments ({arguments, pos}: generic_arguments) =
+  let
+    val metadata = Free (generic_position_name (pos :: map snd arguments), dummyT);
+    val witnesses = fold_rev (fn (typ, _) => fn rest =>
+      HOLogic.mk_prod (Logic.mk_type typ, rest)) arguments HOLogic.unit;
+    fun wrap (Const (\<^const_name>\<open>urust_dispatch\<close>, T) $ payload $ opt) =
+          (case dest_payload payload of
+             SOME (Micro_Rust_Names.NFunction, _, _, _) =>
+               if is_some (dest_generic_payload payload) then malformed_generic_payload ()
+               else Const (\<^const_name>\<open>urust_dispatch\<close>, T) $
+                 HOLogic.mk_prod (payload, HOLogic.mk_prod (metadata, witnesses)) $ opt
+           | SOME _ => malformed_generic_payload ()
+           | NONE => Const (\<^const_name>\<open>urust_dispatch\<close>, T) $ payload $ wrap opt)
+      | wrap (t $ u) = wrap t $ wrap u
+      | wrap (Abs (name, T, body)) = Abs (name, T, wrap body)
+      | wrap term = term;
+  in wrap end;
+
+fun marker_generic_arguments (Const (\<^const_name>\<open>urust_dispatch\<close>, _) $ payload $ _) =
+      Option.map #2 (dest_generic_payload payload)
+  | marker_generic_arguments _ = NONE;
+
+fun marker_generic_source_selection (Const (\<^const_name>\<open>urust_dispatch\<close>, _) $ payload $ _) =
+      Option.mapPartial #sources (read_generic_payload payload)
+  | marker_generic_source_selection _ = NONE;
+
+fun with_generic_source_arguments selection (arguments: generic_arguments) term =
+  let
+    val _ = if length (#kinds selection) = length (#arguments arguments) then ()
+      else malformed_generic_payload ();
+    val metadata = Free (generic_source_name selection, dummyT);
+    fun wrap (Const (\<^const_name>\<open>urust_dispatch\<close>, T) $ payload $ witness) =
+          (case read_generic_payload payload of
+             SOME _ =>
+               (case payload of
+                  _ $ base $ (_ $ positions $ types) =>
+                    Const (\<^const_name>\<open>urust_dispatch\<close>, T) $
+                      HOLogic.mk_prod (base,
+                        HOLogic.mk_prod (positions, HOLogic.mk_prod (metadata, types))) $
+                      witness
+                | _ => malformed_generic_payload ())
+           | NONE => Const (\<^const_name>\<open>urust_dispatch\<close>, T) $ payload $ wrap witness)
+      | wrap (left $ right) = wrap left $ wrap right
+      | wrap (Abs (name, T, body)) = Abs (name, T, wrap body)
+      | wrap term = term;
+  in wrap (with_generic_arguments arguments term) end;
+
 \<comment>\<open>Recognise a marker. Returns \<open>SOME ((kind, name, positions),
   opt_witness, T)\<close> where \<open>opt_witness\<close> is \<open>SOME witness\<close> for plain ids
   (the elaborated witness term) and \<open>NONE\<close> for paths, and \<open>T\<close> is the
@@ -1007,8 +1200,9 @@ fun restrict_backends filters =
           (case dest_payload payload of
              SOME (kind, name, positions, existing) =>
                Const (\<^const_name>\<open>urust_dispatch\<close>, T) $
-                 mk_filtered_payload_positions (fold add_filter filters existing)
-                   kind name positions $ opt
+                  map_payload_base
+                    (K (mk_filtered_payload_positions (fold add_filter filters existing)
+                      kind name positions)) payload $ opt
            | NONE =>
                Const (\<^const_name>\<open>urust_dispatch\<close>, T) $ payload $ restrict opt)
       | restrict (t $ u) = restrict t $ restrict u
@@ -1037,23 +1231,23 @@ fun unifiable_types ctxt (T, T') =
   \<open>unifiable_types\<close> but also \<^emph>\<open>applies the substitution\<close> so the
   resulting term has no orphan schematics --- otherwise \<open>check_term\<close>'s
   later "Illegal schematic type variable" guard fires.\<close>
-fun unify_and_instantiate ctxt T t =
+fun unify_fresh_and_instantiate ctxt T t =
   let
     val thy = Proof_Context.theory_of ctxt;
     val T' = fastype_of t;
-    val maxidx1 = Term.maxidx_of_typ T;
-    val shift = maxidx1 + 1;
-    val T'' = Logic.incr_tvar shift T';
-    val t' = Term.map_types (Logic.incr_tvar shift) t;
-    val maxidx2 = Term.maxidx_typ T'' maxidx1;
+    val maxidx = Term.maxidx_typ T' (Term.maxidx_of_typ T);
   in
-    case try (Sign.typ_unify thy (T, T'')) (Vartab.empty, maxidx2) of
+    case try (Sign.typ_unify thy (T, T')) (Vartab.empty, maxidx) of
       NONE => NONE
     | SOME (tyenv, _) =>
         let
           val subst = Term.map_types (Envir.subst_type tyenv)
-        in SOME (subst t') end
+         in SOME (subst t) end
   end;
+
+fun unify_and_instantiate ctxt T t =
+  unify_fresh_and_instantiate ctxt T
+    (Term.map_types (Logic.incr_tvar (Term.maxidx_of_typ T + 1)) t);
 
 \<comment>\<open>Candidate backends retain their complete types: interpreted concrete types and
   ambient fixed type variables constrain dispatch. Only unfixed variables are generalized; each
@@ -1070,23 +1264,54 @@ fun fresh_backend ctxt term =
 fun eligible_entries ctxt filters kind name =
   Micro_Rust_Names.eligible_entries ctxt filters (Micro_Rust_Names.lookups ctxt kind name);
 
-fun filtered_candidates ctxt filters kind name T =
+fun generic_source_filters NONE filters = filters
+  | generic_source_filters (SOME {sources, ...}: generic_source_selection option) filters =
+      filters @ [Micro_Rust_Names.Only_Sources sources];
+
+fun filtered_candidates_with_source_generics ctxt filters kind name T generic_arguments selection =
   let
     val entries = eligible_entries ctxt filters kind name;
+    val selected = Micro_Rust_Names.eligible_entries ctxt
+      (generic_source_filters selection []) entries;
     (* Theory union may bring together a generic backend and its specialization. Prefer the
        covering scheme before instantiation, including when effect channels remain unconstrained. *)
     val maximal = filter (fn entry => not (exists (fn other =>
       not (Micro_Rust_Names.reg_eq (other, entry)) andalso
-      Micro_Rust_Names.backend_covers (Proof_Context.theory_of ctxt) other entry) entries)) entries;
+      Micro_Rust_Names.backend_covers (Proof_Context.theory_of ctxt) other entry) selected)) selected;
+    val transform =
+      (case generic_arguments of
+         NONE => NONE
+       | SOME arguments =>
+           (case Generic_Transform.get (Proof_Context.theory_of ctxt) of
+              SOME {transform, ...} => SOME (transform ctxt arguments selection T
+                {name = name, eligible = entries, maximal = maximal})
+            | NONE => error "uRust generic candidate transformation is not registered"));
+    fun instantiate entry hol_term =
+      (case transform of
+         NONE => unify_and_instantiate ctxt T (fresh_backend ctxt hol_term)
+       | SOME apply =>
+           let
+             val arguments = #arguments (the generic_arguments);
+             val caller_max = fold (Term.maxidx_typ o fst) arguments
+               (Int.max (Variable.maxidx_of ctxt, Term.maxidx_of_typ T));
+             val candidate = fresh_backend ctxt hol_term
+               |> Term.map_types (Logic.incr_tvar (caller_max + 1));
+           in Option.mapPartial (unify_fresh_and_instantiate ctxt T) (apply entry candidate) end);
   in
     maximal
     |> sort (int_ord o apply2 #serial)
     |> map_filter (fn entry as {hol_term, ...} =>
          Option.map (fn backend => {entry = entry, term = Type.constraint T backend})
-           (unify_and_instantiate ctxt T (fresh_backend ctxt hol_term)))
+            (instantiate entry hol_term))
     |> distinct (fn (left: dispatch_candidate, right: dispatch_candidate) =>
          Term.aconv (apply2 Micro_Rust_Names.normalized_backend (#term left, #term right)))
   end;
+
+fun filtered_candidates_with_generics ctxt filters kind name T generic_arguments =
+  filtered_candidates_with_source_generics ctxt filters kind name T generic_arguments NONE;
+
+fun filtered_candidates ctxt filters kind name T =
+  filtered_candidates_with_generics ctxt filters kind name T NONE;
 
 fun candidates ctxt kind name T = filtered_candidates ctxt [] kind name T;
 
@@ -1448,7 +1673,10 @@ fun resolve ctxt =
          SOME ((kind, name, positions, filters), opt_witness, T) =>
            let
              val pos = #terminal_pos positions
-             val cands = filtered_candidates ctxt filters kind name T
+             val selection = marker_generic_source_selection t
+             val actual_filters = generic_source_filters selection filters
+             val cands = filtered_candidates_with_source_generics ctxt filters kind name T
+               (marker_generic_arguments t) selection
              val _ =
                shadow_check ctxt kind name T pos (not (null cands))
                  (denotes_registered_backend (Micro_Rust_Names.lookups ctxt kind name) ctxt)
@@ -1463,10 +1691,10 @@ fun resolve ctxt =
                   else
                     (case cands of
                        [single] => select single
-                     | [] => no_match_error ctxt filters kind name pos T
+                     | [] => no_match_error ctxt actual_filters kind name pos T
                      | _ => t \<comment>\<open>ambiguous: leave for \<open>reject_unresolved\<close>\<close>)
               | (NONE, [single]) => select single
-              | (NONE, []) => no_match_error ctxt filters kind name pos T
+              | (NONE, []) => no_match_error ctxt actual_filters kind name pos T
               | (NONE, _) => t)
            end
        | NONE =>
@@ -1491,7 +1719,9 @@ fun reject_unresolved ctxt =
                 Pretty.str (Position.here pos)],
               Pretty.big_list "candidate backends:"
                 (map (Syntax.pretty_term ctxt o #hol_term)
-                   (eligible_entries ctxt filters kind name))]))
+                   (eligible_entries ctxt
+                     (generic_source_filters (marker_generic_source_selection t) filters)
+                     kind name))]))
            end
        | NONE =>
            (case t of u $ v => (check u; check v) | Abs (_, _, b) => check b | _ => ()));

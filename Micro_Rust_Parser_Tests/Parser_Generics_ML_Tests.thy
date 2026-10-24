@@ -3070,10 +3070,1297 @@ in val _ = () end
 
 chapter\<open> Bodies \<close>
 
-text\<open> Reserved for U4 generic body audits. \<close>
+section\<open> Positioned body errors and complete failure atomicity \<close>
+
+ML_val\<open>
+local
+  open Generic_Signature_Test
+  val thy = @{theory}
+  val ctxt = Proof_Context.init_global thy
+  val prior_snapshot = snapshot ctxt
+  val schemes = scheme_snapshot ctxt
+  val traits = map (URust_Trait_Mappings.lookup ctxt) ["Scale", "SlotOne", "SlotTwo", "Marker"]
+  val prefix = "/* " ^ Symbol.open_ ^ " marker " ^ Symbol.close ^ " */ "
+  val rows =
+    [("type-value", "urust: type parameter T cannot be used as a value",
+      "fn BodyError<T>(value: T) -> T { T }", "T", 3),
+     ("missing-constant", "urust: no associated constant MISSING in the bounds of T",
+      "fn BodyError<T: Marker>(value: T) -> " ^ "\<tau>" ^ cartouche "nat" ^ " { T::MISSING }", "MISSING", 0),
+     ("ambiguous-constant", "multiple applicable associated constants SLOT for T: SlotOne, SlotTwo",
+      "fn BodyError<T: SlotOne + SlotTwo>(value: T) -> " ^ "\<tau>" ^ cartouche "nat" ^
+        " { T::SLOT }", "SLOT", 0),
+     ("concrete-missing-sort", "primitive associated-item path",
+      "fn BodyError() -> " ^ "\<tau>" ^ cartouche "nat" ^ " { u8::CEILING }", "CEILING", 0),
+     ("concrete-ambiguous", "multiple applicable associated constants SLOT for BodyNumber: SlotOne, SlotTwo",
+      "fn BodyError() -> BodyNumber { BodyNumber::SLOT }", "SLOT", 0),
+     ("body-only-const", "urust: generic parameter N does not occur in the signature",
+      "fn BodyError<const N: usize>() -> usize { N }", "N", 0)]
+  fun check (label, expected, rust, token, occurrence) =
+    let
+      val label = "body-" ^ label
+      val text = "urust_fn [verbosity = 0] body_error " ^ cartouche (prefix ^ rust)
+      val callbacks = saved_callbacks ()
+      val report_callback = !Private_Output.report_fn
+      val (result, events) = capture (fn () => run thy label text)
+      val diagnostic = (case result of
+          Exn.Res _ => error (label ^ ": unexpectedly accepted")
+        | Exn.Exn exn => if Exn.is_interrupt exn then Exn.reraise exn else Runtime.exn_message exn)
+      val _ = require (label ^ ": exact expected diagnostic absent: " ^ diagnostic)
+        (String.isSubstring expected diagnostic)
+      val ranges = map position_range (message_positions diagnostic)
+      val _ = require (label ^ ": wrong leaf/header range: " ^ commas (map (fn (a,b) =>
+          string_of_int a ^ "-" ^ string_of_int b) ranges))
+        (not (null ranges) andalso hd ranges = range_of text token occurrence)
+      val _ = require (label ^ ": failed body leaked ordinary/urgent output or declaration reports")
+        (null (ordinary events) andalso null (declaration_reports events))
+      val _ = require (label ^ ": exact callback restoration failed")
+        (same_callbacks callbacks andalso PolyML.pointerEq (report_callback, !Private_Output.report_fn))
+      val current = Proof_Context.init_global thy
+      val _ = require (label ^ ": failure changed source registries, theory, scopes or trait templates")
+        (snapshot current = prior_snapshot andalso scheme_snapshot current = schemes andalso
+         map (URust_Trait_Mappings.lookup current) ["Scale", "SlotOne", "SlotTwo", "Marker"] = traits)
+      val (recovered, _) = capture (fn () => run thy (label ^ "-recovery")
+        ("urust_fn [verbosity = 0] " ^ cartouche "fn BodyRecovery(value: u8) -> u8 { value }"))
+      val _ = require (label ^ ": failure blocked an ordinary subsequent declaration")
+        (is_some (Parser_Test_Calls.lookup (Exn.release recovered |> Toplevel.context_of) "BodyRecovery"))
+    in () end
+  val _ = List.app check rows
+in end
+\<close>
+
+section\<open> Associated-constant navigation and final-sort tooltips \<close>
+
+ML_val\<open>
+local
+  open Generic_Signature_Test
+  val thy = @{theory}
+  val item = "/* " ^ Symbol.open_ ^ " marker " ^ Symbol.close ^ " */ " ^
+    "fn BodyMarkup<T: Scale, const N: usize>(value: [T; N]) -> \<tau>" ^ cartouche "nat" ^
+    " { let count = N; T::CEILING }"
+  val text = "urust_fn [verbosity = 0] body_markup " ^ cartouche item
+  val callbacks = saved_callbacks ()
+  val report_callback = !Private_Output.report_fn
+  val (result, events) = capture (fn () => run thy "body-markup" text)
+  val completed = Exn.release result |> Toplevel.context_of
+  val markup = fold Parser_Test_Reports.collect_markup (trees "report" events) []
+  fun at props token occurrence =
+    position_range (Position.of_properties props) = range_of text token occurrence
+  fun plain chunks = XML.content_of (maps YXML.parse_body chunks)
+    |> Symbol.explode |> filter_out Symbol.is_control |> implode
+  fun typings range (XML.Elem ((name, props), body)) =
+        (if name = Markup.typingN andalso position_range (Position.of_properties props) = range
+         then [plain [XML.content_of body]] else []) @ maps (typings range) body
+    | typings _ (XML.Text _) = []
+  val parameters = entry_scheme completed (entry completed "BodyMarkup")
+  val _ = require "body markup retains final source type and const length sorts"
+    (map #hol parameters = [("'t", @{sort trait_scale}), ("'n", @{sort len})])
+  val _ = List.app (fn (name, header, use, parameter) =>
+    let
+      val definitions = markup |> map_filter (fn (element, props) =>
+        if element = Markup.entityN andalso at props name header andalso
+          Properties.get props Markup.kindN = SOME "urust_generic_parameter"
+        then Properties.get props Markup.defN else NONE)
+      val _ = require "body generic use navigates to its exact declaration after an escaped comment"
+        (length definitions = 1 andalso exists (fn (element, props) =>
+          element = Markup.entityN andalso at props name use andalso
+          Properties.get props Markup.kindN = SOME "urust_generic_parameter" andalso
+          Properties.get props Markup.refN = SOME (hd definitions)) markup)
+      val expected = plain [name ^ " = " ^ Syntax.string_of_typ
+        (Config.put show_sorts true completed) (TFree (#hol parameter))]
+      val _ = List.app (fn occurrence => require "body header/use labelled tooltip retains final sort"
+        (Library.member (op =) (maps (typings (range_of text name occurrence)) (trees "report" events)) expected))
+        [header, use]
+    in () end)
+    [("T", 0, 2, hd parameters), ("N", 0, 2, nth parameters 1)]
+  val scale = the (URust_Trait_Mappings.lookup completed "Scale")
+  val (_, expected_trait_properties) = Position.entity_markup "urust_trait" ("Scale", #pos scale)
+  val _ = require "associated constant use retains native bound-trait definition navigation"
+    (exists (fn (element, props) => element = Markup.entityN andalso at props "CEILING" 0 andalso
+      forall (fn (key, value) => Properties.get props key = SOME value) expected_trait_properties) markup)
+  val _ = require "associated constant use navigates to its mapped native constant"
+    (exists (fn (element, props) => element = Markup.entityN andalso at props "CEILING" 0 andalso
+      Properties.get props Markup.kindN = SOME "constant" andalso
+      Properties.get props Markup.nameN = SOME @{const_name trait_ceiling}) markup)
+  val _ = require "associated constant tooltip retains the checked native type witness and sort"
+    (exists (fn typing => String.isSubstring "trait_ceiling" typing andalso
+      String.isSubstring (plain [Syntax.string_of_typ (Config.put show_sorts true completed)
+        (TFree (#hol (hd parameters)))]) typing)
+      (maps (typings (range_of text "CEILING" 0)) (trees "report" events)))
+  val _ = require "body navigation capture restores exact output and report callbacks"
+    (same_callbacks callbacks andalso PolyML.pointerEq (report_callback, !Private_Output.report_fn))
+  val _ = require_scope_closed "body markup" completed
+in end
+\<close>
+
+ML_val\<open>
+local
+  open Generic_Signature_Test
+  val thy = @{theory}
+  val text = "micro_rust_notation (literal) " ^ cartouche "23 :: nat" ^ " (\"T::CEILING\")\n" ^
+    "urust_fn [verbosity = 0] body_precedence " ^ cartouche
+      ("fn BodyPrecedence<T: Scale>(value: T) -> " ^ "\<tau>" ^ cartouche "nat" ^ " { T::CEILING }") ^ "\n" ^
+    "urust_fn [verbosity = 0] body_precedence_twin " ^ cartouche
+      ("fn BodyPrecedenceTwin(value: " ^ "\<tau>" ^ cartouche "'t::trait_scale" ^ ") -> " ^
+       "\<tau>" ^ cartouche "nat" ^ " { \<llangle>trait_ceiling TYPE('t)\<rrangle> }") ^ "\n" ^
+    "lemma " ^ cartouche "body_precedence = body_precedence_twin" ^
+      " unfolding body_precedence_def body_precedence_twin_def by (rule refl)"
+  val (result, _) = capture (fn () => run thy "scope-constant-precedence" text)
+  val _ = ignore (Exn.release result)
+  val _ = writeln "U4 scoped generic head shadows explicit full-path literal notation kernel twin PASS"
+in end
+\<close>
+
+ML_val\<open>
+local
+  open Generic_Signature_Test
+  val thy = @{theory}
+  val ctxt = @{context}
+  val prior = snapshot ctxt
+  val schemes = scheme_snapshot ctxt
+  val prefix = "/* " ^ Symbol.open_ ^ " transaction " ^ Symbol.close ^ " */ "
+  val families =
+    [("standalone", "urust_fn", "body_transaction", prefix ^
+      "fn BodyTransaction<T>(value: T) -> T { SignatureIdentity::<T, u8>(value) }", "::<T, u8>"),
+     ("chunk-free", "urust", "", "struct TransactionBox<T> { payload: T }\n" ^
+      "fn TransactionFirst<T>(value: T) -> T { value }\n" ^ prefix ^
+      "fn TransactionLast<T>(value: T) -> T { SignatureIdentity::<T, u8>(value) }", "::<T, u8>"),
+     ("chunk-member", "urust", "", "struct TransactionBox<T> { payload: T }\n" ^
+      "fn TransactionFirst<T>(value: T) -> T { value }\nimpl TransactionBox<u8> {\n" ^ prefix ^
+      "fn last<T>(value: T) -> T { SignatureIdentity::<T, u8>(value) }\n}", "::<T, u8>")]
+  val _ = List.app (fn verbosity => List.app (fn (label, command, name, rust, token) =>
+    let
+      val text = command ^ " [verbosity = " ^ string_of_int verbosity ^ "] " ^ name ^ " " ^ cartouche rust
+      val callbacks = saved_callbacks ()
+      val reporter = !Private_Output.report_fn
+      val (result, events) = capture (fn () => run thy (label ^ "-late-body") text)
+      val raw = case result of Exn.Res _ => error (label ^ ": late body unexpectedly accepted")
+        | Exn.Exn exn => if Exn.is_interrupt exn then Exn.reraise exn else Runtime.exn_message exn
+      val _ = require "late generic body failure retains exact diagnostic and full argument source range"
+        (String.isSubstring "wrong number of generic arguments" raw andalso
+         hd (map position_range (message_positions raw)) = range_of text token 0)
+      val _ = require "late body failure after datatype/earlier function leaks no complete ordinary/urgent/report chunks"
+        (null (ordinary events) andalso null (declaration_reports events))
+      val _ = require "late body failure restores exact callbacks, namespace, registrations, native artifacts and closed scope"
+        (same_callbacks callbacks andalso PolyML.pointerEq (reporter, !Private_Output.report_fn) andalso
+         snapshot (Proof_Context.init_global thy) = prior andalso
+         scheme_snapshot (Proof_Context.init_global thy) = schemes)
+      val _ = require_scope_closed "late body failure" (Proof_Context.init_global thy)
+      val recovery = "urust [verbosity = 0] " ^ cartouche
+        "struct TransactionBox<T> { payload: T }\nfn TransactionFirst<T>(value: T) -> T { value }"
+      val (recovered, _) = capture (fn () => run thy (label ^ "-late-recovery") recovery)
+      val current = Exn.release recovered |> Toplevel.context_of
+      val _ = require "same-source ordinary datatype/generic function recovery after late body failure"
+        (is_some (Parser_Test_Calls.lookup current "TransactionFirst") andalso
+         is_some (URust_Type_Mappings.lookup current "TransactionBox"))
+    in () end) families) [0, 1, 2]
+  val _ = writeln "U4 late body failures after generated artifacts/full streams/source ranges/restoration/recovery all verbosity levels PASS"
+in end
+\<close>
 
 chapter\<open> Turbofish \<close>
 
-text\<open> Reserved for U4 generic call audits. \<close>
+section\<open> Concrete member composition through all four call forms \<close>
+
+ML_val\<open>
+local
+  open Generic_Signature_Test
+  val thy = @{theory}
+  val members =
+    "fn route<T>(self, value: T) -> T { value }\n" ^
+    "fn mixed<T, const N: usize>(self, value: (T, [u8; N])) -> (T, [u8; N]) { value }\n" ^
+    "fn ordered<const N: usize, T, const M: usize, U>(self, value: ([T; N], [U; M])) -> ([T; N], [U; M]) { value }\n" ^
+    "fn borrowed<'a, T>(self, value: &'a mut T) -> &'a mut T { value }\n" ^
+    "fn bounded<T: Scale>(self, value: T) -> T { value }\n" ^
+    "fn unused<T: Scale>(self, value: u8) -> u8 { value }\n" ^
+    "fn capacity<const N: usize>(self, value: [u8; N]) -> usize { N }"
+  val model_text = "urust [verbosity = 0] " ^ cartouche
+    ("struct CallMatrixOwner { measure: u8 }\nstruct CallMatrixHolder<V> { payload: V }\n" ^
+      "impl CallMatrixOwner { " ^ members ^ " }\n" ^
+      "impl CallMatrixHolder<u16> { " ^ members ^ " }")
+  val model_state = run thy "call-matrix-model" model_text
+  val model = Toplevel.theory_of model_state
+  val rows =
+    [("route", "u8", "u8", "u8"),
+     ("mixed", "u8, 3", "(u8, [u8; 3])", "(u8, [u8; 3])"),
+     ("ordered", "3, u8, 4, u16", "([u8; 3], [u16; 4])", "([u8; 3], [u16; 4])"),
+     ("borrowed", "u8", "&mut u8", "&mut u8"),
+     ("bounded", "\<tau>" ^ cartouche "nat", "\<tau>" ^ cartouche "nat", "\<tau>" ^ cartouche "nat"),
+     ("unused", "\<tau>" ^ cartouche "nat", "u8", "u8"),
+     ("capacity", "3", "[u8; 3]", "usize")]
+  fun case_source form (member, arguments, parameter_type, result_type) =
+    let
+      val name = "CallMatrix" ^ form ^ member
+      val owner = if form = "Selected" then "CallMatrixHolder<u16>" else "CallMatrixOwner"
+      val native = if form = "Selected" then "call_matrix_holder_" ^ member else "call_matrix_owner_" ^ member
+      val prefix = if form = "Selected" then "CallMatrixHolder::<u16>::" else "CallMatrixOwner::"
+      val call = if form = "Dot" then "owner." ^ member ^ "::<" ^ arguments ^ ">(value)"
+        else prefix ^ member ^ "::<" ^ arguments ^ ">(owner, value)"
+      val parameter_clause = "(owner: " ^ owner ^ ", value: " ^ parameter_type ^ ") -> " ^ result_type
+      (* Explicit HOL names keep the fixture independent of automatic snake-case word splitting. *)
+      val actual = "urust_fn [verbosity = 0] matrix_actual " ^ cartouche
+        ("fn " ^ name ^ parameter_clause ^ " { " ^ call ^ " }")
+      val twin = "urust_fn [verbosity = 0] matrix_twin " ^ cartouche
+        ("fn " ^ name ^ "Twin" ^ parameter_clause ^ " { \<epsilon>" ^ cartouche native ^ "(owner, value) }")
+    in actual ^ "\n" ^ twin ^ "\nlemma matrix_refl: " ^ cartouche "matrix_actual = matrix_twin" ^
+      " unfolding matrix_actual_def matrix_twin_def by (rule refl)" end
+  val _ = List.app (fn form => List.app (fn row =>
+    ignore (run model ("call-matrix-" ^ form ^ "-" ^ #1 row) (case_source form row))) rows)
+    ["Concrete", "Selected", "Dot"]
+  val self_rows =
+    [("route", "T", "T", "T", "T"),
+     ("mixed", "T, const N: usize", "T, N", "(T, [u8; N])", "(T, [u8; N])"),
+     ("ordered", "const N: usize, T, const M: usize, U", "N, T, M, U", "([T; N], [U; M])", "([T; N], [U; M])"),
+     ("borrowed", "'a, T", "T", "&'a mut T", "&'a mut T"),
+     ("bounded", "T: Scale", "T", "T", "T"),
+     ("unused", "T: Scale", "T", "u8", "u8"),
+     ("capacity", "const N: usize", "N", "[u8; N]", "usize")]
+  val _ = List.app (fn (member, generics, arguments, parameter_type, result_type) =>
+    let
+      val parameter_clause = "<" ^ generics ^ ">(self, value: " ^ parameter_type ^ ") -> " ^ result_type
+      val actual = "urust [verbosity = 0] " ^ cartouche
+        ("impl CallMatrixOwner {\n\<omega>" ^ cartouche "name = \"matrix_actual\"" ^
+          "\nfn Forward" ^ parameter_clause ^ " { Self::" ^ member ^ "::<" ^ arguments ^ ">(self, value) } }")
+      val twin = "urust_fn [verbosity = 0] matrix_twin " ^ cartouche
+        ("fn MatrixTwin<" ^ generics ^ ">(self: CallMatrixOwner, value: " ^ parameter_type ^ ") -> " ^
+          result_type ^ " { \<epsilon>" ^ cartouche ("call_matrix_owner_" ^ member) ^ "(self, value) }")
+      val source = actual ^ "\n" ^ twin ^ "\nlemma matrix_refl: " ^ cartouche "matrix_actual = matrix_twin" ^
+        " unfolding matrix_actual_def matrix_twin_def by (rule refl)"
+    in ignore (run model ("call-matrix-Self-" ^ member) source) end) self_rows
+in end
+\<close>
+
+section\<open> Positioned member argument errors and complete recovery controls \<close>
+
+ML_val\<open>
+local
+  open Generic_Signature_Test
+  val thy = @{theory}
+  val members =
+    "fn route<T>(self, value: T) -> T { value }\n" ^
+    "fn mixed<T, const N: usize>(self, value: (T, [u8; N])) -> (T, [u8; N]) { value }\n" ^
+    "fn ordered<const N: usize, T, const M: usize, U>(self, value: ([T; N], [U; M])) -> ([T; N], [U; M]) { value }\n" ^
+    "fn borrowed<'a, T>(self, value: &'a mut T) -> &'a mut T { value }\n" ^
+    "fn bounded<T: Scale>(self, value: T) -> T { value }\n" ^
+    "fn unused<T: Scale>(self, value: u8) -> u8 { value }\n" ^
+    "fn capacity<const N: usize>(self, value: [u8; N]) -> usize { N }"
+  val model_text = "urust [verbosity = 0] " ^ cartouche
+    ("struct CallMatrixOwner { measure: u8 }\nstruct CallMatrixHolder<V> { payload: V }\n" ^
+      "impl CallMatrixOwner { " ^ members ^ " }\n" ^
+      "impl CallMatrixHolder<u16> { " ^ members ^ " }")
+  val model_state = run thy "call-matrix-model" model_text
+  val model = Toplevel.theory_of model_state
+  val prefix = "/* " ^ Symbol.open_ ^ " marker " ^ Symbol.close ^ " */ "
+  val rows =
+    [("wrong-count", "route", "u8, u16", "u8", "u8", ""),
+     ("const-in-type-slot", "route", "3", "u8", "u8", ""),
+     ("type-in-const-slot", "capacity", "bool", "[u8; 3]", "usize", ""),
+     ("bool-const-value", "capacity", "true", "[u8; 3]", "usize", ""),
+     ("trait-bound", "bounded", "u8", "u8", "u8", ""),
+     ("unused-trait-bound", "unused", "u8", "u8", "u8", ""),
+     ("propagated-bound", "bounded", "T", "T", "T", "<T: Marker>"),
+     ("suffixed-const", "capacity", "3usize", "[u8; 3]", "usize", "")]
+  fun case_source form (label, member, arguments, parameter_type, result_type, generics) =
+    let
+      val owner = if form = "Selected" then "CallMatrixHolder<u16>" else "CallMatrixOwner"
+      val path = if form = "Selected" then "CallMatrixHolder::<u16>::" else
+        if form = "Self" then "Self::" else "CallMatrixOwner::"
+      val call = if form = "Dot" then "owner." ^ member ^ "::<" ^ arguments ^ ">(value)"
+        else path ^ member ^ "::<" ^ arguments ^ ">(" ^
+          (if form = "Self" then "self" else "owner") ^ ", value)"
+      val parameter_clause = generics ^ "(" ^
+        (if form = "Self" then "self" else "owner: " ^ owner) ^
+        ", value: " ^ parameter_type ^ ") -> " ^ result_type
+      val item = "fn MatrixError" ^ parameter_clause ^ " { " ^ call ^ " }"
+    in if form = "Self" then "urust [verbosity = 0] " ^ cartouche
+        (prefix ^ "impl CallMatrixOwner { " ^ item ^ " }")
+       else "urust_fn [verbosity = 0] matrix_error " ^ cartouche (prefix ^ item) end
+  val original = Proof_Context.init_global model
+  val original_snapshot = snapshot original
+  val original_schemes = scheme_snapshot original
+  fun expected "wrong-count" = "wrong number of generic arguments"
+    | expected "const-in-type-slot" = "wrong type or const kind"
+    | expected "type-in-const-slot" = "wrong type or const kind"
+    | expected "bool-const-value" = "Parse Error"
+    | expected "suffixed-const" = "complete unsuffixed integer literals"
+    | expected _ = "does not satisfy sort trait_scale"
+  fun expected_range text (label, _, arguments, _, _, _) =
+    if label = "wrong-count" then range_of text ("::<" ^ arguments ^ ">") 0
+    else if label = "propagated-bound" then range_of text arguments 3
+    else if label = "trait-bound" orelse label = "unused-trait-bound"
+    then range_of text arguments 2 else range_of text arguments 0
+  val _ = List.app (fn form => List.app (fn row =>
+    let
+      val label = "matrix-error-" ^ form ^ "-" ^ #1 row
+      val text = case_source form row
+      val callbacks = saved_callbacks ()
+      val report_callback = !Private_Output.report_fn
+      val (result, events) = capture (fn () => run model label text)
+      val diagnostic = (case result of Exn.Res _ => error (label ^ ": unexpectedly accepted")
+        | Exn.Exn exn => if Exn.is_interrupt exn then Exn.reraise exn else Runtime.exn_message exn)
+      val _ = require (label ^ ": wrong diagnostic: " ^ diagnostic)
+        (String.isSubstring (expected (#1 row)) (XML.content_of (YXML.parse_body diagnostic)))
+      val ranges = map position_range (message_positions diagnostic)
+      val _ = require (label ^ ": exact generic-list/argument leaf range changed")
+        (not (null ranges) andalso hd ranges = expected_range text row)
+      val _ = require (label ^ ": failed member call leaked complete ordinary/urgent/report streams")
+        (null (ordinary events) andalso null (declaration_reports events))
+      val _ = require (label ^ ": call error failed to restore exact callbacks")
+        (same_callbacks callbacks andalso PolyML.pointerEq (report_callback, !Private_Output.report_fn))
+      val _ = require (label ^ ": failed member mutated native source registries/theory/schemes")
+        (snapshot (Proof_Context.init_global model) = original_snapshot andalso
+         scheme_snapshot (Proof_Context.init_global model) = original_schemes)
+      val (recovery, _) = capture (fn () => run model (label ^ "-recovery")
+        ("urust_fn [verbosity = 0] " ^ cartouche "fn CallMatrixRecovery(value: u8) -> u8 { value }"))
+      val _ = require (label ^ ": call error blocked ordinary subsequent declaration")
+        (is_some (Parser_Test_Calls.lookup (Exn.release recovery |> Toplevel.context_of) "CallMatrixRecovery"))
+    in () end) rows) ["Concrete", "Selected", "Self", "Dot"]
+in end
+\<close>
+
+section\<open> Typed payloads, caller sharing and immutable callback boundaries \<close>
+
+ML_val\<open>
+local
+  open Generic_Signature_Test
+  structure D = Micro_Rust_Dispatch
+  structure N = Micro_Rust_Names
+  val ctxt = @{context}
+  val thy = Proof_Context.theory_of ctxt
+  val pos = Position.of_properties
+    [(Markup.lineN, "3"), (Markup.offsetN, "21"), (Markup.end_offsetN, "26"),
+     Markup.fileN |> rpair "typed-occurrence", Markup.idN |> rpair "typed-id",
+     ("custom", "position with separators : , ;")]
+  val qualifier = Position.of_properties
+    [(Markup.offsetN, "11"), (Markup.end_offsetN, "15"), (Markup.fileN, "typed-occurrence")]
+  val positions = {terminal_pos = pos, qualifier_positions = [qualifier], backend_only_positions = [pos]}
+  val marker = D.mk_marker_positions_with_backend_targets N.NFunction "SignatureIdentity"
+    pos [qualifier] [pos]
+    (Free ("SignatureIdentity", dummyT))
+  val [entry] = N.lookups ctxt N.NFunction "SignatureIdentity"
+  val filters = [N.Exclude_Method_Only, N.Only_Sources [#serial entry]]
+  val _ = List.app (fn arguments =>
+    let
+      val metadata: D.generic_arguments = {arguments = arguments, pos = pos}
+      val wrapped = D.with_generic_arguments metadata marker
+      val actual = the (D.marker_generic_arguments wrapped)
+      val _ = require "typed payload preserves exact ordinary marker destructuring"
+        (D.dest_marker_untyped marker = D.dest_marker_untyped wrapped)
+      val _ = require "typed payload preserves types and every source position property"
+        (#arguments actual = arguments andalso #pos actual = pos)
+      val _ = require "typed payload and source/method filters compose in both orders"
+        (D.restrict_backends filters wrapped aconv
+          D.with_generic_arguments metadata (D.restrict_backends filters marker))
+      val _ = ignore (failure "duplicate typed payload" "malformed urust_dispatch generic arguments"
+        (fn () => D.with_generic_arguments metadata wrapped))
+    in () end)
+    [[], [(@{typ nat}, pos)], [(@{typ nat}, pos), (@{typ "3"}, qualifier)]]
+  val ordinary = D.mk_payload_positions N.NFunction "SignatureIdentity" positions
+  val _ = require "unrelated native product payload remains unrelated"
+    (is_none (D.dest_payload (HOLogic.mk_prod (ordinary, HOLogic.unit))))
+  val _ = ignore (failure "malformed generic positions" "malformed urust_dispatch generic arguments"
+    (fn () => D.dest_payload (Free (D.generic_position_name [], dummyT))))
+  val _ = List.app (fn index =>
+    let
+      val caller = TVar (("_urust_function_type", index), @{sort type})
+      val metadata: D.generic_arguments = {arguments = [(caller, pos)], pos = pos}
+      val expected = the (URust_Type_Mappings.instantiate_generic_scheme_for_source ctxt (#serial entry)
+        (#hol_term entry) (#arguments metadata))
+      val [candidate] = D.filtered_candidates_with_generics ctxt filters N.NFunction "SignatureIdentity"
+        (fastype_of expected) (SOME metadata)
+      val _ = require "final native dispatch preserves low/high/overlapping explicit caller indexes"
+        (Library.member (op =) (Term.add_tvars (#term candidate) [])
+          (("_urust_function_type", index), @{sort type}))
+      val _ = require "final native dispatch preserves the selected source serial"
+        (#serial (#entry candidate) = #serial entry)
+      val typ = fastype_of (#term candidate)
+      val argument = hd (binder_types typ)
+      val Type (_, channels) = body_type typ
+      val _ = require "explicit generic parameter does not capture independent effect channels"
+        (argument = caller andalso forall (fn channel => channel <> caller)
+          [nth channels 0, nth channels 2, nth channels 3, nth channels 4])
+    in () end) [0, 2, 700, 9017]
+  val [shared_entry] = N.lookups ctxt N.NFunction "SignatureChannels"
+  val caller = TVar (("caller_shared", 9017), @{sort type})
+  val metadata: D.generic_arguments = {arguments = [(caller, pos)], pos = pos}
+  val expected = the (URust_Type_Mappings.instantiate_generic_scheme_for_source ctxt (#serial shared_entry)
+    (#hol_term shared_entry) (#arguments metadata))
+  val [shared] = D.filtered_candidates_with_generics ctxt [N.Only_Sources [#serial shared_entry]]
+    N.NFunction "SignatureChannels" (fastype_of expected) (SOME metadata)
+  val Type (_, channels) = body_type (fastype_of (#term shared))
+  val _ = require "intentional generic/effect-channel sharing survives final dispatch"
+    (hd (binder_types (fastype_of (#term shared))) = caller andalso hd channels = caller)
+  val active = the (D.Generic_Transform.get thy)
+  val _ = ignore (failure "callback replacement" "already registered" (fn () =>
+    D.register_generic_candidate_transform (Binding.make ("replacement", pos)) (#transform active) thy))
+  val empty = D.Generic_Transform.put NONE thy |> Theory.end_theory
+  fun fresh label parents = Theory.begin_theory (label, Position.none) parents
+  val registered = fresh "U4CallbackRegistered" [empty]
+    |> D.register_generic_candidate_transform (Binding.make ("left", pos)) (#transform active)
+    |> Theory.end_theory
+  val empty_branch = fresh "U4CallbackEmpty" [empty] |> Theory.end_theory
+  val identity = #identity (the (D.Generic_Transform.get registered))
+  val _ = List.app (fn parents =>
+    let val joined = fresh ("U4CallbackJoin" ^ string_of_int (serial ())) parents
+    in require "immutable callback empty merge preserves registration identity"
+      (#identity (the (D.Generic_Transform.get joined)) = identity) end)
+    [[registered, empty_branch], [empty_branch, registered]]
+  val replay_left = fresh "U4CallbackReplayLeft" [registered] |> Theory.end_theory
+  val replay_right = fresh "U4CallbackReplayRight" [registered] |> Theory.end_theory
+  val replay = fresh "U4CallbackReplayJoin" [replay_left, replay_right]
+  val _ = require "immutable callback same-identity replay merges idempotently"
+    (#identity (the (D.Generic_Transform.get replay)) = identity)
+  val other_pos = Position.of_properties
+    [(Markup.offsetN, "41"), (Markup.end_offsetN, "47"), (Markup.fileN, "callback-right")]
+  val independent = fresh "U4CallbackIndependent" [empty]
+    |> D.register_generic_candidate_transform (Binding.make ("right", other_pos)) (#transform active)
+    |> Theory.end_theory
+  val conflict = failure "callback merge conflict" "Conflicting uRust generic candidate transformations"
+    (fn () => fresh "U4CallbackConflict" [registered, independent])
+  val _ = require "immutable callback conflict preserves both native declaration positions"
+    (map position_range (message_positions conflict) = [position_range pos, position_range other_pos])
+in end
+\<close>
+
+section\<open> Overloaded generated sources and covered explicit registrations \<close>
+
+ML_val\<open>
+local
+  open Generic_Signature_Test
+  val thy = @{theory}
+  val datatype_text = "urust_datatype [verbosity = 0] " ^
+    cartouche "struct DispatchOwner<V> { payload: V }"
+  val explicit = "micro_rust_notation (call) " ^
+    cartouche "\<lambda>(_ :: 8 word dispatch_owner) (value :: (8 word, 'n::len) array). FunctionBody (literal value)" ^
+    " (\"DispatchOwner::pick\")"
+  val members = "urust [verbosity = 0] " ^ cartouche
+    ("impl DispatchOwner<u8> {\n\<omega>" ^ cartouche "abbrev, name = \"dispatch_byte_pick\"" ^
+      "\nfn pick<T>(self, value: [u8; \<tau>" ^ cartouche "'t" ^ "]) -> [u8; \<tau>" ^ cartouche "'t" ^ "] { value }\n" ^
+      "\<omega>" ^ cartouche "name = \"dispatch_byte_shape\"" ^
+      "\nfn shape<T>(self, value: T) -> T { value }\n" ^
+      "\<omega>" ^ cartouche "name = \"dispatch_byte_count\"" ^
+      "\nfn count<T>(self, value: T) -> T { value }\n}\n" ^
+      "impl DispatchOwner<u16> {\n\<omega>" ^ cartouche "abbrev, name = \"dispatch_half_pick\"" ^
+      "\nfn pick<const N: usize>(self, value: [u8; N]) -> [u8; N] { value }\n" ^
+      "\<omega>" ^ cartouche "name = \"dispatch_half_shape\"" ^
+      "\nfn shape<T>(self, value: [T; 3]) -> [T; 3] { value }\n" ^
+      "\<omega>" ^ cartouche "name = \"dispatch_half_count\"" ^
+      "\nfn count<T, U>(self, value: (T, U)) -> (T, U) { value }\n}")
+  fun model with_explicit first =
+    let
+      val text = datatype_text ^ "\n" ^
+        (if with_explicit andalso first then explicit ^ "\n" else "") ^ members ^ "\n" ^
+        (if with_explicit andalso not first then explicit ^ "\n" else "") ^
+        "urust_type \"DispatchSize\" = " ^ cartouche "3"
+      val (result, _) = capture (fn () => run thy "dispatch-model" text)
+    in Exn.release result |> Toplevel.theory_of end
+  val pristine = model false false
+  val ctxt = Proof_Context.init_global pristine
+  val sources = Parser_Test_Calls.entries ctxt "DispatchOwner::pick"
+  val _ = require "same-count overloads retain distinct type/const sources despite identical len sorts"
+    (length sources = 2 andalso
+     sort (int_ord) (map (fn source => case #kind (hd (entry_scheme ctxt source)) of
+       Type_Parameter => 0 | Const_Parameter => 1) sources) = [0, 1] andalso
+     forall (fn source => snd (#hol (hd (entry_scheme ctxt source))) = @{sort len}) sources)
+  fun twin model label owner parameter_type result_type arguments member head backend generics =
+    let
+      val parameter_clause = generics ^ "(owner: " ^ owner ^ ", value: " ^ parameter_type ^ ") -> " ^ result_type
+      val call = if head = "owner" then "owner." ^ member ^ "::<" ^ arguments ^ ">(value)"
+        else head ^ "::" ^ member ^ "::<" ^ arguments ^ ">(owner, value)"
+      val actual = "urust_fn [verbosity = 0] overload_actual " ^ cartouche
+        ("fn OverloadActual" ^ parameter_clause ^ " { " ^ call ^ " }")
+      val direct = "urust_fn [verbosity = 0] overload_twin " ^ cartouche
+        ("fn OverloadTwin" ^ parameter_clause ^ " { \<epsilon>" ^ cartouche backend ^ "(owner, value) }")
+      val proof = "lemma overload_refl: " ^ cartouche "overload_actual = overload_twin" ^
+        " unfolding overload_actual_def overload_twin_def by (rule refl)"
+      val (result, _) = capture (fn () => run model label (actual ^ "\n" ^ direct ^ "\n" ^ proof))
+    in ignore (Exn.release result) end
+  val _ = twin pristine "overload-type-source" "DispatchOwner<u8>" "[u8; 3]" "[u8; 3]"
+    "DispatchSize" "pick" "DispatchOwner::<u8>" "dispatch_byte_pick" ""
+  val _ = twin pristine "overload-const-source" "DispatchOwner<u16>" "[u8; 3]" "[u8; 3]"
+    "3" "pick" "DispatchOwner::<u16>" "dispatch_half_pick" ""
+  val _ = twin pristine "overload-neutral-type" "DispatchOwner<u8>" "[u8; 3]" "[u8; 3]"
+    ("\<tau>" ^ cartouche "3") "pick" "owner" "dispatch_byte_pick" ""
+  val _ = twin pristine "overload-neutral-const" "DispatchOwner<u16>" "[u8; 3]" "[u8; 3]"
+    ("\<tau>" ^ cartouche "3") "pick" "owner" "dispatch_half_pick" ""
+  val _ = twin pristine "overload-scoped-type-kind" "DispatchOwner<u8>"
+    ("[u8; \<tau>" ^ cartouche "'t" ^ "]") ("[u8; \<tau>" ^ cartouche "'t" ^ "]")
+    "T" "pick" "owner" "dispatch_byte_pick" "<T>"
+  val _ = twin pristine "overload-scoped-const-kind" "DispatchOwner<u16>" "[u8; N]" "[u8; N]"
+    "N" "pick" "owner" "dispatch_half_pick" "<const N: usize>"
+  val _ = twin pristine "overload-scalar-shape" "DispatchOwner<u8>" "u8" "u8"
+    "u8" "shape" "owner" "dispatch_byte_shape" ""
+  val _ = twin pristine "overload-array-shape" "DispatchOwner<u16>" "[u8; 3]" "[u8; 3]"
+    "u8" "shape" "owner" "dispatch_half_shape" ""
+  val _ = twin pristine "overload-one-count" "DispatchOwner<u8>" "u8" "u8"
+    "u8" "count" "owner" "dispatch_byte_count" ""
+  val _ = twin pristine "overload-two-count" "DispatchOwner<u16>" "(u8, u16)" "(u8, u16)"
+    "u8, u16" "count" "owner" "dispatch_half_count" ""
+  val wrong = "urust_fn [verbosity = 0] " ^ cartouche
+    "fn OverloadWrong(owner: DispatchOwner<u8>, value: [u8; 3]) -> [u8; 3] { DispatchOwner::<u8>::pick::<3>(owner, value) }"
+  val diagnostic = failure "selected source kind" "wrong type or const kind"
+    (fn () => run pristine "selected-source-kind" wrong)
+  val _ = require "selected source filters intersect argument-kind eligibility at the exact argument"
+    (hd (map position_range (message_positions diagnostic)) = range_of wrong "3" 2)
+  val _ = List.app (fn first =>
+    let
+      val model = model true first
+      val current = Proof_Context.init_global model
+      val entries = Parser_Test_Calls.entries current "DispatchOwner::pick"
+      val generated = filter (fn source => Micro_Rust_Names.is_automatic_serial
+        (Context.Proof current) (#serial source)) entries
+      val _ = require "covered explicit registration retains both original automatic source serials"
+        (length generated = 2 andalso length (filter (Micro_Rust_Names.is_automatic current) generated) = 1)
+      val text = "urust_fn [verbosity = 0] " ^ cartouche
+        "fn CoveredCall(owner: DispatchOwner<u8>, value: [u8; 3]) -> [u8; 3] { DispatchOwner::<u8>::pick::<DispatchSize>(owner, value) }"
+      val (result, events) = capture (fn () => run model "covered-explicit" text)
+      val diagnostic = case result of Exn.Res _ => error "covered explicit call unexpectedly accepted"
+        | Exn.Exn exn => Runtime.exn_message exn
+      val _ = require "stored covered explicit provenance rejects a mixed generic key in both insertion orders"
+        (String.isSubstring "the key has generated functions and explicit call notations" diagnostic)
+      val _ = require "mixed-key rejection is positioned at the exact generic list and emits no definitions"
+        (hd (map position_range (message_positions diagnostic)) = range_of text "::<DispatchSize>" 0 andalso
+         null (ordinary events) andalso null (declaration_reports events))
+      val _ = twin model "source-filter-unrelated-explicit" "DispatchOwner<u16>" "[u8; 3]" "[u8; 3]"
+        "3" "pick" "DispatchOwner::<u16>" "dispatch_half_pick" ""
+      val ordinary = "urust_fn [verbosity = 0] " ^ cartouche
+        "fn CoveredOrdinary(owner: DispatchOwner<u8>, value: [u8; 3]) -> [u8; 3] { DispatchOwner::<u8>::pick(owner, value) }"
+      val (ordinary_result, _) = capture (fn () => run model "covered-ordinary" ordinary)
+      val _ = ignore (Exn.release ordinary_result)
+    in () end) [false, true]
+in end
+\<close>
+
+ML_val\<open>
+local
+  open Generic_Signature_Test
+  val thy = @{theory}
+  val model_text = "urust_datatype [verbosity = 0] " ^ cartouche "struct ControlOwner<V> { payload: V }" ^ "\n" ^
+    "urust [verbosity = 0] " ^ cartouche
+      "impl ControlOwner<u8> {\n\<omega>\<open>name = \"control_owner_plain_byte\"\<close>\nfn plain(value: u8) -> u8 { value } }\nimpl ControlOwner<u16> {\n\<omega>\<open>name = \"control_owner_plain_half\"\<close>\nfn plain<T>(value: T) -> T { value } }"
+  val (prepared, _) = capture (fn () => run thy "extra-call-model" model_text)
+  val model = Exn.release prepared |> Toplevel.theory_of
+  val ctxt = Proof_Context.init_global model
+  val state = snapshot ctxt
+  val schemes = scheme_snapshot ctxt
+  val prefix = "/* " ^ Symbol.open_ ^ " marker " ^ Symbol.close ^ " */ "
+  val rows =
+    [("selected-monomorphic", "generic arguments are not supported on generated Rust function paths",
+      "fn ExtraCall(value: u8) -> u8 { ControlOwner::<u8>::plain::<1>(value) }", "::<1>", 0),
+     ("unused-sort", "does not satisfy sort", "fn ExtraCall(value: u8) -> u8 { CallUnusedScale::<bool>(value) }", "bool", 0),
+     ("abbrev-count", "wrong number of generic arguments", "fn ExtraCall(value: u8) -> u8 { SignatureAbbrevOther::<u8>(value) }", "::<u8>", 0),
+     ("const-kind", "wrong type or const kind", "fn ExtraCall(value: u8) -> u8 { SignatureIdentity::<3>(value) }", "3", 0),
+     ("type-kind", "wrong type or const kind", "fn ExtraCall(value: [u8; 3]) -> [u8; 3] { SignatureArray::<u8>(value) }", "u8", 2),
+     ("wrong-concrete-owner", "no associated function preserve in impls of GenericHolder<u8>",
+      "fn ExtraCall(value: u8) -> u8 { GenericHolder::<u8>::preserve::<u8>(value) }", "preserve", 0)]
+  fun check (label, expected, rust, token, occurrence) =
+    let
+      val text = "urust_fn [verbosity = 0] " ^ cartouche (prefix ^ rust)
+      val callbacks = saved_callbacks ()
+      val reporter = !Private_Output.report_fn
+      val (result, events) = capture (fn () => run model label text)
+      val raw = case result of Exn.Res _ => error (label ^ ": unexpectedly accepted")
+        | Exn.Exn exn => if Exn.is_interrupt exn then Exn.reraise exn else Runtime.exn_message exn
+      val visible = XML.content_of (YXML.parse_body raw)
+      val _ = require (label ^ ": unexpected diagnostic " ^ visible) (String.isSubstring expected visible)
+      val _ = require (label ^ ": exact argument/member source range")
+        (hd (map position_range (message_positions raw)) = range_of text token occurrence)
+      val _ = require (label ^ ": complete output/report suppression")
+        (null (ordinary events) andalso null (declaration_reports events))
+      val _ = require (label ^ ": exact callback restoration")
+        (same_callbacks callbacks andalso PolyML.pointerEq (reporter, !Private_Output.report_fn))
+      val current = Proof_Context.init_global model
+      val _ = require (label ^ ": immutable namespace/registration/scheme/scope snapshot")
+        (snapshot current = state andalso scheme_snapshot current = schemes)
+      val (recovered, _) = capture (fn () => run model (label ^ "-recovery")
+        ("urust_fn [verbosity = 0] " ^ cartouche "fn CallRecovery(value: u8) -> u8 { value }"))
+      val _ = require (label ^ ": ordinary recovery")
+        (is_some (Parser_Test_Calls.lookup (Exn.release recovered |> Toplevel.context_of) "CallRecovery"))
+    in () end
+  val _ = List.app check rows
+  val _ = List.app (fn (label, expected, call) =>
+    ignore (failure label expected (fn () => run thy label ("urust_fn [verbosity = 0] " ^ cartouche
+      ("fn CallSyntax(value: u8) -> u8 { " ^ call ^ " }")))))
+    [("empty-turbofish", "syntax error", "SignatureIdentity::<>(value)"),
+     ("explicit-lifetime", "unexpected input", "SignatureBorrowed::<'a, u8>(value)"),
+     ("associated-type-binding", "unexpected input", "SignatureIdentity::<Item = u8>(value)"),
+     ("const-expression", "unexpected input", "SignatureArray::<{ 3 }>(value)"),
+     ("bare-method", "is a method", "keep::<u8>(value)")]
+  val _ = writeln "U4 selected monomorphic/unused/abbrev/kind/owner exact atomic errors and inherited syntax/method controls PASS"
+in end
+\<close>
+
+ML_val\<open>
+local
+  open Generic_Signature_Test
+  val thy = @{theory}
+  fun collect_order (XML.Text _) = []
+    | collect_order (XML.Elem (markup, body)) = markup :: maps collect_order body
+  fun markup events = maps collect_order (trees "report" events)
+  fun at text token occurrence props = position_range (Position.of_properties props) = range_of text token occurrence
+  fun plain text = XML.content_of (YXML.parse_body text)
+    |> Symbol.explode |> filter_out Symbol.is_control |> implode
+  fun typings range (XML.Text _) = []
+    | typings range (XML.Elem ((name, props), body)) =
+        (if name = Markup.typingN andalso position_range (Position.of_properties props) = range
+         then [plain (XML.content_of body)] else []) @ maps (typings range) body
+  val prefix = "/* " ^ Symbol.open_ ^ " navigation " ^ Symbol.close ^ " */ "
+  val source = "urust_fn [verbosity = 0] " ^ cartouche (prefix ^
+    "fn CallMarkup<T: Scale, const N: usize>(value: (T, [u8; N])) -> (T, [u8; N]) { SignatureMixed::<T, N>(value) }")
+  val (result, events) = capture (fn () => run thy "call-argument-markup" source)
+  val ctxt = Exn.release result |> Toplevel.context_of
+  val parameters = entry_scheme ctxt (entry ctxt "CallMarkup")
+  val properties = markup events
+  val _ = List.app (fn (rust, occurrence, parameter) =>
+    let
+      val definitions = properties |> map_filter (fn (element, props) =>
+        if element = Markup.entityN andalso at source rust 0 props andalso
+          Properties.get props Markup.kindN = SOME "urust_generic_parameter"
+        then Properties.get props Markup.defN else NONE)
+      val _ = require "turbofish argument navigates to exact generic declaration after escaped comment"
+        (length definitions = 1 andalso exists (fn (element, props) =>
+          element = Markup.entityN andalso at source rust occurrence props andalso
+          Properties.get props Markup.kindN = SOME "urust_generic_parameter" andalso
+          Properties.get props Markup.refN = SOME (hd definitions)) properties)
+      val expected = plain (rust ^ " = " ^ Syntax.string_of_typ
+        (Config.put show_sorts true ctxt) (TFree (#hol parameter)))
+      val _ = List.app (fn index => require "turbofish header/use typing is Rust labelled with final sort"
+        (Library.member (op =) (maps (typings (range_of source rust index)) (trees "report" events)) expected))
+        [0, occurrence]
+    in () end) [("T", 3, hd parameters), ("N", 3, nth parameters 1)]
+  val selected = entry ctxt "SignatureMixed"
+  val (serial, reg_pos) = Micro_Rust_Names.navigation_target ctxt selected
+  val (_, expected) = Position.make_entity_markup {def = false} serial
+    Micro_Rust_Names.notationN ("SignatureMixed", reg_pos)
+  val _ = require "generic function call preserves native selected notation navigation"
+    (exists (fn (element, props) => element = Markup.entityN andalso at source "SignatureMixed" 0 props andalso
+      forall (fn (key, value) => Properties.get props key = SOME value) expected) properties)
+  val model_text = "urust_datatype [verbosity = 0] " ^ cartouche "struct NavigationBox<V> { payload: V }" ^ "\n" ^
+    "urust [verbosity = 0] " ^ cartouche
+      "impl NavigationBox<u8> {\n\<omega>\<open>name = \"navigation_byte_keep\"\<close>\nfn nav_keep<T>(self, value: T) -> T { value } }\nimpl NavigationBox<u16> {\n\<omega>\<open>name = \"navigation_half_keep\"\<close>\nfn nav_keep<T>(self, value: T) -> T { value } }"
+  val (prepared, _) = capture (fn () => run thy "call-navigation-model" model_text)
+  val model = Exn.release prepared |> Toplevel.theory_of
+  val base = Proof_Context.init_global model
+  val sources = Parser_Test_Calls.entries base "nav_keep"
+  val byte_name = dest_Const (Proof_Context.read_const
+    {proper = true, strict = false} base "navigation_byte_keep") |> fst
+  val selected = the (find_first (fn entry =>
+    Micro_Rust_Dispatch.backend_identity_constant base entry = SOME byte_name) sources)
+  val (selected_serial, selected_pos) = Micro_Rust_Names.navigation_target base selected
+  val (_, selected_props) = Position.make_entity_markup {def = false} selected_serial
+    Micro_Rust_Names.notationN ("nav_keep", selected_pos)
+  val text = "urust_fn [verbosity = 0] " ^ cartouche (prefix ^
+    "fn NavigationUse(owner: NavigationBox<u8>, value: u16) -> u16 { owner.nav_keep::<u16>(value) }")
+  val callbacks = saved_callbacks ()
+  val reporter = !Private_Output.report_fn
+  val (completed, navigation_events) = capture (fn () => run model "selected-call-navigation" text)
+  val _ = ignore (Exn.release completed)
+  val reports = markup navigation_events
+  val references = reports |> map_filter (fn (element, props) =>
+    if element = Markup.entityN andalso at text "nav_keep" 0 props andalso
+      Properties.get props Markup.kindN = SOME Micro_Rust_Names.notationN
+    then SOME props else NONE)
+  val _ = require "overloaded generic method retains every original reference with selected source last"
+    (length references = length sources andalso
+      forall (fn (key, value) => Properties.get (List.last references) key = SOME value) selected_props)
+  val _ = require "ordinary native backend entity and style reports remain available"
+    (exists (fn (element, props) => element = Markup.entityN andalso at text "nav_keep" 0 props andalso
+       Properties.get props Markup.kindN = SOME "constant" andalso
+       Properties.get props Markup.nameN = SOME (dest_Const (Proof_Context.read_const
+         {proper = true, strict = false} base "navigation_byte_keep") |> fst)) reports andalso
+     exists (fn (element, props) => element = #1 Markup.keyword3 andalso at text "nav_keep" 0 props) reports)
+  val _ = require "call navigation restores exact callbacks"
+    (same_callbacks callbacks andalso PolyML.pointerEq (reporter, !Private_Output.report_fn))
+  val _ = writeln "U4 turbofish header/use final-sort labels and native selected overloaded navigation PASS"
+in end
+\<close>
+
+ML_val\<open>
+local
+  open Generic_Signature_Test
+  structure D = Micro_Rust_Dispatch
+  structure N = Micro_Rust_Names
+  val thy = @{theory}
+  val ctxt = @{context}
+  val position = Position.of_properties [(Markup.offsetN, "101"), (Markup.end_offsetN, "109"),
+    (Markup.fileN, "locale-occurrence"), ("extra", "caller argument provenance")]
+  val caller = TVar (("locale_caller", 9017), @{sort type})
+  fun verify context key rusts arguments =
+    let
+      val sources = Parser_Test_Calls.entries context key
+      val serials = map #serial sources |> distinct (op =)
+      val _ = require "locale transported entries retain the original source serial"
+        (length sources = 3 andalso length serials = 1)
+      val parameters = the (URust_Type_Mappings.generic_scheme_for_source context (hd serials))
+      val _ = require "locale source-specific metadata retains ordered/unused generic names"
+        (map #rust parameters = rusts)
+      val _ = require "locale fixed type/value transports retain complete distinct ordinary backends"
+        (length (distinct (op aconv) (map #hol_term sources)) = 3 andalso
+         forall (is_none o #source_const) sources)
+      val selected = the (find_first (fn ({hol_term, ...}: N.entry) =>
+        Term.exists_subterm (fn Const (name, _) => name = @{const_name True} | _ => false) hol_term) sources)
+      val instantiated = the (URust_Type_Mappings.instantiate_generic_scheme_for_source context
+        (#serial selected) (#hol_term selected) arguments)
+      val metadata: D.generic_arguments = {arguments = arguments, pos = position}
+      val candidates = D.filtered_candidates_with_generics context [] N.NFunction key
+        (fastype_of instantiated) (SOME metadata)
+      val _ = require "native per-candidate instantiation selects the complete fixed type/value transport"
+        (length candidates = 1 andalso #serial (#entry (hd candidates)) = #serial selected andalso
+         Term.exists_subterm (fn Const (name, _) => name = @{const_name True} | _ => false)
+           (#term (hd candidates)))
+      val _ = require "locale final dispatch preserves high caller variable without capturing ambient/channel variables"
+        (Library.member (op =) (Term.add_tvars (#term (hd candidates)) [])
+          (("locale_caller", 9017), @{sort type}))
+      val _ = ignore (failure "ambiguous expanded locale abbreviation metadata"
+        "ambiguous generic scheme query for an expanded backend"
+        (fn () => URust_Type_Mappings.generic_scheme context (#hol_term selected)))
+    in map #hol parameters end
+  val first = verify ctxt "LocaleCall" ["T"] [(caller, position)]
+  val second = verify ctxt "LocaleOther" ["T", "U"] [(caller, position), (@{typ "16 word"}, position)]
+  val _ = require "unused locale parameter retains native final bound sort" (map snd second = [@{sort type}, @{sort ord}])
+  val base = Theory.end_theory thy
+  fun fresh label parents = Theory.begin_theory (label, Position.none) parents
+  val left = fresh "U4LocaleReplayLeft" [base] |> Theory.end_theory
+  val right = fresh "U4LocaleReplayRight" [base] |> Theory.end_theory
+  val replay = fresh "U4LocaleReplayJoin" [left, right] |> Proof_Context.init_global
+  val _ = require "source-specific locale metadata and selected calls survive immutable replay/merge"
+    (verify replay "LocaleCall" ["T"] [(caller, position)] = first andalso
+     verify replay "LocaleOther" ["T", "U"] [(caller, position), (@{typ "16 word"}, position)] = second)
+  val prefix = "/* " ^ Symbol.open_ ^ " ambiguity " ^ Symbol.close ^ " */ "
+  val snapshot_before = snapshot ctxt
+  val schemes_before = scheme_snapshot ctxt
+  val _ = List.app (fn generic =>
+    let
+      val args = if generic then "::<u8>" else ""
+      val text = "urust_fn [verbosity = 2] " ^ cartouche (prefix ^
+        ("fn LocaleAmbiguous(value: (" ^ "\<tau>" ^ cartouche "nat" ^ ", u8)) -> (" ^
+         "\<tau>" ^ cartouche "nat" ^ ", u8) { LocaleCall" ^ args ^ "(value) }"))
+      val callbacks = saved_callbacks ()
+      val reporter = !Private_Output.report_fn
+      val (result, events) = capture (fn () => run thy "locale-native-ambiguity" text)
+      val diagnostic = case result of Exn.Res _ => error "native locale ambiguity unexpectedly accepted"
+        | Exn.Exn exn => Runtime.exn_message exn
+      val visible = XML.content_of (YXML.parse_body diagnostic)
+      val _ = require "native ambiguity/selection remains authoritative for ordinary and generic calls"
+        (String.isSubstring "Ambiguous uRust notation" visible andalso
+         String.isSubstring "candidate backends" visible andalso String.isSubstring "literal 3" visible andalso
+         String.isSubstring "literal 4" visible)
+      val _ = require "native ambiguity retains exact head source range after escaped comment"
+        (hd (map position_range (message_positions diagnostic)) = range_of text "LocaleCall" 0)
+      val _ = require "failed locale call retains complete stream/report atomicity and exact restoration"
+        (null (ordinary events) andalso null (declaration_reports events) andalso same_callbacks callbacks andalso
+         PolyML.pointerEq (reporter, !Private_Output.report_fn) andalso snapshot ctxt = snapshot_before andalso
+         scheme_snapshot ctxt = schemes_before)
+    in () end) [false, true]
+  val _ = writeln "U4 A15/A27 fixed locale transports/caller/unused sorts/source identity/replay/native ambiguity PASS"
+in end
+\<close>
+
+ML_val\<open>
+local
+  open Generic_Signature_Test
+  structure D = Micro_Rust_Dispatch
+  structure N = Micro_Rust_Names
+  val position = Position.of_properties [(Markup.offsetN, "8"), (Markup.end_offsetN, "13"),
+    (Markup.fileN, "generic-wrapper"), ("extra", "all properties retained")]
+  val marker = D.mk_marker N.NFunction "SignatureIdentity" position (Free ("SignatureIdentity", dummyT))
+  val arguments: D.generic_arguments = {arguments = [(@{typ "8 word"}, position)], pos = position}
+  fun typed (Const (name, _) $ payload $ witness) = Const (name, dummyT --> dummyT --> @{typ nat}) $ payload $ witness
+    | typed _ = error "typed marker audit shape"
+  val ordinary = typed marker
+  val wrapped = D.with_generic_arguments arguments ordinary
+  val _ = require "typed-aware ordinary marker destructuring remains exactly identical with occurrence metadata"
+    (D.dest_marker ordinary = D.dest_marker wrapped andalso
+     D.dest_marker_untyped ordinary = D.dest_marker_untyped wrapped andalso
+     #arguments (the (D.marker_generic_arguments wrapped)) = #arguments arguments)
+  val payload = case ordinary of _ $ payload $ _ => payload | _ => error "ordinary payload audit shape"
+  fun malformed metadata witness = HOLogic.mk_prod (payload, HOLogic.mk_prod (metadata, witness))
+  val _ = List.app (fn (label, bad) => ignore (failure label "malformed urust_dispatch generic arguments"
+    (fn () => D.dest_payload bad)))
+    [("recognized wrapper wrong arity", malformed (Free (D.generic_position_name [position, position], dummyT)) HOLogic.unit),
+     ("recognized wrapper bad witness", malformed (Free (D.generic_position_name [position, position], dummyT))
+       (HOLogic.mk_prod (@{term True}, HOLogic.unit))),
+     ("recognized wrapper invalid terminator", malformed (Free (D.generic_position_name [position, position], dummyT))
+       (HOLogic.mk_prod (Logic.mk_type @{typ nat}, @{term True})))]
+  val literal = D.mk_marker N.NLiteral "ValueLiteral" position (Free ("ValueLiteral", dummyT))
+  val _ = ignore (failure "generic payload only applies to generated function markers"
+    "malformed urust_dispatch generic arguments" (fn () => D.with_generic_arguments arguments literal))
+  val _ = writeln "U4 typed-aware compatibility and recognized malformed typed-wrapper boundaries PASS"
+in end
+\<close>
+
+subsection\<open> Receiver bounds and generic argument diagnostics \<close>
+
+ML_val\<open>
+local
+structure Generic_Call_Owner_Test =
+struct
+  open Generic_Signature_Test
+  structure D = Micro_Rust_Dispatch
+  structure N = Micro_Rust_Names
+  val original = @{theory}
+  (* Preserve the complete original different-owner/different-bound fixture. *)
+  val fixture = "urust_datatype [verbosity = 0] " ^ cartouche "struct BoundOwner<V> { payload: V }" ^ "\n" ^
+    "urust [verbosity = 0] " ^ cartouche
+      "impl BoundOwner<u8> {\n\<omega>\<open>name = \"bound_owner_byte_choose\"\<close>\nfn choose<T: Scale>(self, value: T) -> T { value }\n}\nimpl BoundOwner<u16> {\n\<omega>\<open>name = \"bound_owner_half_choose\"\<close>\nfn choose<T: Marker>(self, value: T) -> T { value }\n}"
+  val (prepared, _) = capture (fn () => run original "adversarial-bound-model" fixture)
+  val original_model = Exn.release prepared |> Toplevel.theory_of
+  fun method backend options rust =
+    "\<omega>" ^ cartouche ("name = \"" ^ backend ^ "\"" ^ options) ^ "\n" ^ rust ^ "\n"
+  val extension = "urust [verbosity = 0] " ^ cartouche
+    ("impl BoundOwner<u8> {\n" ^
+      method "bound_owner_byte_share" ""
+        "fn share<T: Scale, U: Marker>(self, value: (T, U)) -> (T, U) { value }" ^
+      method "bound_owner_byte_unused" ""
+        "fn unused<T: Scale>(self, value: u8) -> u8 { value }" ^
+      method "bound_owner_byte_linked" (", state = " ^ cartouche "'t")
+        "fn linked<T: Scale>(self, value: T) -> T { value }" ^
+      method "bound_owner_byte_borrowed" (", state = " ^ cartouche "'t")
+        "fn borrowed<T: Scale>(&mut self, value: T) -> T { value }" ^
+      method "bound_owner_byte_order" ""
+        "fn order<T: Scale, const N: usize>(self, value: (T, [u8; N])) -> (T, [u8; N]) { value }" ^
+      method "bound_owner_byte_count" ""
+        "fn count<T: Scale>(self, value: T) -> T { value }" ^
+      "}\nimpl BoundOwner<u16> {\n" ^
+      method "bound_owner_half_share" ""
+        "fn share<T: Marker, U: Marker>(self, value: (T, U)) -> (T, U) { value }" ^
+      method "bound_owner_half_unused" ""
+        "fn unused<T: Marker>(self, value: u8) -> u8 { value }" ^
+      method "bound_owner_half_linked" (", state = " ^ cartouche "'t")
+        "fn linked<T: Marker>(self, value: T) -> T { value }" ^
+      method "bound_owner_half_borrowed" (", state = " ^ cartouche "'t")
+        "fn borrowed<T: Marker>(&mut self, value: T) -> T { value }" ^
+      method "bound_owner_half_order" ""
+        "fn order<const N: usize, T: Marker>(self, value: (T, [u8; N])) -> (T, [u8; N]) { value }" ^
+      method "bound_owner_half_count" ""
+        "fn count<T: Marker, U>(self, value: (T, U)) -> (T, U) { value }" ^ "}")
+  val (extended, _) = capture (fn () => run original_model "bound-model-extension" extension)
+  val model = Exn.release extended |> Toplevel.theory_of
+  val ctxt = Proof_Context.init_global model
+  fun sources name = N.lookups ctxt N.NFunction ("BoundOwner::" ^ name)
+  fun source name backend =
+    the_single (filter (fn entry =>
+      Option.map Long_Name.base_name (D.backend_identity_constant ctxt entry) = SOME backend)
+      (sources name))
+  val _ = List.app (fn name =>
+    require (name ^ ": both complete concrete owner sources retained") (length (sources name) = 2))
+    ["choose", "share", "unused", "linked", "borrowed", "order", "count"]
+
+end
+in
+local
+  open Generic_Call_Owner_Test
+  val state = snapshot ctxt
+  val schemes = scheme_snapshot ctxt
+  val prefix = "/* " ^ Symbol.open_ ^ " bound " ^ Symbol.close ^ " */ "
+  val no_backend = "no backend"
+  val rows =
+    [("different-owner-bound-dot", "", "does not satisfy sort",
+      "fn BoundProbe(owner: BoundOwner<u8>, value: bool) -> bool { owner.choose::<bool>(value) }", "bool", 2),
+     ("selected-owner-bound", "", "does not satisfy sort",
+      "fn BoundProbe(owner: BoundOwner<u8>, value: bool) -> bool { BoundOwner::<u8>::choose::<bool>(owner, value) }", "bool", 2),
+     ("shared-valid-invalid-bound", "", "does not satisfy sort",
+      "fn BoundProbe(owner: BoundOwner<u8>, value: (bool, bool)) -> (bool, bool) { owner.share::<bool, bool>(value) }", "bool", 4),
+     ("unused-owner-bound", "", "does not satisfy sort",
+      "fn BoundProbe(owner: BoundOwner<u8>, value: u8) -> u8 { owner.unused::<bool>(value) }", "bool", 0),
+     ("scoped-weak-owner-bound", "", "does not satisfy sort",
+      "fn BoundProbe<T: Marker>(owner: BoundOwner<u8>, value: T) -> T { owner.choose::<T>(value) }", "T", 3),
+     ("same-count-kind-owner-bound", "", "does not satisfy sort",
+      "fn BoundProbe(owner: BoundOwner<u8>, value: (bool, [u8; 3])) -> (bool, [u8; 3]) { owner.order::<bool, 3>(value) }", "bool", 2),
+     ("different-count-owner-bound", "", "does not satisfy sort",
+      "fn BoundProbe(owner: BoundOwner<u8>, value: bool) -> bool { owner.count::<bool>(value) }", "bool", 2),
+     ("selected-kind-before-bound", "", "wrong type or const kind",
+      "fn BoundProbe(owner: BoundOwner<u8>, value: (bool, [u8; 3])) -> (bool, [u8; 3]) { BoundOwner::<u8>::order::<3, bool>(owner, value) }", "3", 2),
+     ("wrong-explicit-input-shape", "", no_backend,
+      "fn BoundProbe(owner: BoundOwner<u8>, value: u8) -> u8 { owner.choose::<bool>(value) }", "choose", 0),
+     ("wrong-explicit-return-shape", "", no_backend,
+      "fn BoundProbe(owner: BoundOwner<u8>, value: bool) -> u8 { owner.choose::<bool>(value) }", "choose", 0),
+     ("wrong-fixed-owner-shape", "", no_backend,
+      "fn BoundProbe(owner: BoundOwner<bool>, value: bool) -> bool { owner.choose::<bool>(value) }", "choose", 0),
+     ("wrong-shared-effect-shape", ", state = " ^ cartouche "nat", no_backend,
+      "fn BoundProbe(owner: BoundOwner<u8>, value: bool) -> bool { owner.linked::<bool>(value) }", "linked", 0),
+     ("borrowed-owner-bound", "", "does not satisfy sort",
+      "fn BoundProbe(owner: &mut BoundOwner<u8>, value: bool) -> bool { owner.borrowed::<bool>(value) }", "bool", 2)]
+  fun check (label, options, expected, rust, token, occurrence) =
+    let
+      val text = "urust_fn [verbosity = 0" ^ options ^ "] " ^ cartouche (prefix ^ rust)
+      val callbacks = saved_callbacks ()
+      val reporter = !Private_Output.report_fn
+      val (result, events) = capture (fn () => run model label text)
+      val raw = case result of Exn.Res _ => error (label ^ ": unexpectedly accepted")
+        | Exn.Exn exn => if Exn.is_interrupt exn then Exn.reraise exn else Runtime.exn_message exn
+      val visible = XML.content_of (YXML.parse_body raw)
+      val _ = require (label ^ ": unexpected diagnostic " ^ visible) (String.isSubstring expected visible)
+      val _ = require (label ^ ": exact generic argument or native method range")
+        (map position_range (message_positions raw) =
+          [range_of text token occurrence, range_of text "urust_fn" 0])
+      val _ = require (label ^ ": complete output/report suppression")
+        (null (ordinary events) andalso null (declaration_reports events))
+      val _ = require (label ^ ": exact callback restoration")
+        (same_callbacks callbacks andalso PolyML.pointerEq (reporter, !Private_Output.report_fn))
+      val current = Proof_Context.init_global model
+      val _ = require (label ^ ": immutable namespace/registration/scheme/scope snapshot")
+        (snapshot current = state andalso scheme_snapshot current = schemes)
+      val (recovered, _) = capture (fn () => run model (label ^ "-recovery")
+        ("urust_fn [verbosity = 0] " ^ cartouche "fn BoundRecovery(value: u8) -> u8 { value }"))
+      val recovery = Exn.release recovered |> Toplevel.context_of
+      val _ = require (label ^ ": ordinary recovery")
+        (is_some (Parser_Test_Calls.lookup recovery "BoundRecovery"))
+      val _ = require_scope_closed label recovery
+    in () end
+  val _ = List.app check rows
+  val ambiguous_rust = "fn BoundProbe(owner: BoundOwner<u8>, value: bool) -> bool { BoundOwner::choose::<bool>(owner, value) }"
+  val ambiguous_text = "urust_fn [verbosity = 0] " ^ cartouche (prefix ^ ambiguous_rust)
+  val (ambiguous_result, ambiguous_events) = capture (fn () => run model "unselected-owner-ambiguity" ambiguous_text)
+  val ambiguous_raw = case ambiguous_result of Exn.Res _ => error "unselected owner ambiguity accepted"
+    | Exn.Exn exn => Runtime.exn_message exn
+  val declared_owners = N.associated_functions ctxt "BoundOwner::choose"
+    |> sort (int_ord o apply2 #identity)
+  val _ = require "unselected overloaded associated owner retains native ambiguity and all declaration positions"
+    (String.isSubstring "multiple applicable items in scope" ambiguous_raw andalso
+     map position_range (message_positions ambiguous_raw) =
+      range_of ambiguous_text "choose" 0 ::
+        map (position_range o #pos) declared_owners @ [range_of ambiguous_text "urust_fn" 0] andalso
+     null (ordinary ambiguous_events) andalso null (declaration_reports ambiguous_events))
+  fun twin label options owner parameter_type result_type call backend =
+    let
+      val clause = "(owner: " ^ owner ^ ", value: " ^ parameter_type ^ ") -> " ^ result_type
+      val actual = "urust_fn [verbosity = 0" ^ options ^ "] bound_actual " ^ cartouche
+        ("fn BoundActual" ^ clause ^ " { " ^ call ^ " }")
+      val direct = "urust_fn [verbosity = 0" ^ options ^ "] bound_twin " ^ cartouche
+        ("fn BoundTwin" ^ clause ^ " { \<epsilon>" ^ cartouche backend ^ "(owner, value) }")
+      val proof = "lemma bound_refl: " ^ cartouche "bound_actual = bound_twin" ^
+        " unfolding bound_actual_def bound_twin_def by (rule refl)"
+      val (result, _) = capture (fn () => run model label (actual ^ "\n" ^ direct ^ "\n" ^ proof))
+    in ignore (Exn.release result) end
+  val nat_type = "\<tau>" ^ cartouche "nat"
+  val _ = twin "weak-other-owner-positive" "" "BoundOwner<u16>" "bool" "bool"
+    "owner.choose::<bool>(value)" "bound_owner_half_choose"
+  val _ = twin "strong-selected-owner-positive" "" "BoundOwner<u8>" nat_type nat_type
+    ("BoundOwner::<u8>::choose::<" ^ nat_type ^ ">(owner, value)") "bound_owner_byte_choose"
+  val _ = twin "shared-weaker-owner-positive" "" "BoundOwner<u16>" "(bool, bool)" "(bool, bool)"
+    "owner.share::<bool, bool>(value)" "bound_owner_half_share"
+  val _ = twin "shared-strong-owner-positive" "" "BoundOwner<u8>"
+    ("(" ^ nat_type ^ ", " ^ nat_type ^ ")") ("(" ^ nat_type ^ ", " ^ nat_type ^ ")")
+    ("owner.share::<" ^ nat_type ^ ", " ^ nat_type ^ ">(value)") "bound_owner_byte_share"
+  val _ = twin "reversed-kind-weaker-owner-positive" "" "BoundOwner<u16>"
+    "(bool, [u8; 3])" "(bool, [u8; 3])" "owner.order::<3, bool>(value)" "bound_owner_half_order"
+  val _ = twin "ordered-strong-owner-positive" "" "BoundOwner<u8>"
+    ("(" ^ nat_type ^ ", [u8; 3])") ("(" ^ nat_type ^ ", [u8; 3])")
+    ("owner.order::<" ^ nat_type ^ ", 3>(value)") "bound_owner_byte_order"
+  val _ = twin "different-count-weaker-owner-positive" "" "BoundOwner<u16>"
+    "(bool, u8)" "(bool, u8)" "owner.count::<bool, u8>(value)" "bound_owner_half_count"
+  val _ = twin "unused-strong-owner-positive" "" "BoundOwner<u8>" "u8" "u8"
+    ("owner.unused::<" ^ nat_type ^ ">(value)") "bound_owner_byte_unused"
+  val _ = twin "linked-effect-positive" (", state = " ^ cartouche "nat")
+    "BoundOwner<u8>" nat_type nat_type ("owner.linked::<" ^ nat_type ^ ">(value)")
+    "bound_owner_byte_linked"
+  val _ = twin "borrowed-linked-effect-positive" (", state = " ^ cartouche "nat")
+    "&mut BoundOwner<u8>" nat_type nat_type ("owner.borrowed::<" ^ nat_type ^ ">(value)")
+    "bound_owner_byte_borrowed"
+  val _ = writeln "U4 A29 original/selected owner bounds, actual structure/kind/count/receiver/channel atomic negatives and kernel positives PASS"
+in end
+
+local
+  open Generic_Call_Owner_Test
+  val before_state = snapshot ctxt
+  val before_schemes = scheme_snapshot ctxt
+  val first_pos = Position.of_properties [(Markup.offsetN, "31"), (Markup.end_offsetN, "37"),
+    (Markup.fileN, "shared-witness"), ("caller", "first")]
+  val second_pos = Position.of_properties [(Markup.offsetN, "41"), (Markup.end_offsetN, "47"),
+    (Markup.fileN, "shared-witness"), ("caller", "second")]
+  val list_pos = Position.of_properties [(Markup.offsetN, "21"), (Markup.end_offsetN, "51"),
+    (Markup.fileN, "shared-witness")]
+  val owner8 = hd (binder_types (fastype_of (#hol_term (source "choose" "bound_owner_byte_choose"))))
+  val owner16 = hd (binder_types (fastype_of (#hol_term (source "choose" "bound_owner_half_choose"))))
+  fun tuple left right = HOLogic.mk_prodT (left, HOLogic.mk_prodT (right, @{typ tnil}))
+  fun body state value = Type (@{type_name function_body},
+    [state, value, @{typ nat}, @{typ "unit prompt"}, @{typ "unit prompt_output"}])
+  fun occurrence receiver argument result state = receiver --> argument --> body state result
+  fun metadata types: D.generic_arguments =
+    {arguments = types ~~ take (length types) [first_pos, second_pos], pos = list_pos}
+  fun candidates name types T = D.filtered_candidates_with_generics ctxt [] N.NFunction
+    ("BoundOwner::" ^ name) T (SOME (metadata types))
+  fun rejects label name types T =
+    let
+      val raw = failure label "does not satisfy sort" (fn () => candidates name types T)
+      val _ = require (label ^ ": original first supplied argument position")
+        (map position_range (message_positions raw) = [position_range first_pos])
+      val _ = require (label ^ ": diagnostic native temporary indexes do not escape")
+        (not (String.isSubstring ".9018" raw) andalso
+         not (String.isSubstring ".9019" raw))
+    in () end
+  fun no_match label name types T =
+    require (label ^ ": exact actual structure must retain native no-match")
+      (null (candidates name types T))
+  val _ = List.app (fn index =>
+    let
+      (* Deliberately use the diagnostic stem and both low/high indexes. *)
+      val weak = TVar ((Name.internal "urust_generic_diagnostic", index), @{sort type})
+      val shared = tuple weak weak
+      val nested = tuple weak (HOLogic.listT weak)
+      val _ = rejects ("repeated-weak-" ^ string_of_int index) "share" [weak, weak]
+        (occurrence owner8 shared shared @{typ bool})
+      val _ = rejects ("nested-weak-" ^ string_of_int index) "share" [weak, HOLogic.listT weak]
+        (occurrence owner8 nested nested @{typ bool})
+      val _ = rejects ("linked-weak-" ^ string_of_int index) "linked" [weak]
+        (occurrence owner8 weak weak weak)
+      val receiver = Term.typ_subst_atomic
+        [(@{typ "'address"}, @{typ nat}), (@{typ "'global"}, weak), (@{typ "'target"}, owner8)]
+        @{typ "('address, 'global, 'target) Global_Store.ref"}
+      val _ = rejects ("borrowed-linked-weak-" ^ string_of_int index) "borrowed" [weak]
+        (occurrence receiver weak weak weak)
+      val strong = TVar ((Name.internal "urust_generic_diagnostic", index), @{sort trait_scale})
+      val strong_pair = tuple strong strong
+      val [selected] = candidates "share" [strong, strong]
+        (occurrence owner8 strong_pair strong_pair @{typ bool})
+      val expected_serial = #serial (source "share" "bound_owner_byte_share")
+      val _ = require "repeated strong caller identity and selected source survive final native dispatch"
+        (#serial (#entry selected) = expected_serial andalso
+         Term.add_tvars (#term selected) [] = [((Name.internal "urust_generic_diagnostic", index),
+           @{sort trait_scale})])
+      val strong_receiver = Term.typ_subst_atomic
+        [(@{typ "'address"}, @{typ nat}), (@{typ "'global"}, strong), (@{typ "'target"}, owner8)]
+        @{typ "('address, 'global, 'target) Global_Store.ref"}
+      val expected = occurrence strong_receiver strong strong strong
+      val [borrowed] = candidates "borrowed" [strong] expected
+      val _ = require "generic/receiver/global/effect sharing survives final native dispatch without temporary variables"
+        (fastype_of (#term borrowed) = expected andalso
+         #serial (#entry borrowed) = #serial (source "borrowed" "bound_owner_byte_borrowed") andalso
+         Term.add_tvars (#term borrowed) [] = [((Name.internal "urust_generic_diagnostic", index),
+           @{sort trait_scale})])
+    in () end) [0, 2, 700, 9017]
+  val weak = TFree ("'rigid_weak", @{sort type})
+  val repeated = tuple weak weak
+  val nested = tuple weak (HOLogic.listT weak)
+  val _ = rejects "rigid-shared-valid-invalid" "share" [weak, weak]
+    (occurrence owner8 repeated repeated @{typ bool})
+  val _ = rejects "rigid-nested-sharing" "share" [weak, HOLogic.listT weak]
+    (occurrence owner8 nested nested @{typ bool})
+  val _ = rejects "concrete-shared-valid-invalid" "share" [@{typ bool}, @{typ bool}]
+    (occurrence owner8 (tuple @{typ bool} @{typ bool}) (tuple @{typ bool} @{typ bool}) @{typ bool})
+  val _ = rejects "unused-wrong-bound-keeps-witness" "unused" [@{typ bool}]
+    (occurrence owner8 @{typ "8 word"} @{typ "8 word"} @{typ bool})
+  val _ = no_match "rigid-repeated-input-mismatch" "share" [weak, weak]
+    (occurrence owner8 (tuple weak @{typ nat}) repeated @{typ bool})
+  val _ = no_match "rigid-repeated-output-mismatch" "share" [weak, weak]
+    (occurrence owner8 repeated (tuple weak @{typ nat}) @{typ bool})
+  val _ = no_match "rigid-nested-input-mismatch" "share" [weak, HOLogic.listT weak]
+    (occurrence owner8 (tuple weak (HOLogic.listT @{typ nat})) nested @{typ bool})
+  val _ = no_match "concrete-shared-structure-mismatch" "share" [@{typ bool}, @{typ bool}]
+    (occurrence owner8 (tuple @{typ bool} @{typ "8 word"}) (tuple @{typ bool} @{typ bool}) @{typ bool})
+  val _ = no_match "linked-effect-structure-mismatch" "linked" [@{typ bool}]
+    (occurrence owner8 @{typ bool} @{typ bool} @{typ nat})
+  val wrong_receiver = Term.typ_subst_atomic
+    [(@{typ "'address"}, @{typ nat}), (@{typ "'global"}, weak), (@{typ "'target"}, owner8)]
+    @{typ "('address, 'global, 'target) Global_Store.ref"}
+  val _ = no_match "borrowed-return-structure-mismatch" "borrowed" [weak]
+    (occurrence wrong_receiver weak @{typ nat} weak)
+  val [half] = candidates "share" [@{typ bool}, @{typ bool}]
+    (occurrence owner16 (tuple @{typ bool} @{typ bool}) (tuple @{typ bool} @{typ bool}) @{typ bool})
+  val _ = require "unrelated strong bound does not reject correctly selected weaker owner"
+    (#serial (#entry half) = #serial (source "share" "bound_owner_half_share"))
+  val _ = require "diagnostic preflight/final calls preserve all original contexts, schemes and ordinary registrations"
+    (snapshot ctxt = before_state andalso scheme_snapshot ctxt = before_schemes)
+  val _ = require_scope_closed "A29 diagnostic scopes" ctxt
+  val _ = writeln "U4 A29 repeated/nested low-high variables, rigid/concrete sharing, receiver/channels, unused witnesses and native shape controls PASS"
+in end
+
+local
+  open Generic_Call_Owner_Test
+  val plain_text = "urust [verbosity = 0] " ^ cartouche
+    ("impl BoundOwner<u8> {\n" ^
+      method "bound_owner_byte_plain" "" "fn plain(self, value: u8) -> u8 { value }" ^
+      "}\nimpl BoundOwner<u16> {\n" ^
+      method "bound_owner_half_plain" "" "fn plain<T>(self, value: T) -> T { value }" ^ "}")
+  val (prepared, _) = capture (fn () => run model "owner-monomorphic-model" plain_text)
+  val model = Exn.release prepared |> Toplevel.theory_of
+  val ctxt = Proof_Context.init_global model
+  val state = snapshot ctxt
+  val schemes = scheme_snapshot ctxt
+  val prefix = "/* " ^ Symbol.open_ ^ " bound " ^ Symbol.close ^ " */ "
+  val rows =
+    [("owner-count-dot", "wrong number of generic arguments",
+      "fn BoundProbe(owner: BoundOwner<u8>, value: bool) -> bool { owner.count::<bool, u8>(value) }", "::<bool, u8>", 0),
+     ("owner-kind-dot", "wrong type or const kind",
+      "fn BoundProbe(owner: BoundOwner<u8>, value: (bool, [u8; 3])) -> (bool, [u8; 3]) { owner.order::<3, bool>(value) }", "3", 2),
+     ("reverse-owner-count-dot", "wrong number of generic arguments",
+      "fn BoundProbe(owner: BoundOwner<u16>, value: (bool, u8)) -> (bool, u8) { owner.count::<bool>(value) }", "::<bool>", 0),
+     ("reverse-owner-kind-dot", "wrong type or const kind",
+      "fn BoundProbe(owner: BoundOwner<u16>, value: (bool, [u8; 3])) -> (bool, [u8; 3]) { owner.order::<bool, 3>(value) }", "bool", 2),
+     ("monomorphic-owner-dot", "generic arguments are not supported on generated Rust function paths",
+      "fn BoundProbe(owner: BoundOwner<u8>, value: u8) -> u8 { owner.plain::<u8>(value) }", "::<u8>", 0),
+     ("count-kind-compatible-shape-mismatch", "no backend matches the use-site type",
+      "fn BoundProbe(owner: BoundOwner<u8>, value: u8) -> u8 { owner.count::<bool>(value) }", "count", 0)]
+  val _ = List.app (fn (label, expected, rust, token, occurrence) =>
+    let
+      val text = "urust_fn [verbosity = 0] " ^ cartouche (prefix ^ rust)
+      val callbacks = saved_callbacks ()
+      val reporter = !Private_Output.report_fn
+      val (result, events) = capture (fn () => run model label text)
+      val raw = case result of Exn.Res _ => error (label ^ ": unexpectedly accepted")
+        | Exn.Exn exn => if Exn.is_interrupt exn then Exn.reraise exn else Runtime.exn_message exn
+      val visible = XML.content_of (YXML.parse_body raw)
+      val _ = require (label ^ ": unexpected diagnostic " ^ visible) (String.isSubstring expected visible)
+      val _ = require (label ^ ": exact responsible list/leaf or native shape range")
+        (map position_range (message_positions raw) =
+          [range_of text token occurrence, range_of text "urust_fn" 0])
+      val _ = require (label ^ ": complete ordinary/urgent/report suppression")
+        (null (ordinary events) andalso null (chunks "urgent" events) andalso null (declaration_reports events))
+      val _ = require (label ^ ": original namespace/scheme/scope snapshots and callbacks")
+        (snapshot ctxt = state andalso scheme_snapshot ctxt = schemes andalso
+         same_callbacks callbacks andalso PolyML.pointerEq (reporter, !Private_Output.report_fn))
+      val (recovered, _) = capture (fn () => run model (label ^ "-recovery")
+        ("urust_fn [verbosity = 0] " ^ cartouche "fn OwnerRecovery(value: u8) -> u8 { value }"))
+      val recovery = Exn.release recovered |> Toplevel.context_of
+      val _ = require (label ^ ": ordinary recovery")
+        (is_some (Parser_Test_Calls.lookup recovery "OwnerRecovery"))
+      val _ = require_scope_closed label recovery
+    in () end) rows
+  fun twin label owner parameter_type result_type call backend =
+    let
+      val clause = "(owner: " ^ owner ^ ", value: " ^ parameter_type ^ ") -> " ^ result_type
+      val actual = "urust_fn [verbosity = 0] owner_actual " ^ cartouche
+        ("fn OwnerActual" ^ clause ^ " { " ^ call ^ " }")
+      val direct = "urust_fn [verbosity = 0] owner_twin " ^ cartouche
+        ("fn OwnerTwin" ^ clause ^ " { \<epsilon>" ^ cartouche backend ^ "(owner, value) }")
+      val proof = "lemma owner_refl: " ^ cartouche "owner_actual = owner_twin" ^
+        " unfolding owner_actual_def owner_twin_def by (rule refl)"
+      val (result, _) = capture (fn () => run model label (actual ^ "\n" ^ direct ^ "\n" ^ proof))
+    in ignore (Exn.release result) end
+  val _ = twin "alternative-generic-owner" "BoundOwner<u16>" "bool" "bool"
+    "owner.plain::<bool>(value)" "bound_owner_half_plain"
+  val _ = twin "ordinary-monomorphic-owner" "BoundOwner<u8>" "u8" "u8"
+    "owner.plain(value)" "bound_owner_byte_plain"
+  val nat_type = "\<tau>" ^ cartouche "nat"
+  val size_type = "\<tau>" ^ cartouche "3"
+  val _ = twin "neutral-ordered-owner" "BoundOwner<u8>" ("(" ^ nat_type ^ ", [u8; 3])")
+    ("(" ^ nat_type ^ ", [u8; 3])")
+    ("owner.order::<" ^ nat_type ^ ", " ^ size_type ^ ">(value)") "bound_owner_byte_order"
+  val dot_sources = N.lookups ctxt N.NFunction "plain"
+  val monomorphic = the_single (filter (fn entry =>
+    Option.map Long_Name.base_name (D.backend_identity_constant ctxt entry) = SOME "bound_owner_byte_plain")
+    dot_sources)
+  val _ = require "monomorphic source retains NONE rather than a fabricated empty generic scheme"
+    (is_none (URust_Type_Mappings.generic_scheme_for_source ctxt (#serial monomorphic)))
+  val empty_base = Named_Target.theory_init model
+  val explicit_empty = URust_Type_Mappings.register_generic_scheme
+    {identity = #hol_term monomorphic, backend = #hol_term monomorphic,
+     sources = [#serial monomorphic], parameters = [], pos = #reg_pos monomorphic} empty_base
+  val _ = require "native empty registration is a no-op and never fabricates SOME [] metadata"
+    (PolyML.pointerEq (explicit_empty, empty_base) andalso
+     is_none (URust_Type_Mappings.generic_scheme_for_source explicit_empty (#serial monomorphic)) andalso
+     is_none (URust_Type_Mappings.generic_scheme_for_source ctxt (#serial monomorphic)))
+  val _ = writeln "U4 A30 original/reverse count/kind, monomorphic NONE/empty, shape, alternative/neutral/ordinary controls PASS"
+in end
+
+local
+  open Generic_Call_Owner_Test
+  val original_state = snapshot ctxt
+  val original_schemes = scheme_snapshot ctxt
+  val pos = Position.of_properties [(Markup.lineN, "7"), (Markup.offsetN, "21"),
+    (Markup.end_offsetN, "53"), (Markup.fileN, "source-kind-carrier"),
+    ("custom", "all properties : , ;")]
+  val first = Position.of_properties [(Markup.offsetN, "31"), (Markup.end_offsetN, "35"),
+    (Markup.fileN, "source-kind-carrier")]
+  val second = Position.of_properties [(Markup.offsetN, "42"), (Markup.end_offsetN, "48"),
+    (Markup.fileN, "source-kind-carrier")]
+  val entries = N.lookups ctxt N.NFunction "count"
+  fun named backend = the_single (filter (fn entry =>
+    Option.map Long_Name.base_name (D.backend_identity_constant ctxt entry) = SOME backend) entries)
+  val byte = named "bound_owner_byte_count"
+  val half = named "bound_owner_half_count"
+  val metadata: D.generic_arguments = {arguments = [(@{typ bool}, first), (@{typ "8 word"}, second)], pos = pos}
+  val selection: D.generic_source_selection = {sources = [#serial half], kinds = [SOME true, SOME true]}
+  val marker = D.mk_marker N.NFunction "count" pos (Free ("count", dummyT))
+  val ordinary = D.with_generic_arguments metadata marker
+  val wrapped = D.with_generic_source_arguments selection metadata marker
+  val _ = require "ordinary generic wrapper values and API remain unchanged"
+    (is_none (D.marker_generic_source_selection marker) andalso
+     is_none (D.marker_generic_source_selection ordinary) andalso
+     D.marker_generic_arguments ordinary = SOME metadata)
+  val _ = require "optional scalar carrier preserves basic arguments, arbitrary positions and ordinary marker/filter values"
+    (D.marker_generic_arguments wrapped = SOME metadata andalso
+     D.marker_generic_source_selection wrapped = SOME selection andalso
+     D.dest_marker_untyped marker = D.dest_marker_untyped wrapped)
+  val genuine = [N.Only_Sources [#serial half], N.Exclude_Method_Only]
+  val _ = require "syntactic scalar metadata and all genuine filters compose exactly in both orders"
+    (D.restrict_backends genuine wrapped aconv
+      D.with_generic_source_arguments selection metadata (D.restrict_backends genuine marker))
+  val _ = require "syntactic selection never enters the genuine ordinary filter channel"
+    (case D.dest_marker_untyped wrapped of SOME ((_, _, _, filters), _) => null filters | _ => false)
+  val _ = List.app (fn kinds =>
+    let
+      val value: D.generic_source_selection = {sources = [#serial half, #serial byte], kinds = kinds}
+      val term = D.with_generic_source_arguments value metadata marker
+    in require "native scalar carrier keeps type/const/HOL-neutral tags and source serial order"
+      (D.marker_generic_source_selection term = SOME value andalso
+       D.marker_generic_arguments term = SOME metadata) end)
+    [[SOME true, SOME false], [SOME false, SOME true], [NONE, NONE]]
+  fun body state result = Type (@{type_name function_body},
+    [state, result, @{typ nat}, @{typ "unit prompt"}, @{typ "unit prompt_output"}])
+  val owner8 = hd (binder_types (fastype_of (#hol_term byte)))
+  val expected = owner8 --> @{typ bool} --> body @{typ bool} @{typ bool}
+  fun selected filters = D.filtered_candidates_with_source_generics ctxt filters N.NFunction "count"
+    expected (SOME metadata) (SOME selection)
+  val wrong_count = failure "source-aware responsible owner count" "wrong number of generic arguments"
+    (fn () => selected [])
+  val _ = require "source-aware count diagnostic retains the complete generic-list position"
+    (map position_range (message_positions wrong_count) = [position_range pos])
+  val _ = require "real source exclusion never recovers or diagnoses the excluded responsible owner"
+    (null (selected [N.Only_Sources [#serial half]]))
+  val _ = require "real empty source selection and method exclusion are never weakened"
+    (null (selected [N.Only_Sources []]) andalso null (selected [N.Exclude_Method_Only]))
+  val _ = require "basic generic candidate API retains its preexisting behavior without optional source data"
+    (null (D.filtered_candidates_with_generics ctxt [] N.NFunction "count" expected (SOME metadata)))
+  fun tuple left right = HOLogic.mk_prodT (left, HOLogic.mk_prodT (right, @{typ tnil}))
+  val shared_entries = N.lookups ctxt N.NFunction "share"
+  val byte_shared = the_single (filter (fn entry =>
+    Option.map Long_Name.base_name (D.backend_identity_constant ctxt entry) = SOME "bound_owner_byte_share")
+    shared_entries)
+  val _ = List.app (fn index =>
+    let
+      val caller = TVar ((Name.internal "urust_generic_diagnostic", index), @{sort trait_scale})
+      val arguments: D.generic_arguments = {arguments = [(caller, first), (caller, second)], pos = pos}
+      val source_info: D.generic_source_selection =
+        {sources = map #serial shared_entries, kinds = [SOME true, SOME true]}
+      val pair = tuple caller caller
+      val occurrence = owner8 --> pair --> body @{typ bool} pair
+      val [candidate] = D.filtered_candidates_with_source_generics ctxt [] N.NFunction "share"
+        occurrence (SOME arguments) (SOME source_info)
+      val _ = require "source-aware actual dispatch retains exact repeated low/high caller identity and native selected serial"
+        (#serial (#entry candidate) = #serial byte_shared andalso
+         Term.add_tvars (#term candidate) [] =
+          [((Name.internal "urust_generic_diagnostic", index), @{sort trait_scale})])
+      val empty: D.generic_source_selection = {sources = [], kinds = [SOME true, SOME true]}
+      val _ = require "an empty syntactic actual selection never reinstalls a backend"
+        (null (D.filtered_candidates_with_source_generics ctxt [] N.NFunction "share"
+          occurrence (SOME arguments) (SOME empty)))
+    in () end) [0, 2, 700, 9017]
+  val _ = ignore (failure "source metadata duplicate arguments" "malformed urust_dispatch generic arguments"
+    (fn () => D.with_generic_source_arguments selection metadata ordinary))
+  val _ = ignore (failure "source metadata kind count" "malformed urust_dispatch generic arguments"
+    (fn () => D.with_generic_source_arguments {sources = [#serial half], kinds = [NONE]} metadata marker))
+  val payload = case ordinary of _ $ payload $ _ => payload | _ => error "ordinary generic payload shape"
+  val (base, positions, types) =
+    case payload of _ $ base $ (_ $ positions $ types) => (base, positions, types)
+      | _ => error "ordinary generic nested payload shape"
+  fun malformed flag rest = HOLogic.mk_prod (base, HOLogic.mk_prod (positions, HOLogic.mk_prod (flag, rest)))
+  fun source_flag text = Free (D.generic_source_prefix ^
+    Micro_Rust_Semantic_Navigation.escape_payload_name text, dummyT)
+  val valid_flag = Free (D.generic_source_name selection, dummyT)
+  val _ = List.app (fn (label, bad) =>
+    ignore (failure label "malformed urust_dispatch generic arguments" (fn () => D.dest_payload bad)))
+    [("invalid scalar source serial", malformed (source_flag ("sources bad" ^ D.payload_sep ^ "tt")) types),
+     ("invalid scalar kind tag", malformed (source_flag ("empty_sources" ^ D.payload_sep ^ "tx")) types),
+     ("invalid scalar kind cardinality", malformed (source_flag ("empty_sources" ^ D.payload_sep ^ "t")) types),
+     ("duplicate scalar source metadata", malformed valid_flag (HOLogic.mk_prod (valid_flag, types))),
+     ("scalar source sentinel outside wrapper", HOLogic.mk_prod (valid_flag, HOLogic.unit))]
+  val _ = require "all scalar transport/filter/diagnostic probes preserve original registries, schemes and scope"
+    (snapshot ctxt = original_state andalso scheme_snapshot ctxt = original_schemes)
+  val _ = require_scope_closed "source metadata controls" ctxt
+  val _ = writeln "U4 A30 scalar metadata/ordinary APIs/genuine filters/malformed boundaries/caller preservation PASS"
+in end
+end
+\<close>
 
 end

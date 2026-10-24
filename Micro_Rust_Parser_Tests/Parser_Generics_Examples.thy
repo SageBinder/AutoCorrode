@@ -5,6 +5,7 @@ theory Parser_Generics_Examples
   imports
     Parser_Test_Utils
     Micro_Rust_Parser_Impl.Parser_Impl_Trait_Mappings
+    Micro_Rust_Parser_Impl.Parser_Impl_Chunk
 begin
 
 chapter\<open> Trait mappings \<close>
@@ -402,10 +403,538 @@ interpretation signature_abbrev_bool: signature_abbrev_seed True by unfold_local
 
 chapter\<open> Bodies \<close>
 
-text\<open> Reserved for U4 generic body examples. \<close>
+text\<open>
+Scoped type and const names share the signature's finalized HOL variables. Associated constants
+and const values use the ordinary literal lowering, including array repeat lengths.
+\<close>
+
+urust_fn \<open>
+fn BodyCapacity<const N: usize>(value: [u8; N]) -> usize { N }
+\<close>
+urust_fn \<open>
+fn BodyCapacityTwin(value: [u8; \<tau>\<open>'n::len\<close>]) -> usize {
+  \<llangle>of_nat LENGTH('n) :: 64 word\<rrangle>
+}
+\<close>
+lemma body_capacity_twin: \<open> body_capacity = body_capacity_twin \<close>
+  unfolding body_capacity_def body_capacity_twin_def by (rule refl)
+
+urust_fn \<open>
+fn BodyCapacityAdd<const N: usize>(value: [u8; N]) -> usize { N + 1usize }
+\<close>
+urust_fn \<open>
+fn BodyCapacityAddTwin(value: [u8; \<tau>\<open>'n::len\<close>]) -> usize {
+  \<llangle>of_nat LENGTH('n) :: 64 word\<rrangle> + 1usize
+}
+\<close>
+lemma body_capacity_add_twin: \<open> body_capacity_add = body_capacity_add_twin \<close>
+  unfolding body_capacity_add_def body_capacity_add_twin_def by (rule refl)
+
+urust_fn \<open>
+fn BodyCapacityCompare<const N: usize>(value: [u8; N]) -> bool { N < 5usize }
+\<close>
+urust_fn \<open>
+fn BodyCapacityCompareTwin(value: [u8; \<tau>\<open>'n::len\<close>]) -> bool {
+  \<llangle>of_nat LENGTH('n) :: 64 word\<rrangle> < 5usize
+}
+\<close>
+lemma body_capacity_compare_twin: \<open> body_capacity_compare = body_capacity_compare_twin \<close>
+  unfolding body_capacity_compare_def body_capacity_compare_twin_def by (rule refl)
+
+urust_fn \<open>
+fn BodyBound<T: Scale>(value: T) -> \<tau>\<open>nat\<close> { T::CEILING }
+\<close>
+urust_fn \<open>
+fn BodyBoundTwin(value: \<tau>\<open>'t::trait_scale\<close>) -> \<tau>\<open>nat\<close> {
+  \<llangle>trait_ceiling TYPE('t)\<rrangle>
+}
+\<close>
+lemma body_bound_twin: \<open> body_bound = body_bound_twin \<close>
+  unfolding body_bound_def body_bound_twin_def by (rule refl)
+
+urust_type "BodyNumber" = \<open> nat \<close>
+urust_fn \<open> fn BodyConcrete() -> BodyNumber { BodyNumber::CEILING } \<close>
+urust_fn \<open>
+fn BodyConcreteTwin() -> BodyNumber { \<llangle>trait_ceiling TYPE(nat)\<rrangle> }
+\<close>
+lemma body_concrete_twin: \<open> body_concrete = body_concrete_twin \<close>
+  unfolding body_concrete_def body_concrete_twin_def by (rule refl)
+
+micro_rust_notation (literal) \<open> 7 :: nat \<close> ("BodyNumber::CEILING")
+urust_fn \<open> fn BodyConcreteExplicit() -> BodyNumber { BodyNumber::CEILING } \<close>
+urust_fn \<open>
+fn BodyConcreteExplicitTwin() -> BodyNumber { \<llangle>7 :: nat\<rrangle> }
+\<close>
+lemma body_concrete_explicit_twin: \<open> body_concrete_explicit = body_concrete_explicit_twin \<close>
+  unfolding body_concrete_explicit_def body_concrete_explicit_twin_def by (rule refl)
+
+urust_datatype \<open> struct BodyParcel<T> { payload: T } \<close>
+urust_datatype \<open> struct BodyPacket<T>(T); \<close>
+urust_fn \<open>
+fn BodyConstruct<T>(value: T) -> BodyParcel<T> { BodyParcel::<T> { payload: value } }
+\<close>
+urust_fn \<open>
+fn BodyConstructTwin(value: \<tau>\<open>'t\<close>) -> BodyParcel<\<tau>\<open>'t\<close>> {
+  BodyParcel::<\<tau>\<open>'t\<close>> { payload: value }
+}
+\<close>
+lemma body_construct_twin: \<open> body_construct = body_construct_twin \<close>
+  unfolding body_construct_def body_construct_twin_def by (rule refl)
+
+urust_fn \<open>
+fn BodyTupleConstruct<T>(value: T) -> BodyPacket<T> { BodyPacket::<T>(value) }
+\<close>
+urust_fn \<open>
+fn BodyTupleConstructTwin(value: \<tau>\<open>'t\<close>) -> BodyPacket<\<tau>\<open>'t\<close>> {
+  BodyPacket::<\<tau>\<open>'t\<close>>(value)
+}
+\<close>
+lemma body_tuple_construct_twin: \<open> body_tuple_construct = body_tuple_construct_twin \<close>
+  unfolding body_tuple_construct_def body_tuple_construct_twin_def by (rule refl)
+
+urust_fn \<open>
+fn BodyShadow<T>(value: T) -> BodyParcel<T> {
+  let T = value;
+  { BodyParcel::<T> { payload: T } }
+}
+\<close>
+urust_fn \<open>
+fn BodyShadowTwin(value: \<tau>\<open>'t\<close>) -> BodyParcel<\<tau>\<open>'t\<close>> {
+  let T = value;
+  { BodyParcel::<\<tau>\<open>'t\<close>> { payload: T } }
+}
+\<close>
+lemma body_shadow_twin: \<open> body_shadow = body_shadow_twin \<close>
+  unfolding body_shadow_def body_shadow_twin_def by (rule refl)
+
+urust_fn \<open>
+fn BodyRepeat<const N: usize>(value: [u8; N]) -> \<tau>\<open>8 word list\<close> { [0u8; N] }
+\<close>
+urust_fn \<open>
+fn BodyRepeatTwin(value: [u8; \<tau>\<open>'n::len\<close>]) -> \<tau>\<open>8 word list\<close> {
+  \<epsilon>\<open>bind (literal (of_nat LENGTH('n) :: 64 word))
+    (\<lambda>count. bind (literal (0 :: 8 word))
+      (\<lambda>value. literal (replicate (unsigned count) value)))\<close>
+}
+\<close>
+lemma body_repeat_twin: \<open> body_repeat = body_repeat_twin \<close>
+  unfolding body_repeat_def body_repeat_twin_def by (rule refl)
+urust_fn \<open>
+fn BodyInlineRepeat<const N: usize>(value: [u8; N]) -> \<tau>\<open>8 word list\<close> {
+  [const { 0u8 }; N]
+}
+\<close>
+urust_fn \<open>
+fn BodyInlineRepeatTwin(value: [u8; \<tau>\<open>'n::len\<close>]) -> \<tau>\<open>8 word list\<close> {
+  \<epsilon>\<open>bind (literal (of_nat LENGTH('n) :: 64 word))
+    (\<lambda>count. list_sequence (replicate (unsigned count) (literal (0 :: 8 word))))\<close>
+}
+\<close>
+lemma body_inline_repeat_twin: \<open> body_inline_repeat = body_inline_repeat_twin \<close>
+  unfolding body_inline_repeat_def body_inline_repeat_twin_def by (rule refl)
+urust_trait "BodyLength" = \<open> len0 \<close>
+  urust_consts "COUNT" = \<open> \<lambda>(_ :: 'n::len0 itself). (of_nat LENGTH('n) :: 64 word) \<close>
+urust_fn \<open>
+fn BodyBoundRepeat<T: BodyLength>(value: T) -> \<tau>\<open>8 word list\<close> { [0u8; T::COUNT] }
+\<close>
+urust_fn \<open>
+fn BodyBoundRepeatTwin(value: \<tau>\<open>'t::len0\<close>) -> \<tau>\<open>8 word list\<close> {
+  \<epsilon>\<open>bind (literal (of_nat LENGTH('t) :: 64 word))
+    (\<lambda>count. bind (literal (0 :: 8 word))
+      (\<lambda>value. literal (replicate (unsigned count) value)))\<close>
+}
+\<close>
+lemma body_bound_repeat_twin: \<open> body_bound_repeat = body_bound_repeat_twin \<close>
+  unfolding body_bound_repeat_def body_bound_repeat_twin_def by (rule refl)
+urust_fn \<open>
+fn BodyBoundInlineRepeat<T: BodyLength>(value: T) -> \<tau>\<open>8 word list\<close> {
+  [const { 0u8 }; T::COUNT]
+}
+\<close>
+urust_fn \<open>
+fn BodyBoundInlineRepeatTwin(value: \<tau>\<open>'t::len0\<close>) -> \<tau>\<open>8 word list\<close> {
+  \<epsilon>\<open>bind (literal (of_nat LENGTH('t) :: 64 word))
+    (\<lambda>count. list_sequence (replicate (unsigned count) (literal (0 :: 8 word))))\<close>
+}
+\<close>
+lemma body_bound_inline_repeat_twin: \<open> body_bound_inline_repeat = body_bound_inline_repeat_twin \<close>
+  unfolding body_bound_inline_repeat_def body_bound_inline_repeat_twin_def by (rule refl)
+urust_type "BodyLengthThree" = \<open> 3 \<close>
+urust_fn \<open>
+fn BodyConcreteRepeat() -> \<tau>\<open>8 word list\<close> { [0u8; BodyLengthThree::COUNT] }
+\<close>
+urust_fn \<open>
+fn BodyConcreteRepeatTwin() -> \<tau>\<open>8 word list\<close> {
+  \<epsilon>\<open>bind (literal (of_nat LENGTH(3) :: 64 word))
+    (\<lambda>count. bind (literal (0 :: 8 word))
+      (\<lambda>value. literal (replicate (unsigned count) value)))\<close>
+}
+\<close>
+lemma body_concrete_repeat_twin: \<open> body_concrete_repeat = body_concrete_repeat_twin \<close>
+  unfolding body_concrete_repeat_def body_concrete_repeat_twin_def by (rule refl)
+
+urust_datatype \<open> struct BodyPair<T, U> { first: T, second: U } \<close>
+urust_type_alias \<open> type BodyAlias<T> = BodyParcel<T>; \<close>
+urust_fn \<open>
+fn BodyReordered<T, U>(left: T, right: U) -> BodyPair<T, U> {
+  BodyPair::<T, U> { second: right, first: left }
+}
+\<close>
+urust_fn \<open>
+fn BodyReorderedTwin(left: \<tau>\<open>'t\<close>, right: \<tau>\<open>'u\<close>)
+  -> BodyPair<\<tau>\<open>'t\<close>, \<tau>\<open>'u\<close>> {
+  BodyPair::<\<tau>\<open>'t\<close>, \<tau>\<open>'u\<close>> { second: right, first: left }
+}
+\<close>
+lemma body_reordered_twin: \<open> body_reordered = body_reordered_twin \<close>
+  unfolding body_reordered_def body_reordered_twin_def by (rule refl)
+urust_fn \<open>
+fn BodyAliased<T>(value: T) -> BodyAlias<T> { BodyAlias::<T> { payload: value } }
+\<close>
+urust_fn \<open>
+fn BodyAliasedTwin(value: \<tau>\<open>'t\<close>) -> BodyAlias<\<tau>\<open>'t\<close>> {
+  BodyAlias::<\<tau>\<open>'t\<close>> { payload: value }
+}
+\<close>
+lemma body_aliased_twin: \<open> body_aliased = body_aliased_twin \<close>
+  unfolding body_aliased_def body_aliased_twin_def by (rule refl)
+urust_fn \<open>
+fn BodyImported<T>(value: T) -> BodyParcel<T> {
+  use BodyParcel as Package;
+  Package::<T> { payload: value }
+}
+\<close>
+urust_fn \<open>
+fn BodyImportedTwin(value: \<tau>\<open>'t\<close>) -> BodyParcel<\<tau>\<open>'t\<close>> {
+  use BodyParcel as Package;
+  Package::<\<tau>\<open>'t\<close>> { payload: value }
+}
+\<close>
+lemma body_imported_twin: \<open> body_imported = body_imported_twin \<close>
+  unfolding body_imported_def body_imported_twin_def by (rule refl)
+urust_fn \<open>
+fn BodyClosure<T>(value: T) -> BodyParcel<T> {
+  let make = |input| { BodyParcel::<T> { payload: input } };
+  make(value)
+}
+\<close>
+urust_fn \<open>
+fn BodyClosureTwin(value: \<tau>\<open>'t\<close>) -> BodyParcel<\<tau>\<open>'t\<close>> {
+  let make = |input| { BodyParcel::<\<tau>\<open>'t\<close>> { payload: input } };
+  make(value)
+}
+\<close>
+lemma body_closure_twin: \<open> body_closure = body_closure_twin \<close>
+  unfolding body_closure_def body_closure_twin_def by (rule refl)
+urust_fn \<open>
+fn BodyNamespaces<T>(T: T) -> BodyParcel<T> {
+  let T = T;
+  { BodyParcel::<T> { payload: T } }
+}
+\<close>
+urust_fn \<open>
+fn BodyNamespacesTwin(T: \<tau>\<open>'t\<close>) -> BodyParcel<\<tau>\<open>'t\<close>> {
+  let T = T;
+  { BodyParcel::<\<tau>\<open>'t\<close>> { payload: T } }
+}
+\<close>
+lemma body_namespaces_twin: \<open> body_namespaces = body_namespaces_twin \<close>
+  unfolding body_namespaces_def body_namespaces_twin_def by (rule refl)
+
+urust_fn \<open>
+fn BodyAssociatedShadow<T: Scale>(T: T) -> \<tau>\<open>nat\<close> {
+  let T = T;
+  T::CEILING
+}
+\<close>
+urust_fn \<open>
+fn BodyAssociatedShadowTwin(T: \<tau>\<open>'t::trait_scale\<close>) -> \<tau>\<open>nat\<close> {
+  let T = T;
+  \<llangle>trait_ceiling TYPE('t)\<rrangle>
+}
+\<close>
+lemma body_associated_shadow_twin:
+  \<open> body_associated_shadow = body_associated_shadow_twin \<close>
+  unfolding body_associated_shadow_def body_associated_shadow_twin_def by (rule refl)
+urust_type "BodyConcreteNat" = \<open> nat \<close>
+urust_type_alias \<open> type BodyNumericAlias = BodyConcreteNat; \<close>
+urust_fn \<open>
+fn BodyConcreteAlias() -> BodyConcreteNat { BodyNumericAlias::CEILING }
+\<close>
+urust_fn \<open>
+fn BodyConcreteImported() -> BodyConcreteNat {
+  use BodyConcreteNat as Number;
+  Number::CEILING
+}
+\<close>
+urust_fn \<open>
+fn BodyConcreteHeadTwin() -> BodyConcreteNat { \<llangle>trait_ceiling TYPE(nat)\<rrangle> }
+\<close>
+lemma body_concrete_alias_twin: \<open> body_concrete_alias = body_concrete_head_twin \<close>
+  unfolding body_concrete_alias_def body_concrete_head_twin_def by (rule refl)
+lemma body_concrete_imported_twin: \<open> body_concrete_imported = body_concrete_head_twin \<close>
+  unfolding body_concrete_imported_def body_concrete_head_twin_def by (rule refl)
+urust \<open>
+impl BodyConcreteNat {
+  fn capacity() -> BodyConcreteNat { Self::CEILING }
+}
+\<close>
+lemma body_concrete_self_twin: \<open> body_concrete_nat_capacity = body_concrete_head_twin \<close>
+  unfolding body_concrete_nat_capacity_def body_concrete_head_twin_def by (rule refl)
 
 chapter\<open> Turbofish \<close>
 
-text\<open> Reserved for U4 generic call examples. \<close>
+text\<open>
+Generated generic functions consume ordered type witnesses, while explicit call notations retain
+their leading value arguments. Calls without turbofish keep ordinary native inference.
+\<close>
+
+urust_fn \<open>
+fn CallIdentity(value: u8) -> u8 { SignatureIdentity::<u8>(value) }
+\<close>
+urust_fn \<open>
+fn CallIdentityTwin(value: u8) -> u8 { \<epsilon>\<open>signature_identity\<close>(value) }
+\<close>
+lemma call_identity_twin: \<open> call_identity = call_identity_twin \<close>
+  unfolding call_identity_def call_identity_twin_def by (rule refl)
+
+urust_fn \<open>
+fn CallArray(value: [u8; 3]) -> [u8; 3] { SignatureArray::<3>(value) }
+\<close>
+urust_fn \<open>
+fn CallArrayTwin(value: [u8; 3]) -> [u8; 3] { \<epsilon>\<open>signature_array\<close>(value) }
+\<close>
+lemma call_array_twin: \<open> call_array = call_array_twin \<close>
+  unfolding call_array_def call_array_twin_def by (rule refl)
+
+urust_fn \<open>
+fn CallMixed(value: (u8, [u8; 3])) -> (u8, [u8; 3]) { SignatureMixed::<u8, 3>(value) }
+\<close>
+urust_fn \<open>
+fn CallMixedTwin(value: (u8, [u8; 3])) -> (u8, [u8; 3]) {
+  \<epsilon>\<open>signature_mixed\<close>(value)
+}
+\<close>
+lemma call_mixed_twin: \<open> call_mixed = call_mixed_twin \<close>
+  unfolding call_mixed_def call_mixed_twin_def by (rule refl)
+
+urust_fn \<open>
+fn CallScoped<T, const N: usize>(value: (T, [u8; N])) -> (T, [u8; N]) {
+  SignatureMixed::<T, N>(value)
+}
+\<close>
+urust_fn \<open>
+fn CallScopedTwin(value: (\<tau>\<open>'t\<close>, [u8; \<tau>\<open>'n::len\<close>]))
+  -> (\<tau>\<open>'t\<close>, [u8; \<tau>\<open>'n::len\<close>]) {
+  \<epsilon>\<open>signature_mixed\<close>(value)
+}
+\<close>
+lemma call_scoped_twin: \<open> call_scoped = call_scoped_twin \<close>
+  unfolding call_scoped_def call_scoped_twin_def by (rule refl)
+
+urust_fn \<open>
+fn CallEscapes(value: (u8, [u8; 3])) -> (u8, [u8; 3]) {
+  SignatureMixed::<\<tau>\<open>8 word\<close>, \<tau>\<open>3\<close>>(value)
+}
+\<close>
+lemma call_escapes_twin: \<open> call_escapes = call_mixed_twin \<close>
+  unfolding call_escapes_def call_mixed_twin_def by (rule refl)
+
+urust_datatype \<open> struct GenericGauge { measure: u8 } \<close>
+urust \<open>
+impl GenericGauge {
+  fn preserve<U>(value: U) -> U { value }
+  fn relay<U>(value: U) -> U { Self::preserve::<U>(value) }
+  fn keep<U>(self, value: U) -> U { value }
+}
+\<close>
+urust_fn \<open>
+fn CallMember(value: u8) -> u8 { GenericGauge::preserve::<u8>(value) }
+\<close>
+urust_fn \<open>
+fn CallMemberTwin(value: u8) -> u8 { \<epsilon>\<open>generic_gauge_preserve\<close>(value) }
+\<close>
+lemma call_member_twin: \<open> call_member = call_member_twin \<close>
+  unfolding call_member_def call_member_twin_def by (rule refl)
+
+urust_fn \<open>
+fn CallSelfTwin<U>(value: U) -> U { \<epsilon>\<open>generic_gauge_preserve\<close>(value) }
+\<close>
+lemma call_self_twin: \<open> generic_gauge_relay = call_self_twin \<close>
+  unfolding generic_gauge_relay_def call_self_twin_def by (rule refl)
+
+urust_fn \<open>
+fn CallMethod(owner: GenericGauge, value: u8) -> u8 { owner.keep::<u8>(value) }
+\<close>
+urust_fn \<open>
+fn CallMethodTwin(owner: GenericGauge, value: u8) -> u8 {
+  \<epsilon>\<open>generic_gauge_keep\<close>(owner, value)
+}
+\<close>
+lemma call_method_twin: \<open> call_method = call_method_twin \<close>
+  unfolding call_method_def call_method_twin_def by (rule refl)
+
+urust_datatype \<open> struct GenericHolder<T> { payload: T } \<close>
+urust \<open>
+impl GenericHolder<u16> {
+  fn preserve<U>(value: U) -> U { value }
+}
+\<close>
+urust_fn \<open>
+fn CallSelected(value: u8) -> u8 { GenericHolder::<u16>::preserve::<u8>(value) }
+\<close>
+urust_fn \<open>
+fn CallSelectedTwin(value: u8) -> u8 { \<epsilon>\<open>generic_holder_preserve\<close>(value) }
+\<close>
+lemma call_selected_twin: \<open> call_selected = call_selected_twin \<close>
+  unfolding call_selected_def call_selected_twin_def by (rule refl)
+
+urust_fn \<open>
+fn CallRepeated<T, const N: usize>(value: (T, [u8; N])) -> (T, [u8; N]) {
+  let first = SignatureMixed::<T, N>(value);
+  SignatureMixed::<T, N>(first)
+}
+\<close>
+urust_fn \<open>
+fn CallRepeatedTwin(value: (\<tau>\<open>'t\<close>, [u8; \<tau>\<open>'n::len\<close>]))
+  -> (\<tau>\<open>'t\<close>, [u8; \<tau>\<open>'n::len\<close>]) {
+  let first = \<epsilon>\<open>signature_mixed\<close>(value);
+  \<epsilon>\<open>signature_mixed\<close>(first)
+}
+\<close>
+lemma call_repeated_twin: \<open> call_repeated = call_repeated_twin \<close>
+  unfolding call_repeated_def call_repeated_twin_def by (rule refl)
+urust_fn \<open> fn CallTwo<T, U>(value: (T, U)) -> (T, U) { value } \<close>
+urust_fn \<open>
+fn CallShared<T>(value: (T, T)) -> (T, T) { CallTwo::<T, T>(value) }
+\<close>
+urust_fn \<open>
+fn CallSharedTwin(value: (\<tau>\<open>'t\<close>, \<tau>\<open>'t\<close>))
+  -> (\<tau>\<open>'t\<close>, \<tau>\<open>'t\<close>) { \<epsilon>\<open>call_two\<close>(value) }
+\<close>
+lemma call_shared_twin: \<open> call_shared = call_shared_twin \<close>
+  unfolding call_shared_def call_shared_twin_def by (rule refl)
+urust_fn [state = \<open>bool\<close>, abort = \<open>nat\<close>,
+  input = \<open>unit prompt\<close>, output = \<open>unit prompt_output\<close>] \<open>
+fn CallIndependent(value: u8) -> u8 { SignatureIdentity::<u8>(value) }
+\<close>
+urust_fn [state = \<open>bool\<close>, abort = \<open>nat\<close>,
+  input = \<open>unit prompt\<close>, output = \<open>unit prompt_output\<close>] \<open>
+fn CallIndependentTwin(value: u8) -> u8 { \<epsilon>\<open>signature_identity\<close>(value) }
+\<close>
+lemma call_independent_twin: \<open> call_independent = call_independent_twin \<close>
+  unfolding call_independent_def call_independent_twin_def by (rule refl)
+urust_fn [state = \<open>8 word\<close>, abort = \<open>bool\<close>,
+  input = \<open>8 word prompt\<close>, output = \<open>unit prompt_output\<close>] \<open>
+fn CallSharedChannel(value: u8) -> u8 { SignatureChannels::<u8>(value) }
+\<close>
+urust_fn [state = \<open>8 word\<close>, abort = \<open>bool\<close>,
+  input = \<open>8 word prompt\<close>, output = \<open>unit prompt_output\<close>] \<open>
+fn CallSharedChannelTwin(value: u8) -> u8 { \<epsilon>\<open>signature_channels\<close>(value) }
+\<close>
+lemma call_shared_channel_twin: \<open> call_shared_channel = call_shared_channel_twin \<close>
+  unfolding call_shared_channel_def call_shared_channel_twin_def by (rule refl)
+urust_fn \<open> fn CallAbbreviation(value: u8) -> u8 { SignatureAbbrev::<u8>(value) } \<close>
+urust_fn \<open>
+fn CallAbbreviationOther(value: u8) -> u8 { SignatureAbbrevOther::<u8, u16>(value) }
+\<close>
+lemma call_abbreviation_headers:
+  \<open> call_abbreviation = call_abbreviation_other \<close>
+  unfolding call_abbreviation_def call_abbreviation_other_def by (rule refl)
+
+locale call_dispatch_seed =
+  fixes seed :: 'ambient
+begin
+urust_fn [abbrev] \<open>
+fn LocaleCall<T>(value: (\<tau>\<open>'ambient\<close>, T))
+  -> (\<tau>\<open>'ambient\<close>, T) { let spare = seed; value }
+\<close>
+urust_fn [abbrev] \<open>
+fn LocaleOther<T, U: Ordered>(value: (\<tau>\<open>'ambient\<close>, T))
+  -> (\<tau>\<open>'ambient\<close>, T) { let spare = seed; value }
+\<close>
+end
+interpretation call_nat_three: call_dispatch_seed \<open>3 :: nat\<close> by unfold_locales
+interpretation call_nat_four: call_dispatch_seed \<open>4 :: nat\<close> by unfold_locales
+interpretation call_bool: call_dispatch_seed True by unfold_locales
+urust_fn \<open>
+fn LocaleSelected(value: (bool, u8)) -> (bool, u8) { LocaleCall::<u8>(value) }
+\<close>
+urust_fn \<open>
+fn LocaleSelectedTwin(value: (bool, u8)) -> (bool, u8) {
+  \<epsilon>\<open>call_bool.locale_call\<close>(value)
+}
+\<close>
+lemma locale_selected_twin: \<open> locale_selected = locale_selected_twin \<close>
+  unfolding locale_selected_def locale_selected_twin_def by (rule refl)
+urust_fn \<open>
+fn LocaleOtherSelected(value: (bool, u8)) -> (bool, u8) { LocaleOther::<u8, u16>(value) }
+\<close>
+urust_fn \<open>
+fn LocaleOtherSelectedTwin(value: (bool, u8)) -> (bool, u8) {
+  \<epsilon>\<open>call_bool.locale_other\<close>(value)
+}
+\<close>
+lemma locale_other_selected_twin: \<open> locale_other_selected = locale_other_selected_twin \<close>
+  unfolding locale_other_selected_def locale_other_selected_twin_def by (rule refl)
+
+urust_fn [register_notation = false] \<open>
+fn ExplicitControlBackend(leading: usize, value: u8) -> u8 { let spare = leading; value }
+\<close>
+micro_rust_notation (call) explicit_control_backend ("ExplicitControl")
+urust_fn \<open> fn CallExplicit(value: u8) -> u8 { ExplicitControl::<3>(value) } \<close>
+urust_fn \<open>
+fn CallExplicitTwin(value: u8) -> u8 { \<epsilon>\<open>explicit_control_backend (3 :: 64 word)\<close>(value) }
+\<close>
+lemma call_explicit_twin: \<open> call_explicit = call_explicit_twin \<close>
+  unfolding call_explicit_def call_explicit_twin_def by (rule refl)
+urust_fn [abbrev] \<open> fn CallUnusedScale<T: Scale>(value: u8) -> u8 { value } \<close>
+urust_fn \<open>
+fn CallUnusedBound(value: u8) -> u8 { CallUnusedScale::<\<tau>\<open>nat\<close>>(value) }
+\<close>
+urust_fn \<open> fn CallUnusedBoundTwin(value: u8) -> u8 { \<epsilon>\<open>call_unused_scale\<close>(value) } \<close>
+lemma call_unused_bound_twin: \<open> call_unused_bound = call_unused_bound_twin \<close>
+  unfolding call_unused_bound_def call_unused_bound_twin_def by (rule refl)
+urust_fn \<open>
+fn CallUnusedZero(value: u8) -> u8 { SignatureUnused::<u8, 0>(value) }
+\<close>
+urust_fn \<open>
+fn CallUnusedZeroTwin(value: u8) -> u8 { \<epsilon>\<open>signature_unused\<close>(value) }
+\<close>
+lemma call_unused_zero_twin: \<open> call_unused_zero = call_unused_zero_twin \<close>
+  unfolding call_unused_zero_def call_unused_zero_twin_def by (rule refl)
+urust_fn \<open>
+fn CallNumericTwin(value: [u8; 16]) -> [u8; 16] { \<epsilon>\<open>signature_array\<close>(value) }
+\<close>
+urust_fn \<open>
+fn CallNumericDecimal(value: [u8; 16]) -> [u8; 16] { SignatureArray::<16>(value) }
+\<close>
+lemma call_numeric_decimal_twin: \<open> call_numeric_decimal = call_numeric_twin \<close>
+  unfolding call_numeric_decimal_def call_numeric_twin_def by (rule refl)
+urust_fn \<open>
+fn CallNumericHex(value: [u8; 16]) -> [u8; 16] { SignatureArray::<0x_10>(value) }
+\<close>
+lemma call_numeric_hex_twin: \<open> call_numeric_hex = call_numeric_twin \<close>
+  unfolding call_numeric_hex_def call_numeric_twin_def by (rule refl)
+urust_fn \<open>
+fn CallNumericBinary(value: [u8; 16]) -> [u8; 16] { SignatureArray::<0b_10000>(value) }
+\<close>
+lemma call_numeric_binary_twin: \<open> call_numeric_binary = call_numeric_twin \<close>
+  unfolding call_numeric_binary_def call_numeric_twin_def by (rule refl)
+urust_fn \<open>
+fn CallNumericOctal(value: [u8; 16]) -> [u8; 16] { SignatureArray::<0o_20>(value) }
+\<close>
+lemma call_numeric_octal_twin: \<open> call_numeric_octal = call_numeric_twin \<close>
+  unfolding call_numeric_octal_def call_numeric_twin_def by (rule refl)
+urust_fn \<open>
+fn CallNumericSeparator(value: [u8; 16]) -> [u8; 16] { SignatureArray::<1_6>(value) }
+\<close>
+lemma call_numeric_separator_twin: \<open> call_numeric_separator = call_numeric_twin \<close>
+  unfolding call_numeric_separator_def call_numeric_twin_def by (rule refl)
+urust_fn \<open>
+fn CallNumericEscape(value: [u8; 16]) -> [u8; 16] { SignatureArray::<\<tau>\<open>16\<close>>(value) }
+\<close>
+lemma call_numeric_escape_twin: \<open> call_numeric_escape = call_numeric_twin \<close>
+  unfolding call_numeric_escape_def call_numeric_twin_def by (rule refl)
 
 end

@@ -4,6 +4,7 @@ theory Parser_Impl_Resolution
     Parser_Impl_Item_Scope
     Parser_Impl_Imports
     Parser_Impl_Grammar
+    Parser_Impl_Trait_Mappings
     Parser_Utils
 begin
 
@@ -508,6 +509,38 @@ struct
   fun resolve_identifier ctxt kind name pos =
     resolve_identifier_at_positions ctxt kind name pos []
 
+  fun scope_parameter ctxt name =
+    (case URust_Type_Mappings.generic_scope ctxt of
+       NONE => NONE
+     | SOME {parameters} =>
+         find_first (fn ({rust, ...}: URust_Type_Mappings.generic_parameter) =>
+           rust = name) parameters)
+
+  fun report_scope_parameter ctxt pos
+      ({rust, hol, report_reference, ...}: URust_Type_Mappings.generic_parameter) =
+    (Micro_Rust_Semantic_Navigation.defer_report ctxt pos Markup.tfree;
+     Micro_Rust_Semantic_Navigation.defer_report_text ctxt pos Markup.typing
+       (rust ^ " = " ^ Syntax.string_of_typ (Config.put show_sorts true ctxt) (TFree hol));
+     report_reference pos)
+
+  fun scope_value ctxt (name, pos) =
+    Option.map
+      (fn parameter as {kind, hol, ...}: URust_Type_Mappings.generic_parameter =>
+        (report_scope_parameter ctxt pos parameter;
+         case kind of
+           Type_Parameter =>
+             error ("urust: type parameter " ^ name ^ " cannot be used as a value" ^
+               Position.here pos)
+         | Const_Parameter =>
+             let
+               val length_type = TFree hol
+               val length = Const (\<^const_name>\<open>len_of\<close>,
+                 Term.itselfT length_type --> HOLogic.natT) $ Logic.mk_type length_type
+             in T.source_position pos
+               (Const (\<^const_name>\<open>of_nat\<close>, HOLogic.natT --> \<^typ>\<open>64 word\<close>) $ length)
+             end))
+      (scope_parameter ctxt name)
+
   fun ordinary_identifier_value ctxt environment
       (identifier as (name, pos)) =
     let
@@ -517,7 +550,10 @@ struct
     in
       (case use_local ctxt environment identifier of
          SOME local_term => local_term
-       | NONE => resolve_hol_identifier ctxt name pos)
+       | NONE =>
+           (case scope_value ctxt identifier of
+              SOME value => value
+            | NONE => resolve_hol_identifier ctxt name pos))
     end
 
   fun registered_identifier ctxt kind (name, pos) =
@@ -897,17 +933,165 @@ struct
   fun generic_sources (Generic_Args (arguments, _)) =
     map generic_argument_source arguments
 
-  (* A turbofish payload becomes leading arguments, which only explicit call notations accept, so
-     a registered head with generic arguments never dispatches to a generated function. *)
+  fun call_marker term =
+    (case Micro_Rust_Dispatch.dest_marker_untyped term of
+       SOME ((Micro_Rust_Names.NFunction, name, positions, filters), _) =>
+         SOME (name, positions, filters)
+     | _ =>
+         (case term of
+            left $ right =>
+              (case call_marker left of NONE => call_marker right | marker => marker)
+          | Abs (_, _, body) => call_marker body
+          | _ => NONE))
+
+  fun source_scheme ctxt ({serial, ...}: Micro_Rust_Names.entry) =
+    URust_Type_Mappings.generic_scheme_for_source ctxt serial
+
+  fun generated_generic_entries ctxt filters name =
+    Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NFunction name
+    |> Micro_Rust_Names.eligible_entries ctxt filters
+    |> filter (fn entry as {serial, ...} =>
+        Micro_Rust_Names.is_automatic_serial (Context.Proof ctxt) serial andalso
+          is_some (source_scheme ctxt entry))
+
+  fun reject_mixed_generic_key ctxt filters name generated pos =
+    let
+      val explicit = Micro_Rust_Names.registrations ctxt Micro_Rust_Names.NFunction name
+        |> Micro_Rust_Names.eligible_entries ctxt filters
+        |> exists (fn {serial, ...} =>
+            not (Micro_Rust_Names.is_automatic_serial (Context.Proof ctxt) serial))
+      val covered = exists (not o Micro_Rust_Names.is_automatic ctxt) generated
+    in
+      if explicit orelse covered then
+        error ("urust: generic arguments are ambiguous on " ^ name ^
+          "; the key has generated functions and explicit call notations" ^ Position.here pos)
+      else ()
+    end
+
+  fun generic_count_error name count pos =
+    error ("urust: wrong number of generic arguments for " ^ name ^
+      ": supplied " ^ string_of_int count ^ Position.here pos)
+
+  fun bare_generic_type (Group_Type (typ, _)) = bare_generic_type typ
+    | bare_generic_type (Path_Type ([Rust_Type_Path_Segment (name, pos, NONE, _)], _)) =
+        SOME (name, pos)
+    | bare_generic_type _ = NONE
+
+  fun hol_generic_type (Group_Type (typ, _)) = hol_generic_type typ
+    | hol_generic_type (HOL_Type_Source _) = true
+    | hol_generic_type _ = false
+
+  fun prepared_generic_argument ctxt argument =
+    let
+      fun type_argument typ =
+        (case Option.mapPartial (fn (name, pos) =>
+            Option.map (fn parameter => (parameter, pos)) (scope_parameter ctxt name))
+            (bare_generic_type typ) of
+           SOME (parameter as {kind = Const_Parameter, hol, ...}, pos) =>
+             (report_scope_parameter ctxt pos parameter;
+              (SOME Const_Parameter, SOME (TFree hol), NONE, pos))
+         | SOME ({kind = Type_Parameter, ...}, pos) =>
+             (SOME Type_Parameter, NONE, SOME typ, pos)
+         | NONE =>
+             (if hol_generic_type typ then NONE else SOME Type_Parameter,
+              NONE, SOME typ, rust_type_position typ))
+    in
+      (case argument of
+         Rust_Type_Argument typ => type_argument typ
+       | Rust_Numeric_Argument integer =>
+           let
+             val pos = integer_literal_position integer
+             val _ = if is_none (integer_literal_suffix_position integer) then ()
+               else error ("urust: const arguments must be unsuffixed integer literals" ^
+                 Position.here pos)
+             val value = case Parser_Utils.read_unsigned_integer (integer_literal_lexeme integer) of
+                 SOME value => value
+               | NONE => error ("urust: invalid complete const argument" ^ Position.here pos)
+             val typ = URust_Report_Transaction.native ctxt
+               (fn read_ctxt => Syntax.read_typ read_ctxt (string_of_int value))
+           in (SOME Const_Parameter, SOME typ, NONE, pos) end
+       | Rust_Lifetime_Argument (Rust_Lifetime (_, pos)) =>
+           error ("urust: omit lifetime arguments on generated functions" ^ Position.here pos)
+       | Rust_Associated_Type_Argument (_, pos, _) =>
+           error ("urust: associated type arguments are not supported on generated functions" ^
+             Position.here pos)
+       | Rust_Const_Expression_Argument source =>
+           error ("urust: const expression arguments are not supported on generated functions" ^
+             Position.here (Input.pos_of source)))
+    end
+
+  fun generated_generic_arguments ctxt name filters generated
+      (Generic_Args (arguments, pos)) function =
+    let
+      val _ = reject_mixed_generic_key ctxt filters name generated pos
+      val count = length arguments
+      val counted = filter (fn entry => length (the (source_scheme ctxt entry)) = count) generated
+      val _ = if null counted then generic_count_error name count pos else ()
+      val parsed = map (URust_Parser.parse_generic_argument_source ctxt o generic_argument_source)
+        arguments
+      val prepared = map (prepared_generic_argument ctxt) parsed
+      fun kind_matches (NONE, _) = true
+        | kind_matches (SOME kind, {kind = expected, ...}:
+            URust_Type_Mappings.generic_scheme_parameter) = kind = expected
+      fun matches entry = forall kind_matches
+        (map #1 prepared ~~ the (source_scheme ctxt entry))
+      val compatible = filter matches counted
+      val _ =
+        if null compatible then
+          let
+            val index = the_default 0 (find_index (fn index =>
+              forall (fn entry => not (kind_matches
+                (#1 (nth prepared index), nth (the (source_scheme ctxt entry)) index))) counted)
+              (0 upto (count - 1)) |> (fn index => if index < 0 then NONE else SOME index))
+            val argument_pos = #4 (nth prepared index)
+          in error ("urust: generic argument has the wrong type or const kind for " ^ name ^
+            Position.here argument_pos) end
+        else ()
+      val rust_types = map_filter #3 prepared
+      val resolved = URust_Type_Mappings.resolve_signature ctxt rust_types
+      fun collect (_, SOME typ, _, argument_pos) remaining = ((typ, argument_pos), remaining)
+        | collect (_, NONE, SOME _, argument_pos) (typ :: remaining) =
+            ((typ, argument_pos), remaining)
+        | collect _ _ = raise Fail "uRust generic argument resolution is inconsistent"
+      val (types, remaining) = fold_map collect prepared resolved
+      val _ = if null remaining then () else raise Fail "unconsumed uRust generic argument types"
+      val selected = map #serial compatible |> distinct (op =)
+      val kinds = map (Option.map (fn kind => kind = Type_Parameter) o #1) prepared
+    in
+      function
+      |> Micro_Rust_Dispatch.with_generic_source_arguments {sources = selected, kinds = kinds}
+        {arguments = types, pos = pos}
+    end
+
+  (* Explicit notations keep their leading value payload. Generated generic calls instead carry
+     typed occurrence arguments until native per-candidate selection. *)
   fun apply_generic_arguments _ _ function NONE = function
     | apply_generic_arguments ctxt environment function (SOME generic_arguments) =
-        T.apply_parameters (Micro_Rust_Dispatch.exclude_generated_backends function)
-          (map (parse_antiquotation ctxt environment)
-            (generic_sources generic_arguments))
+        (case call_marker function of
+           SOME (name, _, filters) =>
+             (case generated_generic_entries ctxt filters name of
+                [] =>
+                  let
+                    val entries = Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NFunction name
+                      |> Micro_Rust_Names.eligible_entries ctxt filters
+                    val Generic_Args (_, pos) = generic_arguments
+                    val _ = if not (null entries) andalso
+                        forall (Micro_Rust_Names.is_automatic ctxt) entries then
+                      error ("urust_expr: generic arguments are not supported on generated Rust function paths" ^
+                        Position.here pos)
+                      else ()
+                  in
+                    T.apply_parameters (Micro_Rust_Dispatch.exclude_generated_backends function)
+                      (map (parse_antiquotation ctxt environment) (generic_sources generic_arguments))
+                  end
+              | generated =>
+                  generated_generic_arguments ctxt name filters generated generic_arguments function)
+         | NONE =>
+             T.apply_parameters (Micro_Rust_Dispatch.exclude_generated_backends function)
+               (map (parse_antiquotation ctxt environment) (generic_sources generic_arguments)))
 
-  (* An automatic urust_fn registration stands for a Rust function item, which takes no generic
-     arguments at a call. A name with only such registrations reports that directly; otherwise
-     apply_generic_arguments restricts dispatch to the explicit call notations. *)
+  (* Monomorphic generated functions reject a turbofish. Generic sources are handled after
+     call-form filters select the eligible entries; explicit-only sources keep their value payload. *)
   fun reject_generated_function_generics ctxt path =
     (case segment_generic_args (final_segment path) of
        NONE => ()
@@ -917,13 +1101,126 @@ struct
              Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NFunction
                (render_path (remove_final_generic_args path))
          in
-           if not (null entries) andalso forall (Micro_Rust_Names.is_automatic ctxt) entries
+           if not (null entries) andalso forall (Micro_Rust_Names.is_automatic ctxt) entries andalso
+              null (generated_generic_entries ctxt [] (render_path (remove_final_generic_args path)))
            then
              error
                ("urust_expr: generic arguments are not supported on generated Rust function paths" ^
                  Position.here pos)
            else ()
          end)
+
+  fun generic_candidate_transform ctxt
+      ({arguments, pos}: Micro_Rust_Dispatch.generic_arguments) selection occurrence_type
+      ({name, eligible = genuine, maximal = entries}: Micro_Rust_Dispatch.generic_candidate_sources) =
+    let
+      val counted = filter (fn entry =>
+        (case source_scheme ctxt entry of
+           SOME parameters => length parameters = length arguments
+         | NONE => false)) entries
+      val _ = if null counted andalso is_none selection
+        then generic_count_error "generated function" (length arguments) pos
+        else ()
+      val thy = Proof_Context.theory_of ctxt
+      fun type_eligible (entry as {serial, hol_term, ...}: Micro_Rust_Names.entry) =
+        let
+          val parameters = the (source_scheme ctxt entry)
+          val actual_types = map fst arguments
+          val groups = distinct (op =) actual_types
+          val base_index = fold Term.maxidx_typ actual_types
+            (Term.maxidx_typ occurrence_type (Term.maxidx_term hol_term (Variable.maxidx_of ctxt))) + 1
+          fun requirement actual =
+            (actual_types ~~ parameters)
+            |> filter (fn (argument, _) => argument = actual)
+            |> maps (snd o #hol o snd)
+            |> Sign.minimize_sort thy
+          val probes = map_index (fn (index, actual) =>
+            (actual, TVar ((Name.internal "urust_generic_diagnostic", base_index + index),
+              requirement actual))) groups
+          val probe_arguments = map (fn (actual, argument_pos) =>
+            (the (AList.lookup (op =) probes actual), argument_pos)) arguments
+          val backend = singleton (Variable.polymorphic ctxt) hol_term
+          val aligned = URust_Type_Mappings.instantiate_generic_scheme_for_source ctxt
+            serial backend probe_arguments
+          (* Restore exact supplied types before comparison, including repeated variables and
+             deliberate receiver/channel sharing. This diagnostic copy never enters dispatch. *)
+          val restore = Term.map_types (Term.typ_subst_atomic (map swap probes))
+        in
+          (case aligned of
+             NONE => false
+           | SOME candidate => is_some (Micro_Rust_Dispatch.unify_fresh_and_instantiate ctxt
+               occurrence_type (restore candidate)))
+        end
+      val eligible = filter type_eligible counted
+      (* Syntactic selection must not erase the responsible receiver's header. Real filters
+         remain authoritative; this ownership comparison consumes no inferred substitution. *)
+      fun receiver_matches ({serial, hol_term, ...}: Micro_Rust_Names.entry) =
+        if not (Micro_Rust_Names.is_method_only_serial (Context.Proof ctxt) serial) then false
+        else
+          (case binder_types occurrence_type of
+             receiver :: _ =>
+               (case binder_types (fastype_of (Micro_Rust_Dispatch.fresh_backend ctxt hol_term)) of
+                  backend_receiver :: _ =>
+                    can (Type.raw_unify (receiver,
+                      Logic.incr_tvar (Term.maxidx_of_typ occurrence_type + 1) backend_receiver))
+                      Vartab.empty
+                | [] => false)
+           | [] => false)
+      fun kind_matches (NONE, _) = true
+        | kind_matches (SOME is_type, {kind, ...}:
+            URust_Type_Mappings.generic_scheme_parameter) =
+            is_type = (kind = Type_Parameter)
+      fun check_owner ({kinds, ...}: Micro_Rust_Dispatch.generic_source_selection) =
+        let
+          val owners = filter receiver_matches genuine
+          val schemes = map_filter (source_scheme ctxt) owners
+          val counted = filter (fn parameters => length parameters = length arguments) schemes
+          val compatible = filter (fn parameters => forall kind_matches (kinds ~~ parameters)) counted
+        in
+          if null owners then ()
+          else if null schemes then error
+            ("urust_expr: generic arguments are not supported on generated Rust function paths" ^
+              Position.here pos)
+          else if null counted then generic_count_error name (length arguments) pos
+          else if null compatible then
+            let
+              val index = find_index (fn index =>
+                forall (fn parameters => not (kind_matches
+                  (nth kinds index, nth parameters index))) counted)
+                (0 upto (length arguments - 1))
+              val argument_pos = #2 (nth arguments (if index < 0 then 0 else index))
+            in error ("urust: generic argument has the wrong type or const kind for " ^ name ^
+              Position.here argument_pos) end
+          else ()
+        end
+      val _ = if null eligible then Option.app check_owner selection else ()
+      fun supports entry =
+        forall (fn ((argument, _), {hol = (_, sort), ...}:
+            URust_Type_Mappings.generic_scheme_parameter) =>
+          Sign.of_sort thy (argument, sort))
+          (arguments ~~ the (source_scheme ctxt entry))
+      val compatible = filter supports eligible
+      val _ = if not (null eligible) andalso null compatible then
+        let
+          val requirements = the (source_scheme ctxt (hd eligible))
+          val incompatible = filter (fn ((argument, _), {hol = (_, sort), ...}:
+              URust_Type_Mappings.generic_scheme_parameter) =>
+            not (Sign.of_sort (Proof_Context.theory_of ctxt) (argument, sort)))
+            (arguments ~~ requirements)
+          val ((argument, argument_pos), {hol = (_, sort), ...}) = hd incompatible
+        in error ("urust: generic argument " ^
+          Syntax.string_of_typ (Config.put show_sorts true ctxt) argument ^
+          " does not satisfy sort " ^ Syntax.string_of_sort ctxt sort ^
+          Position.here argument_pos) end
+        else ()
+    in fn entry as {serial, ...} => fn candidate =>
+      if exists (fn compatible => #serial compatible = serial) compatible
+      then URust_Type_Mappings.instantiate_generic_scheme_for_source ctxt serial candidate arguments
+      else NONE
+    end
+
+  val _ = Theory.setup (Micro_Rust_Dispatch.register_generic_candidate_transform
+    \<^binding>\<open>urust_generated_function\<close> generic_candidate_transform)
 
   fun has_intermediate_generics path =
     let
@@ -1331,6 +1628,88 @@ struct
          in SOME registered end
      | NONE => NONE)
 
+  fun report_associated_constant ctxt pos (entry: URust_Trait_Mappings.trait_entry) term =
+    let
+      val navigation = Micro_Rust_Semantic_Navigation.defer_report ctxt pos
+      val _ = navigation (Position.entity_markup "urust_trait" (#path entry, #pos entry))
+      val _ =
+        (case Term.head_of (Term_Position.strip_positions term) of
+           Const (name, _) =>
+             List.app navigation
+               [Name_Space.markup (Consts.space_of (Proof_Context.consts_of ctxt)) name,
+                Markup.const]
+         | _ => ())
+      val _ = Micro_Rust_Semantic_Navigation.defer_report_text ctxt pos Markup.typing
+        (Syntax.string_of_term (Config.put show_sorts true ctxt) term)
+    in T.source_position pos term end
+
+  fun select_associated_constant ctxt head (name, pos) required candidates =
+    (case candidates of
+       [] =>
+         if required then
+           error ("urust: no associated constant " ^ name ^ " in the bounds of " ^ head ^
+             Position.here pos)
+         else NONE
+     | [(entry, term)] => SOME (report_associated_constant ctxt pos entry term)
+     | _ =>
+         error ("urust: multiple applicable associated constants " ^ name ^ " for " ^ head ^
+           ": " ^ commas (map (#path o fst) candidates) ^ Position.here pos))
+
+  fun scope_associated_value ctxt path =
+    (case path_segments path of
+       [Path_Segment (head, head_pos, head_arguments), Path_Segment (name, pos, NONE)] =>
+         (case scope_parameter ctxt head of
+            SOME (parameter as {kind = Type_Parameter, hol, bounds, ...}) =>
+              let
+                val _ = case head_arguments of NONE => ()
+                  | SOME (Generic_Args (_, arguments_pos)) =>
+                      error ("urust: generic parameter " ^ head ^ " takes no generic arguments" ^
+                        Position.here arguments_pos)
+                val _ = report_scope_parameter ctxt head_pos parameter
+                val typ = TFree hol
+                fun candidate key =
+                  let
+                    val entry = the (URust_Trait_Mappings.lookup ctxt key)
+                  in Option.map (fn {term, ...} =>
+                    let
+                      val fresh = Logic.incr_indexes
+                        ([], Int.max (Variable.maxidx_of ctxt, Term.maxidx_of_typ typ) + 1) term
+                      val Type (_, [Type (_, [domain]), _]) = fastype_of fresh
+                      val applied = Term.map_types (Term.typ_subst_atomic [(domain, typ)]) fresh $
+                        Logic.mk_type typ
+                    in (entry, Proof_Context.cert_term ctxt applied) end)
+                    (URust_Trait_Mappings.associated_constant ctxt entry name)
+                  end
+              in select_associated_constant ctxt head (name, pos) true
+                (map_filter candidate (distinct (op =) bounds)) end
+          | _ => NONE)
+     | _ => NONE)
+
+  fun concrete_associated_value ctxt instance path =
+    (case rev (path_segments path) of
+       Path_Segment (name, pos, NONE) :: (head as Path_Segment (_, head_pos, arguments)) :: rest =>
+         let
+           val type_segments = rev (head :: rest)
+           val key = space_implode "::" (map (#1 o segment_identifier) type_segments)
+           val typ = case instance of SOME typ => SOME typ
+             | NONE =>
+                 if is_some (URust_Type_Mappings.lookup ctxt key)
+                 then SOME (#1 (selection_type ctxt key head_pos arguments))
+                 else NONE
+         in Option.mapPartial (fn typ =>
+           select_associated_constant ctxt key (name, pos) false
+             (URust_Trait_Mappings.traits_with_constant ctxt typ name)) typ end
+     | _ => NONE)
+
+  fun scoped_path_value ctxt environment path =
+    (case scope_associated_value ctxt path of
+       SOME value => SOME value
+     | NONE =>
+         (case path_segments path of
+            [Path_Segment (name, pos, NONE)] =>
+              if is_some (lookup_local environment name) then NONE else scope_value ctxt (name, pos)
+          | _ => NONE))
+
   fun primitive_registration_error kind path =
     let
       val name = render_path path
@@ -1408,24 +1787,33 @@ struct
              else resolve_global_constant ()
          | _ => resolve_global_constant ())
     in
+      (case scoped_path_value ctxt environment path of
+         SOME value => value
+       | NONE =>
       (case value_import_route ctxt environment path of
          SOME (route as {canonical, ...}) =>
            (case exact_registered_path ctxt Micro_Rust_Names.NLiteral canonical of
               SOME registered => (report_import_use ctxt route; registered)
             | NONE =>
-                unusable_import ctxt repeat_length_import_roles "an array repeat length" route)
+                 (case concrete_associated_value ctxt (route_instance (SOME route)) canonical of
+                    SOME value => (report_import_use ctxt route; value)
+                  | NONE =>
+                      unusable_import ctxt repeat_length_import_roles "an array repeat length" route))
        | NONE =>
       (reject_lexical_local ();
       case exact_registered_path ctxt Micro_Rust_Names.NLiteral path of
          SOME registered => registered
        | NONE =>
+          (case concrete_associated_value ctxt NONE path of
+             SOME value => value
+           | NONE =>
            if is_primitive_path path then
              primitive_registration_error
                Micro_Rust_Names.NLiteral path
            else if is_qualified_path path then
              qualified_registration_error
                Micro_Rust_Names.NLiteral path name pos
-           else resolve_contextual_or_global ()))
+            else resolve_contextual_or_global ()))))
     end
 
   fun imported_literal_value ctxt (route as {canonical, ...}: import_route) =
@@ -1436,14 +1824,20 @@ struct
          | NONE =>
              (case exact_registered_path ctxt Micro_Rust_Names.NLiteral canonical of
                 SOME registered => registered
-              | NONE => unusable_import ctxt value_import_roles "a value" route))
+             | NONE =>
+                 (case concrete_associated_value ctxt (route_instance (SOME route)) canonical of
+                    SOME value => value
+                  | NONE => unusable_import ctxt value_import_roles "a value" route)))
       val _ = report_import_use ctxt route
     in value end
 
   fun literal_path_value ctxt environment path =
+    (case scoped_path_value ctxt environment path of
+       SOME value => value
+     | NONE =>
     (case value_import_route ctxt environment path of
        SOME route => imported_literal_value ctxt route
-     | NONE => source_literal_path_value ctxt environment path)
+      | NONE => source_literal_path_value ctxt environment path))
 
   and source_literal_path_value ctxt environment path =
     if is_primitive_path path then
@@ -1451,8 +1845,11 @@ struct
           Micro_Rust_Names.NLiteral path of
          SOME registered => registered
        | NONE =>
+          (case concrete_associated_value ctxt NONE path of
+             SOME value => value
+           | NONE =>
            primitive_registration_error
-             Micro_Rust_Names.NLiteral path)
+              Micro_Rust_Names.NLiteral path))
     else
     (case path_segments path of
        [Path_Segment (name, pos, NONE)] =>
@@ -1473,6 +1870,9 @@ struct
                   Micro_Rust_Names.NLiteral path of
                  SOME registered => registered
                | NONE =>
+                  (case concrete_associated_value ctxt NONE path of
+                     SOME value => value
+                   | NONE =>
                    let
                      val _ = reject_intermediate_generics path
                      val _ =
@@ -1486,18 +1886,21 @@ struct
                    in
                      resolve_generic_free_path ctxt environment
                        Micro_Rust_Names.NLiteral true path
-                   end)))
+                    end))))
 
   fun literal_path ctxt environment path =
     T.literal (literal_path_value ctxt environment path)
 
   fun literal_identifier_value ctxt environment (identifier as (name, pos)) =
+    (case scoped_path_value ctxt environment (make_single_path identifier) of
+       SOME value => value
+     | NONE =>
     (case value_import_route ctxt environment (make_single_path identifier) of
        SOME route => imported_literal_value ctxt route
      | NONE =>
          (case use_local ctxt environment identifier of
             SOME local_term => local_term
-          | NONE => resolve_identifier ctxt Micro_Rust_Names.NLiteral name pos))
+           | NONE => resolve_identifier ctxt Micro_Rust_Names.NLiteral name pos)))
 
   fun literal_identifier ctxt environment identifier =
     T.literal (literal_identifier_value ctxt environment identifier)
