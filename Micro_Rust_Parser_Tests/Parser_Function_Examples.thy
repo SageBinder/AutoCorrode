@@ -2122,4 +2122,20 @@ end
 interpretation function_backend_zero: function_backend_transport 0 .
 interpretation function_backend_one: function_backend_transport 1 .
 
+section\<open> Implicit mappings in erased signature arguments \<close>
+
+urust_type [erase = \<open> 'tag \<close>] "FunctionErased<'tag>" = \<open> nat \<close>
+urust_type [implicit = \<open> address = 'a \<close>]
+  "FunctionErasedInside" = \<open> 'a option \<close>
+urust_fn [verbosity = 0, pretty = false] \<open>
+fn FunctionErasedBackend(value: FunctionErased<FunctionErasedInside>)
+  -> FunctionErased<FunctionErasedInside> { value }
+\<close>
+urust_fn [verbosity = 0, pretty = false] \<open>
+fn FunctionErasedBackendTwin(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { value }
+\<close>
+lemma function_erased_backend_twin:
+  \<open>function_erased_backend = function_erased_backend_twin\<close>
+  unfolding function_erased_backend_def function_erased_backend_twin_def by (rule refl)
+
 end

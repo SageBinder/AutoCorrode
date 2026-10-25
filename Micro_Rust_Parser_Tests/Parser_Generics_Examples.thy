@@ -942,4 +942,84 @@ fn CallNumericEscape(value: [u8; 16]) -> [u8; 16] { SignatureArray::<\<tau>\<ope
 lemma call_numeric_escape_twin: \<open> call_numeric_escape = call_numeric_twin \<close>
   unfolding call_numeric_escape_def call_numeric_twin_def by (rule refl)
 
+chapter\<open> Source-only mapping parameters \<close>
+
+text\<open>
+Erased source parameters retain their type or const kind and their argument identity, but
+contribute no HOL witness. Opaque tags and zero capacities can therefore be forwarded through
+explicit turbofish. The mixed mapping retains only its payload witness.
+\<close>
+
+urust_type [erase = \<open> 'tag, 'capacity \<close>]
+  "ErasureBox<'tag, const 'capacity>" = \<open> nat \<close>
+urust_type [erase = \<open> 'tag, 'capacity \<close>]
+  "ErasureMixed<'tag, 'payload, const 'capacity>" = \<open> 'payload option \<close>
+urust_type_alias \<open> type ErasureAlias<T, const N: usize> = ErasureBox<T, N>; \<close>
+
+urust_fn \<open>
+fn ErasureIdentity<T, const N: usize>(value: ErasureAlias<T, N>) -> ErasureBox<T, N> {
+  value
+}
+\<close>
+urust_fn \<open>
+fn ErasureIdentityTwin(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { value }
+\<close>
+lemma erasure_identity_twin: \<open> erasure_identity = erasure_identity_twin \<close>
+  unfolding erasure_identity_def erasure_identity_twin_def by (rule refl)
+
+urust_fn \<open>
+fn ErasureSourceBody<T, const N: usize>(value: ErasureBox<T, N>) -> ErasureBox<T, N> {
+  ErasureIdentity::<T, N>(value)
+}
+\<close>
+urust_fn \<open>
+fn ErasureConcrete(value: ErasureBox<foreign::Tag<u8, 0>, 0>)
+  -> ErasureBox<foreign::Tag<u8, 0>, 0> {
+  ErasureIdentity::<foreign::Tag<u8, 0>, 0>(value)
+}
+\<close>
+urust_fn \<open>
+fn ErasureMixedIdentity<Tag, P, const N: usize>(value: ErasureMixed<Tag, P, N>)
+  -> ErasureMixed<Tag, P, N> { value }
+\<close>
+urust_fn \<open>
+fn ErasureMixedCall(value: ErasureMixed<Foreign, u8, 0>)
+  -> ErasureMixed<Foreign, u8, 0> {
+  ErasureMixedIdentity::<Foreign, u8, 0>(value)
+}
+\<close>
+
+urust_type [erase = \<open> 'tag \<close>]
+  "ErasurePayload<'tag, 'payload>" = \<open> 'payload option \<close>
+urust_type_alias \<open>
+type ErasureArrayAlias<Tag, P, const N: usize> = ErasurePayload<Tag, [P; N]>;
+\<close>
+
+urust_type "ErasureBoundEvidence" = \<open> nat \<close>
+urust_fn \<open>
+fn ErasureBound<T: Scale>(value: ErasureBox<T, 0>) -> ErasureBox<T, 0> { value }
+\<close>
+urust_fn \<open>
+fn ErasureBoundCall(value: ErasureBox<ErasureBoundEvidence, 0>)
+  -> ErasureBox<ErasureBoundEvidence, 0> {
+  ErasureBound::<ErasureBoundEvidence>(value)
+}
+\<close>
+
+locale erasure_identity_transport =
+  fixes seed :: 'ambient
+begin
+
+urust \<open>
+  impl ErasurePayload<Alpha, \<tau>\<open>'ambient\<close>> {
+    fn locale_identity(self) -> Self { let spare = seed; self }
+  }
+\<close>
+
+end
+
+interpretation erasure_identity_nat_one: erasure_identity_transport \<open>1 :: nat\<close> .
+interpretation erasure_identity_nat_two: erasure_identity_transport \<open>2 :: nat\<close> .
+interpretation erasure_identity_bool: erasure_identity_transport True .
+
 end

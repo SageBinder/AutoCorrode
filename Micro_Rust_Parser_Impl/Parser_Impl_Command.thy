@@ -49,10 +49,13 @@ Inline and own-parameter \<open>where\<close> bounds combine registered trait so
 strengthen the final sorts further. Function and member annotations accept this option, while
 impl-default annotations reject it. Type parameters occupy type slots and const parameters occupy
 const slots and array lengths; checked HOL escapes remain kind-neutral. Entirely unused parameters
-are allowed. An authored body use, including one whose witness is later erased, must occur in the
-complete final HOL signature or receives a header-positioned error. Const values and repeat lengths
+are allowed. Source-only parameters in erased signature positions can be forwarded through erased
+body turbofish without a HOL witness. A body operation demanding a witness, including an existing
+callee witness later erased by native checking, must occur in the complete final HOL signature or
+receives a header-positioned error. Const values and repeat lengths
 use \<open>of_nat LENGTH('n) :: 64 word\<close>; bound associated constants use their typed templates.
-Parameter declarations and uses display Rust-name-labelled final sorts and declaration navigation.
+Witnessed parameter declarations and uses display Rust-name-labelled final sorts; source-only
+occurrences retain declaration navigation without fabricated typing.
 Generated calls accept type/const arguments in source order, omitting lifetimes; ordinary calls keep
 native inference. Eligible generated-generic/explicit mixed keys reject turbofish.
 
@@ -813,8 +816,8 @@ fun reject_unresolved Function lthy source checked =
 fun close_typed_term kind lthy type_pos authored_generics checked =
   let
     val declaration_type = fastype_of checked
-    (* Semantic reads and the unchecked term retain uses whose native callee slots are erased.
-       Only the complete checked type supplies a signature anchor. *)
+    (* Witness-demand observations and the unchecked term retain actual witnessed reads even
+       when native checking later erases a callee slot. Pure source occurrences need no anchor. *)
     val _ =
       if kind = Function then
         (case URust_Type_Mappings.generic_scope lthy of
@@ -1484,7 +1487,7 @@ fun prepare_function_scope lthy overrides function =
     val prepared = map parameter (descriptors ~~ names)
   in ({parameters = map fst prepared}, fn () => List.app (fn (_, report) => report ()) prepared) end
 
-fun final_function_scope lthy ({parameters}: URust_Type_Mappings.generic_scope) complete_type =
+fun final_function_scope lthy source_only ({parameters}: URust_Type_Mappings.generic_scope) complete_type =
   let
     val variables = Term.add_tfreesT complete_type []
     fun finalize ({rust, pos, kind, hol = (name, sort), bounds, report_reference}
@@ -1493,29 +1496,33 @@ fun final_function_scope lthy ({parameters}: URust_Type_Mappings.generic_scope) 
         val final_sort = the_default sort (AList.lookup (op =) variables name)
         val hol = (name, final_sort)
         val _ = Navigation.defer_report lthy pos Markup.tfree
-        val _ = Navigation.defer_report_text lthy pos Markup.typing
-          (rust ^ " = " ^ Syntax.string_of_typ (Config.put show_sorts true lthy) (TFree hol))
+        val witnessed = not (member (op =) source_only name)
+        val _ = if witnessed then Navigation.defer_report_text lthy pos Markup.typing
+          (rust ^ " = " ^ Syntax.string_of_typ (Config.put show_sorts true lthy) (TFree hol)) else ()
         fun report_final_reference use_pos =
           (report_reference use_pos;
-           Navigation.defer_report_text lthy use_pos Markup.typing
+           if witnessed andalso URust_Type_Mappings.generic_reference_requires_witness ()
+           then Navigation.defer_report_text lthy use_pos Markup.typing
              (rust ^ " = " ^
-               Syntax.string_of_typ (Config.put show_sorts true lthy) (TFree hol)))
+               Syntax.string_of_typ (Config.put show_sorts true lthy) (TFree hol)) else ())
       in {rust = rust, pos = pos, kind = kind, hol = hol, bounds = bounds,
         report_reference = report_final_reference}: URust_Type_Mappings.generic_parameter end
   in {parameters = map finalize parameters}: URust_Type_Mappings.generic_scope end
 
-fun function_body_context scope lthy =
+fun function_body_context source_only scope lthy =
   lthy |> URust_Type_Mappings.with_generic_scope scope
+  |> URust_Type_Mappings.with_source_only_parameters source_only
   |> fold (Variable.declare_typ o TFree o #hol) (#parameters scope)
 
 fun report_where_parameters lthy ({parameters}: URust_Type_Mappings.generic_scope) function =
   List.app (fn (rust, pos, _) =>
     (case find_first (fn parameter => #rust parameter = rust) parameters of
-       SOME {hol, report_reference, ...} =>
+       SOME (parameter as {hol, report_reference, ...}) =>
          (report_reference pos;
           Navigation.defer_report lthy pos Markup.tfree;
-          Navigation.defer_report_text lthy pos Markup.typing
-            (Syntax.string_of_typ (Config.put show_sorts true lthy) (TFree hol)))
+          if URust_Type_Mappings.parameter_has_witness lthy parameter then
+            Navigation.defer_report_text lthy pos Markup.typing
+              (Syntax.string_of_typ (Config.put show_sorts true lthy) (TFree hol)) else ())
      | NONE => raise Fail "urust_fn: validated where parameter is absent"))
     (#where_clause (URust_AST.function_generics function))
 
@@ -1531,7 +1538,7 @@ fun prepare_function_signature lthy overrides signature_source function =
     val (initial_scope, report_declarations) = prepare_function_scope lthy overrides function
     val scoped = URust_Type_Mappings.with_generic_scope initial_scope lthy
     val arguments = function_arguments scoped function
-    val (complete_type, type_pos) =
+    val (complete_type, type_pos, source_uses) =
       (case signature_source of
          Declared_Signature declared =>
       let
@@ -1557,7 +1564,7 @@ fun prepare_function_signature lthy overrides signature_source function =
         val _ =
           validate_argument_count Function type_pos arguments (binder_types complete_type)
       in
-        (complete_type, type_pos)
+        (complete_type, type_pos, [])
       end
        | Rust_Signature channels =>
       let
@@ -1567,10 +1574,11 @@ fun prepare_function_signature lthy overrides signature_source function =
             (URust_AST.Primitive_Type
               (URust_AST.DPT_Unit, URust_AST.function_item_position function))
             (URust_AST.function_return_type function)
-        val complete_type =
-          URust_Type_Mappings.resolve_function_signature scoped channels
-            (URust_AST.function_lifetime_parameters function)
-            parameter_types return_type
+        val (complete_type, {source_uses, ...}) =
+          URust_Type_Mappings.capture_generic_use_events scoped (fn observed =>
+            URust_Type_Mappings.resolve_function_signature observed channels
+              (URust_AST.function_lifetime_parameters function)
+              parameter_types return_type)
         (* An inherited default belongs to an earlier command; only authored channels position the
            declaration type. *)
         fun authored (SOME (URust_Type_Mappings.Authored_Channel source)) =
@@ -1582,20 +1590,24 @@ fun prepare_function_signature lthy overrides signature_source function =
              pos :: _ => pos
            | [] => URust_AST.rust_type_position return_type)
       in
-        (complete_type, type_pos)
+        (complete_type, type_pos, source_uses)
       end)
-    val scope = final_function_scope lthy initial_scope complete_type
-    val _ = report_where_parameters lthy scope function
+    val variables = map fst (Term.add_tfreesT complete_type [])
+    val source_only = filter_out (member (op =) variables) source_uses
+    val scope = final_function_scope lthy source_only initial_scope complete_type
+    val body_lthy = function_body_context source_only scope scoped
+    val _ = report_where_parameters body_lthy scope function
   in
     (SOME (complete_type, type_pos), typed_arguments arguments (binder_types complete_type),
-     scope, function_body_context scope scoped, report_declarations)
+     scope, body_lthy, report_declarations,
+     case signature_source of Declared_Signature _ => NONE | Rust_Signature _ => SOME source_uses)
   end
 
 fun elaborate_function_item pp_test lthy overrides signature_source source function =
   let
     val arguments = function_arguments lthy function
     val body_source = function_body_source source function
-    val (declared_type, arguments_with_types, scope, body_lthy, report_declarations) =
+    val (declared_type, arguments_with_types, scope, body_lthy, report_declarations, source_uses) =
       prepare_function_signature lthy overrides signature_source function
     val _ =
       if pp_test
@@ -1613,7 +1625,8 @@ fun elaborate_function_item pp_test lthy overrides signature_source source funct
      arguments = arguments,
      declared_type = declared_type,
      arguments_with_types = arguments_with_types,
-     scope = scope, body_lthy = body_lthy, report_declarations = report_declarations}
+     scope = scope, body_lthy = body_lthy, report_declarations = report_declarations,
+     source_uses = source_uses}
   end
 
 fun declaration_registered_term
@@ -1632,27 +1645,31 @@ fun declaration_registered_term
 datatype function_registration =
     Free_Function
   | Impl_Function of
-      {associated_key: string, method: bool, self_type: typ, identity: serial}
+      {associated_key: string, method: bool, self_type: typ, identity: serial,
+       source_identity: URust_Type_Mappings.source_identity option}
 
 fun reject_function_item_conflict lthy registration (rust_name, rust_pos) =
   (case registration of
      Free_Function =>
        ignore (Micro_Rust_Names.reserve_declaration Micro_Rust_Names.Function_Declaration
          rust_name rust_pos (Context.Proof lthy))
-   | Impl_Function {associated_key, self_type, identity, ...} =>
-       ignore (Micro_Rust_Names.reserve_associated_function
-         {name = associated_key, self_type = self_type, identity = identity, pos = rust_pos}
+   | Impl_Function {associated_key, self_type, identity, source_identity, ...} =>
+       ignore (Micro_Rust_Names.reserve_associated_source_function
+         {name = associated_key, self_type = self_type, identity = identity, pos = rust_pos,
+          source_identity = Option.map URust_Type_Mappings.source_identity_name source_identity}
          (Context.Proof lthy)))
 
 (* Overlap is a property of the impl, not of its registrations: a member without registered
    notations still owns its associated path. *)
-fun reserve_impl_owner (Impl_Function {associated_key, self_type, identity, ...}) (_, rust_pos)
+fun reserve_impl_owner (Impl_Function {associated_key, self_type, identity, source_identity, ...}) (_, rust_pos)
       lthy =
       Local_Theory.declaration {pervasive = false, syntax = true, pos = rust_pos}
         (fn phi =>
-          Micro_Rust_Names.reserve_associated_function
+          Micro_Rust_Names.reserve_associated_source_function
             {name = associated_key, self_type = Morphism.typ phi self_type,
-             identity = identity, pos = rust_pos})
+             identity = identity, pos = rust_pos,
+             source_identity = Option.map (URust_Type_Mappings.morph_source_identity phi #>
+               URust_Type_Mappings.source_identity_name) source_identity})
         lthy
   | reserve_impl_owner Free_Function _ lthy = lthy
 
@@ -1679,20 +1696,22 @@ fun register_function_result target registration bare_name (rust_name, rust_pos)
                     register rust_name registration_serial phi,
                    [(rust_name, registration_serial)])
                 end
-            | Impl_Function {associated_key, method, self_type, identity} =>
+            | Impl_Function {associated_key, method, self_type, identity, source_identity} =>
                 let
                   val method_serial = serial ()
                   fun method_entry phi =
                     if method then
                       Micro_Rust_Names.mark_automatic method_serial #>
-                      Micro_Rust_Names.mark_method_only method_serial #>
+                      Micro_Rust_Names.mark_method_only_owner method_serial identity #>
                       register bare_name method_serial phi
                     else I
                 in
                   (fn phi =>
-                    Micro_Rust_Names.reserve_associated_function
+                    Micro_Rust_Names.reserve_associated_source_function
                       {name = associated_key, self_type = Morphism.typ phi self_type,
-                       identity = identity, pos = rust_pos} #>
+                       identity = identity, pos = rust_pos,
+                       source_identity = Option.map (URust_Type_Mappings.morph_source_identity phi #>
+                         URust_Type_Mappings.source_identity_name) source_identity} #>
                     Micro_Rust_Names.mark_automatic identity #>
                     register associated_key identity phi #>
                     method_entry phi,
@@ -1736,7 +1755,7 @@ fun declare_urust_function_result pp_test render_pretty
   let
     (* Elaboration reads in the member context; the declaration installs in lthy. *)
     val elaboration_lthy = elaboration lthy
-    val {term, arguments, declared_type, arguments_with_types, scope, body_lthy,
+    val {term, arguments, declared_type, arguments_with_types, scope, body_lthy, source_uses,
       report_declarations} =
       elaborate_function_item pp_test elaboration_lthy overrides signature_source source function
     val pretty_body =
@@ -1776,12 +1795,15 @@ fun declare_urust_function_result pp_test render_pretty
               (#1 (URust_AST.function_name function)) rust_name declaration installed
           else ([], reserve_impl_owner registration rust_name installed)
         val schemed = if null (#parameters scope) then registered
-          else URust_Type_Mappings.register_generic_scheme
+          else URust_Type_Mappings.register_generic_source_scheme
           {identity = function_scheme_identity abbreviation binding term
              backend_lthy installed declaration,
            backend = declaration_registered_term declaration, sources = sources,
-           parameters = map (fn {rust, kind, hol, ...} => {rust = rust, kind = kind, hol = hol})
-             (#parameters scope),
+           parameters = map (fn parameter as {rust, kind, hol, bounds, ...} =>
+             {rust = rust, kind = kind, sort = snd hol, bounds = bounds,
+              source_used = Option.map (fn uses => member (op =) uses (fst hol)) source_uses,
+              hol = if URust_Type_Mappings.parameter_has_witness body_lthy parameter
+                then SOME hol else NONE}) (#parameters scope),
            pos = #2 rust_name} registered
       in
         (declaration, schemed)
@@ -2230,7 +2252,10 @@ fun declare_prepared_function
            impl_self = impl_self, source = source, function = function, warnings = warnings})
     val elaboration =
       (case impl_self of
-         SOME self => URust_Type_Mappings.with_impl_self self
+         SOME self => (case registration of
+           Impl_Function {source_identity, ...} =>
+             URust_Type_Mappings.with_impl_self_identity (self, source_identity)
+         | _ => URust_Type_Mappings.with_impl_self self)
        | NONE => I)
     val (result, lthy', scope) =
       declare_urust_function_result pp_test render_pretty
@@ -2657,7 +2682,8 @@ fun impl_member_function_of
        signature_source, parameter_overrides, rust_name = (name, pos), source, function,
        warnings, ...}, method, ...}
      : prepared_impl_member)
-    (self as {canonical_path, self_type, ...}: URust_Type_Mappings.impl_self) =
+    (self as {canonical_path, self_type, ...}: URust_Type_Mappings.impl_self)
+    source_identity =
   let val associated_key = canonical_path ^ "::" ^ name in
     Prepared_Function
       {interactive = interactive, pp_test = pp_test, verbosity = verbosity, pretty = pretty,
@@ -2669,7 +2695,7 @@ fun impl_member_function_of
        registration =
          Impl_Function
            {associated_key = associated_key, method = method, self_type = self_type,
-            identity = serial ()},
+            identity = serial (), source_identity = source_identity},
        impl_self = SOME self, source = source, function = function, warnings = warnings}
   end
 
@@ -2723,21 +2749,34 @@ fun reject_default_name_clash lthy ({canonical_path, ...}: URust_Type_Mappings.i
    caller threads them through every later impl of its command. *)
 type checked_owner = {name: string, self_type: typ, identity: serial, pos: Position.T}
 
+(* Checked-only owners retain the public exact record. Their explicit source metadata is local
+   to the threaded command context and keyed by the already allocated owner identity. *)
+structure Checked_Impl_Sources = Proof_Data
+(
+  type T = string option Inttab.table
+  fun init _ = Inttab.empty
+)
+
+fun reserve_checked_owner ctxt ({name, self_type, identity, pos}: checked_owner) =
+  Micro_Rust_Names.reserve_associated_source_function
+    {name = name, self_type = self_type, identity = identity, pos = pos,
+     source_identity = the_default NONE (Inttab.lookup (Checked_Impl_Sources.get ctxt) identity)}
+
 fun declare_prepared_impl {enter, leave} (Prepared_Impl {target, members}) (lthy, checked0) =
   let
     val target_lthy = enter lthy
-    val self =
+    val (self, source_identity) =
       URust_Report_Transaction.release_on_failure target_lthy
-        (fn () => URust_Type_Mappings.resolve_impl_target target_lthy target)
+        (fn () => URust_Type_Mappings.resolve_impl_target_identity target_lthy target)
     (* A checked-only member (name = _) declares nothing, so later members of the impl see its
        owner only through this list. *)
     fun declare member (lthy', checked) =
       let
         val member_lthy = enter lthy'
         val prepared as Prepared_Function {target = member_target, registration, rust_name, ...} =
-          impl_member_function_of member self
+          impl_member_function_of member self source_identity
         val with_checked =
-          Context.proof_of (fold Micro_Rust_Names.reserve_associated_function checked
+          Context.proof_of (fold (reserve_checked_owner member_lthy) checked
             (Context.Proof member_lthy))
         val (output, lthy'') =
           URust_Report_Transaction.release_on_failure member_lthy
@@ -2754,6 +2793,11 @@ fun declare_prepared_impl {enter, leave} (Prepared_Impl {target, members}) (lthy
                {name = associated_key, self_type = self_type, identity = identity,
                 pos = #2 rust_name} :: checked
            | _ => checked)
+        val lthy'' = (case (member_target, registration) of
+           (Anonymous_Target _, Impl_Function {identity, source_identity, ...}) =>
+             Checked_Impl_Sources.map (Inttab.update (identity,
+               Option.map URust_Type_Mappings.source_identity_name source_identity)) lthy''
+         | _ => lthy'')
       in (output, (lthy'', checked')) end
     val (outputs, (lthy'', checked'')) = fold_map declare members (lthy, checked0)
   in (fn () => List.app (fn output => output ()) outputs, (lthy'', checked'')) end

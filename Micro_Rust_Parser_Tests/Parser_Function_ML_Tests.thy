@@ -5962,4 +5962,19 @@ local
 in val _ = writeln "implicit signature roles, fresh scopes, full twins and sort controls passed" end
 \<close>
 
+ML_val\<open>
+local
+  val ctxt = \<^context>
+  val thy = \<^theory>
+  val actual = Sign.the_const_type thy \<^const_name>\<open>function_erased_backend\<close>
+  val expected = Sign.the_const_type thy \<^const_name>\<open>function_erased_backend_twin\<close>
+  val _ = if actual = expected andalso
+    not (exists (fn ((name, _), _) => String.isPrefix "'urust_" name) (Term.add_tvarsT actual []))
+    then () else error "erased function signature allocated an unused implicit backend"
+  val _ = if is_none (URust_Type_Mappings.generic_scope ctxt) then ()
+    else error "erased function signature leaked its generic scope"
+  val _ = writeln "U2 known implicit source-only signature/native complete type twin PASS"
+in end
+\<close>
+
 end

@@ -153,7 +153,9 @@ type associated_owner = {self_type: typ, identity: serial};
 datatype declaration_kind =
     Function_Declaration
   | Constructor_Declaration
-  | Associated_Function_Declaration of associated_owner;
+  | Associated_Function_Declaration of associated_owner
+  | Associated_Source_Function_Declaration of
+      {self_type: typ, identity: serial, source_identity: string};
 type declaration_owner = {kind: declaration_kind, pos: Position.T};
 
 (* Self types are stored generalized, with schematic variables named canonically, so a replay or a
@@ -175,7 +177,19 @@ fun is_function_owner ({kind = Constructor_Declaration, ...}: declaration_owner)
 
 fun associated_owner ({kind = Associated_Function_Declaration owner, pos}: declaration_owner) =
       SOME (owner, pos)
+  | associated_owner ({kind = Associated_Source_Function_Declaration
+        {self_type, identity, ...}, pos}: declaration_owner) =
+      SOME ({self_type = self_type, identity = identity}, pos)
   | associated_owner _ = NONE;
+
+fun associated_source_owner ({kind = Associated_Source_Function_Declaration
+      {self_type, identity, source_identity}, pos}: declaration_owner) =
+      SOME ({self_type = self_type, identity = identity,
+        source_identity = SOME source_identity}, pos)
+  | associated_source_owner owner =
+      Option.map (fn ({self_type, identity}, pos) =>
+        ({self_type = self_type, identity = identity, source_identity = NONE}, pos))
+        (associated_owner owner);
 
 (* Inherent impls overlap when their Self types unify. Theory merges have no type signature, so
    both checks use the same purely structural unification, which ignores sorts. *)
@@ -188,12 +202,14 @@ fun overlapping_self_types (left, right) =
 fun associated_conflict name owners =
   let
     val associated =
-      map_filter associated_owner owners
+      map_filter associated_source_owner owners
       |> sort (int_ord o apply2 (#identity o fst));
-    fun conflict (({identity, self_type}: associated_owner, pos), rest) =
+    fun conflict (({identity, self_type, source_identity}, pos), rest) =
       Option.map (fn (_, other_pos) => [pos, other_pos])
-        (find_first (fn ({identity = other, self_type = other_type}, _) =>
-          other <> identity andalso overlapping_self_types (self_type, other_type)) rest);
+        (find_first (fn ({identity = other, self_type = other_type, source_identity = other_source}, _) =>
+          other <> identity andalso
+          (is_none source_identity orelse is_none other_source orelse source_identity = other_source)
+          andalso overlapping_self_types (self_type, other_type)) rest);
     fun search [] = NONE
       | search (owner :: rest) =
           (case conflict (owner, rest) of NONE => search rest | found => found);
@@ -245,7 +261,16 @@ structure Method_Only_Registrations = Generic_Data
   val merge = Inttab.merge (K true);
 );
 
+structure Method_Source_Owners = Generic_Data
+(
+  type T = serial Inttab.table;
+  val empty = Inttab.empty;
+  val merge = Inttab.merge (op =);
+);
+
 fun mark_method_only s = Method_Only_Registrations.map (Inttab.update (s, ()));
+fun mark_method_only_owner s identity = mark_method_only s #>
+  Method_Source_Owners.map (Inttab.update (s, identity));
 
 fun is_method_only_serial context s =
   Inttab.defined (Method_Only_Registrations.get context) s;
@@ -276,6 +301,31 @@ fun associated_functions ctxt name =
   |> map_filter associated_owner
   |> map (fn ({self_type, identity}, pos) =>
        {self_type = self_type, identity = identity, pos = pos});
+
+fun reserve_associated_source_function {name, self_type, identity, pos, source_identity} context =
+  (case source_identity of NONE =>
+      reserve_associated_function {name = name, self_type = self_type, identity = identity, pos = pos} context
+   | SOME source =>
+       let
+         val generalized = singleton (Variable.polymorphic (Context.proof_of context))
+           (Logic.mk_type self_type) |> Logic.dest_type |> normalized_self_type;
+       in reserve_owner name {kind = Associated_Source_Function_Declaration
+         {self_type = generalized, identity = identity, source_identity = source}, pos = pos} context end);
+
+fun associated_source_functions ctxt name =
+  the_default [] (Symtab.lookup (Declaration_Owners.get (Context.Proof ctxt)) name)
+  |> map_filter associated_source_owner
+  |> map (fn ({self_type, identity, source_identity}, pos) =>
+    {self_type = self_type, identity = identity, source_identity = source_identity, pos = pos});
+
+fun method_requires_source_identity ctxt serial =
+  (case Inttab.lookup (Method_Source_Owners.get (Context.Proof ctxt)) serial of
+     SOME identity =>
+       Symtab.dest (Declaration_Owners.get (Context.Proof ctxt))
+       |> maps (map_filter associated_source_owner o snd)
+       |> exists (fn ({identity = owner, source_identity, ...}, _) =>
+         owner = identity andalso is_some source_identity)
+   | _ => false);
 
 fun is_associated_function ctxt name = not (null (associated_functions ctxt name));
 
@@ -739,8 +789,18 @@ type generic_candidate_transform =
     generic_candidate_sources ->
     (Micro_Rust_Names.entry -> term -> term option);
 
+type sparse_generic_instance =
+  {source: serial, arguments: (typ option * Position.T) list, identities: string list};
+type sparse_generic_arguments =
+  {instances: sparse_generic_instance list, pos: Position.T,
+   pending: (string * Position.T) list option};
+type sparse_generic_transform =
+  Proof.context -> sparse_generic_arguments -> typ -> generic_candidate_sources ->
+    (Micro_Rust_Names.entry -> term -> (term * (unit -> unit)) option);
 type generic_registration =
-  {identity: serial, binding: binding, transform: generic_candidate_transform};
+  {identity: serial, binding: binding, transform: generic_candidate_transform,
+   sparse_transform: sparse_generic_transform option,
+   inference_check: (Proof.context -> Micro_Rust_Names.entry list -> Position.T -> unit) option};
 
 structure Generic_Transform = Theory_Data
 (
@@ -755,12 +815,26 @@ structure Generic_Transform = Theory_Data
 );
 
 fun register_generic_candidate_transform binding transform =
-  let val registration = {identity = serial (), binding = binding, transform = transform} in
+  let val registration = {identity = serial (), binding = binding, transform = transform,
+    sparse_transform = NONE, inference_check = NONE} in
     Generic_Transform.map (fn NONE => SOME registration
       | SOME (active: generic_registration) =>
           error ("uRust generic candidate transformation is already registered" ^
             Position.here_list [Binding.pos_of (#binding active), Binding.pos_of binding]))
   end;
+
+fun register_sparse_generic_candidate_transform transform =
+  Generic_Transform.map (fn SOME {identity, binding, transform = old, sparse_transform = NONE, inference_check} =>
+      SOME {identity = identity, binding = binding, transform = old,
+        sparse_transform = SOME transform, inference_check = inference_check}
+    | SOME _ => error "uRust sparse generic candidate transformation is already registered"
+    | NONE => error "uRust generic candidate transformation must be registered first");
+
+fun register_generic_inference_check check =
+  Generic_Transform.map (fn SOME {identity, binding, transform, sparse_transform, inference_check = NONE} =>
+      SOME {identity = identity, binding = binding, transform = transform,
+        sparse_transform = sparse_transform, inference_check = SOME check}
+    | _ => error "uRust generic inference check cannot be registered");
 
 \<comment>\<open>The marker's payload encodes the registration kind and name together
   with the terminal source position and any qualified-path segment positions
@@ -931,6 +1005,7 @@ fun dest_plain_payload (Free (s, _)) =
 
 val generic_payload_prefix = "_urust_generic_arguments_";
 val generic_source_prefix = "_urust_generic_sources_";
+val sparse_generic_prefix = "_urust_sparse_generic_sources_";
 
 fun malformed_generic_payload () = error "malformed urust_dispatch generic arguments";
 
@@ -977,6 +1052,57 @@ fun generic_source_selection name =
      | _ => malformed_generic_payload ())
   end;
 
+fun sparse_generic_name instances pending =
+  let
+    fun instance ({source, arguments, identities}: sparse_generic_instance) =
+      XML.Elem (("instance", [("source", string_of_int source)]),
+        map2 (fn (typ, pos) => fn identity =>
+          XML.Elem (("slot", [("witness", Bool.toString (is_some typ)),
+            ("identity", identity)]), XML.Encode.properties (Position.properties_of pos)))
+          arguments identities);
+    val sources = case pending of NONE => [] | SOME sources =>
+      [XML.Elem (("pending", []), map (fn (text, pos) =>
+        XML.Elem (("source", [("text", text)]),
+          XML.Encode.properties (Position.properties_of pos))) sources)];
+  in sparse_generic_prefix ^ Micro_Rust_Semantic_Navigation.escape_payload_name
+    (YXML.string_of_body (map instance instances @ sources)) end;
+
+fun sparse_generic_instances name witnesses =
+  let
+    fun decode () =
+    let
+    val encoded = String.extract (name, size sparse_generic_prefix, NONE);
+    val body = (case Micro_Rust_Semantic_Navigation.unescape_payload_name encoded of
+      SOME text => YXML.parse_body text | NONE => malformed_generic_payload ());
+    fun slot (XML.Elem (("slot", attrs), position)) pending =
+          let
+            fun attr name = the (AList.lookup (op =) attrs name);
+            val pos = Position.of_properties (XML.Decode.properties position);
+            val (typ, remaining) = case attr "witness" of
+                "false" => (NONE, pending)
+              | "true" => (SOME (hd pending), tl pending)
+              | _ => malformed_generic_payload ();
+          in (((typ, pos), attr "identity"), remaining) end
+      | slot _ _ = malformed_generic_payload ();
+    fun instance (XML.Elem (("instance", [("source", source)]), slots)) pending =
+          let val (arguments, remaining) = fold_map slot slots pending
+          in ({source = Value.parse_nat source, arguments = map fst arguments,
+            identities = map snd arguments}, remaining) end
+      | instance _ _ = malformed_generic_payload ();
+    fun source (XML.Elem (("source", [("text", text)]), position)) =
+          (text, Position.of_properties (XML.Decode.properties position))
+      | source _ = malformed_generic_payload ();
+    val (body, pending) = case rev body of
+        XML.Elem (("pending", []), sources) :: rest => (rev rest, SOME (map source sources))
+      | _ => (body, NONE);
+    val (instances, remaining) = fold_map instance body witnesses;
+    val _ = if null remaining andalso not (null instances) then () else malformed_generic_payload ();
+    in (instances, pending) end;
+  in
+    (case Exn.capture0 decode () of Exn.Res result => result
+     | Exn.Exn exn => if Exn.is_interrupt exn then Exn.reraise exn else malformed_generic_payload ())
+  end;
+
 fun read_generic_payload payload =
   let
     fun witnesses (Const (\<^const_name>\<open>Pair\<close>, _) $ witness $ rest) =
@@ -986,12 +1112,14 @@ fun read_generic_payload payload =
     fun tagged term =
       Term.exists_subterm (fn Free (name, _) =>
         String.isPrefix generic_payload_prefix name orelse
-          String.isPrefix generic_source_prefix name | _ => false) term;
+          String.isPrefix generic_source_prefix name orelse
+          String.isPrefix sparse_generic_prefix name | _ => false) term;
     fun selection (term as Const (\<^const_name>\<open>Pair\<close>, _) $ Free (name, _) $ types) =
           if String.isPrefix generic_source_prefix name
-          then (SOME (generic_source_selection name), types)
-          else (NONE, term)
-      | selection types = (NONE, types);
+          then (SOME (generic_source_selection name), NONE, types)
+          else if String.isPrefix sparse_generic_prefix name then (NONE, SOME name, types)
+          else (NONE, NONE, term)
+      | selection types = (NONE, NONE, types);
   in
     (case payload of
        Const (\<^const_name>\<open>Pair\<close>, _) $ base $
@@ -1001,8 +1129,12 @@ fun read_generic_payload payload =
                val _ = if is_some (dest_plain_payload base) then ()
                  else malformed_generic_payload ();
                val positions = generic_positions name;
-               val (sources, witnesses_term) = selection types;
+               val (sources0, sparse_name, witnesses_term) = selection types;
                val arguments = witnesses witnesses_term handle TERM _ => malformed_generic_payload ();
+               val instances = Option.map (fn name => sparse_generic_instances name arguments) sparse_name;
+               val sources = case instances of NONE => sources0
+                 | SOME (instances, _) => SOME {sources = map #source instances,
+                     kinds = replicate (length arguments) NONE};
                val _ =
                  (case sources of
                     SOME {kinds, ...} =>
@@ -1014,7 +1146,9 @@ fun read_generic_payload payload =
                     if length arguments = length argument_positions then
                       SOME {base = base,
                         arguments = {pos = pos, arguments = arguments ~~ argument_positions},
-                        sources = sources}
+                        sources = sources,
+                        sparse = Option.map (fn (instances, pending) =>
+                          {instances = instances, pos = pos, pending = pending}) instances}
                     else malformed_generic_payload ()
                 | [] => malformed_generic_payload ())
              end
@@ -1119,8 +1253,35 @@ fun with_generic_arguments ({arguments, pos}: generic_arguments) =
   in wrap end;
 
 fun marker_generic_arguments (Const (\<^const_name>\<open>urust_dispatch\<close>, _) $ payload $ _) =
-      Option.map #2 (dest_generic_payload payload)
+      Option.mapPartial (fn {arguments, sparse, ...} =>
+        if is_some sparse then NONE else SOME arguments) (read_generic_payload payload)
   | marker_generic_arguments _ = NONE;
+
+fun marker_sparse_generic_arguments (Const (\<^const_name>\<open>urust_dispatch\<close>, _) $ payload $ _) =
+      Option.mapPartial #sparse (read_generic_payload payload)
+  | marker_sparse_generic_arguments _ = NONE;
+
+fun with_sparse_generic_arguments ({instances, pos, pending}: sparse_generic_arguments) term =
+  let
+    val _ = if not (null instances) andalso
+      null (duplicates (op =) (map #source instances)) andalso
+      forall (fn {arguments, identities, ...} => length arguments = length identities) instances
+      then () else malformed_generic_payload ();
+    val arguments = maps (map_filter (fn (typ, position) =>
+      Option.map (fn typ => (typ, position)) typ) o #arguments) instances;
+    val metadata = Free (sparse_generic_name instances pending, dummyT);
+    fun wrap (Const (\<^const_name>\<open>urust_dispatch\<close>, T) $ payload $ witness) =
+          (case read_generic_payload payload of
+             SOME _ => (case payload of _ $ base $ (_ $ positions $ types) =>
+                 Const (\<^const_name>\<open>urust_dispatch\<close>, T) $
+                   HOLogic.mk_prod (base, HOLogic.mk_prod (positions,
+                     HOLogic.mk_prod (metadata, types))) $ witness
+               | _ => malformed_generic_payload ())
+           | NONE => Const (\<^const_name>\<open>urust_dispatch\<close>, T) $ payload $ wrap witness)
+      | wrap (left $ right) = wrap left $ wrap right
+      | wrap (Abs (name, T, body)) = Abs (name, T, wrap body)
+      | wrap term = term;
+  in wrap (with_generic_arguments {arguments = arguments, pos = pos} term) end;
 
 fun marker_generic_source_selection (Const (\<^const_name>\<open>urust_dispatch\<close>, _) $ payload $ _) =
       Option.mapPartial #sources (read_generic_payload payload)
@@ -1268,7 +1429,7 @@ fun generic_source_filters NONE filters = filters
   | generic_source_filters (SOME {sources, ...}: generic_source_selection option) filters =
       filters @ [Micro_Rust_Names.Only_Sources sources];
 
-fun filtered_candidates_with_source_generics ctxt filters kind name T generic_arguments selection =
+fun filtered_candidates_with_all_generic_effects ctxt filters kind name T generic_arguments selection sparse =
   let
     val entries = eligible_entries ctxt filters kind name;
     val selected = Micro_Rust_Names.eligible_entries ctxt
@@ -1279,33 +1440,54 @@ fun filtered_candidates_with_source_generics ctxt filters kind name T generic_ar
       not (Micro_Rust_Names.reg_eq (other, entry)) andalso
       Micro_Rust_Names.backend_covers (Proof_Context.theory_of ctxt) other entry) selected)) selected;
     val transform =
-      (case generic_arguments of
+      (case sparse of
+         SOME arguments => (case Generic_Transform.get (Proof_Context.theory_of ctxt) of
+           SOME {sparse_transform = SOME transform, ...} =>
+             SOME (transform ctxt arguments T {name = name, eligible = entries, maximal = maximal})
+         | _ => error "uRust sparse generic candidate transformation is not registered")
+       | NONE => (case generic_arguments of
          NONE => NONE
        | SOME arguments =>
            (case Generic_Transform.get (Proof_Context.theory_of ctxt) of
-              SOME {transform, ...} => SOME (transform ctxt arguments selection T
-                {name = name, eligible = entries, maximal = maximal})
-            | NONE => error "uRust generic candidate transformation is not registered"));
+              SOME {transform, ...} =>
+                let val apply = transform ctxt arguments selection T
+                  {name = name, eligible = entries, maximal = maximal}
+                in SOME (fn entry => fn candidate =>
+                  Option.map (fn term => (term, fn () => ())) (apply entry candidate)) end
+            | NONE => error "uRust generic candidate transformation is not registered")));
     fun instantiate entry hol_term =
       (case transform of
-         NONE => unify_and_instantiate ctxt T (fresh_backend ctxt hol_term)
+         NONE => Option.map (fn term => (term, fn () => ()))
+           (unify_and_instantiate ctxt T (fresh_backend ctxt hol_term))
        | SOME apply =>
            let
-             val arguments = #arguments (the generic_arguments);
+             val arguments = case sparse of
+                 SOME {instances, ...} => maps (map_filter (fn (typ, pos) =>
+                   Option.map (fn typ => (typ, pos)) typ) o #arguments) instances
+               | NONE => #arguments (the generic_arguments);
              val caller_max = fold (Term.maxidx_typ o fst) arguments
                (Int.max (Variable.maxidx_of ctxt, Term.maxidx_of_typ T));
              val candidate = fresh_backend ctxt hol_term
                |> Term.map_types (Logic.incr_tvar (caller_max + 1));
-           in Option.mapPartial (unify_fresh_and_instantiate ctxt T) (apply entry candidate) end);
+           in Option.mapPartial (fn (term, commit) =>
+             Option.map (fn term => (term, commit))
+               (unify_fresh_and_instantiate ctxt T term)) (apply entry candidate) end);
   in
     maximal
     |> sort (int_ord o apply2 #serial)
     |> map_filter (fn entry as {hol_term, ...} =>
-         Option.map (fn backend => {entry = entry, term = Type.constraint T backend})
+         Option.map (fn (backend, commit) =>
+           ({entry = entry, term = Type.constraint T backend}, commit))
             (instantiate entry hol_term))
-    |> distinct (fn (left: dispatch_candidate, right: dispatch_candidate) =>
+    |> distinct (fn ((left: dispatch_candidate, _), (right: dispatch_candidate, _)) =>
          Term.aconv (apply2 Micro_Rust_Names.normalized_backend (#term left, #term right)))
   end;
+
+fun filtered_candidates_with_all_generics ctxt filters kind name T arguments selection sparse =
+  map fst (filtered_candidates_with_all_generic_effects ctxt filters kind name T arguments selection sparse);
+
+fun filtered_candidates_with_source_generics ctxt filters kind name T arguments selection =
+  filtered_candidates_with_all_generics ctxt filters kind name T arguments selection NONE;
 
 fun filtered_candidates_with_generics ctxt filters kind name T generic_arguments =
   filtered_candidates_with_source_generics ctxt filters kind name T generic_arguments NONE;
@@ -1675,14 +1857,28 @@ fun resolve ctxt =
              val pos = #terminal_pos positions
              val selection = marker_generic_source_selection t
              val actual_filters = generic_source_filters selection filters
-             val cands = filtered_candidates_with_source_generics ctxt filters kind name T
-               (marker_generic_arguments t) selection
+             val effects = filtered_candidates_with_all_generic_effects ctxt filters kind name T
+               (marker_generic_arguments t) selection (marker_sparse_generic_arguments t)
+             val cands = map fst effects
+             val _ = if exists (fn {entry, ...}: dispatch_candidate =>
+                 Micro_Rust_Names.method_requires_source_identity ctxt (#serial entry)) cands then
+               error ("urust: method receiver has no source identity; use an explicit associated path" ^
+                 Position.here pos) else ();
+             val _ = if kind = Micro_Rust_Names.NFunction andalso
+                 is_none (marker_generic_arguments t) andalso
+                 is_none (marker_sparse_generic_arguments t) then
+               (case Generic_Transform.get (Proof_Context.theory_of ctxt) of
+                  SOME {inference_check = SOME check, ...} => check ctxt (map #entry cands) pos
+                | _ => ()) else ();
              val _ =
                shadow_check ctxt kind name T pos (not (null cands))
                  (denotes_registered_backend (Micro_Rust_Names.lookups ctxt kind name) ctxt)
              fun select ({entry, term} : dispatch_candidate) =
-               (emit_selected_use_markup_at_positions
-                  ctxt kind name entry positions;
+               (let val commit = #2 (the (find_first
+                  (fn ({entry = selected, term = selected_term}, _) =>
+                    #serial selected = #serial entry andalso selected_term aconv term) effects))
+                in commit () end;
+                emit_selected_use_markup_at_positions ctxt kind name entry positions;
                 term)
            in
              (case (opt_witness, cands) of

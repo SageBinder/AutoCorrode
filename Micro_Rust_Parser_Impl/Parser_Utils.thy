@@ -71,6 +71,8 @@ signature URUST_REPORT_TRANSACTION =
 sig
   type reports
   val capture: (unit -> 'a) -> 'a * reports
+  val capture_isolated: (unit -> 'a) -> 'a * reports
+  val defer_action: (unit -> unit) -> unit
   val replay: Proof.context -> reports -> unit
   val with_private_reports: (unit -> 'a) -> 'a
   val output_reporter: (string list -> unit) -> string list -> unit
@@ -94,6 +96,7 @@ struct
   datatype event =
       Report of Position.T * Markup.T * string
     | Native_Read of unit -> unit
+    | Deferred_Action of unit -> unit
     | Output_Report of string list
 
   type reports = event list * Navigation.reports
@@ -124,12 +127,20 @@ struct
          in (result, (rev (!events), navigation)) end)
 
   fun capture action = gen_capture false action
+  (* Candidate checks are speculative. Keep their native reads and navigation separate even
+     inside a declaration transaction; only the selected candidate replays this result. *)
+  fun capture_isolated action = Thread_Data.setmp active NONE (fn () => capture action) ()
+  fun defer_action action =
+    (case Thread_Data.get active of
+       NONE => action ()
+     | SOME transaction => enqueue (Deferred_Action action) transaction)
   fun capture_members action = gen_capture true action
 
   fun replay_events ctxt events =
     List.app
       (fn Report (pos, markup, text) => Context_Position.report_text ctxt pos markup text
         | Native_Read read => read ()
+        | Deferred_Action action => action ()
         | Output_Report chunks => Output.report chunks)
       events
 

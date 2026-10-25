@@ -19,7 +19,9 @@ context-local registry. A mapping key may be qualified and may contain ordered g
 placeholders. The placeholders are mapping parameters rather than Rust lifetimes. Without options
 they must be exactly the checked HOL template's free type variables. The positioned
 \<open>implicit\<close> option instead assigns additional variables to the existing address/global
-backend roles; every variable must still be declared exactly once.
+backend roles. The positioned \<open>erase\<close> option names source placeholders absent from the
+template. Every template variable still belongs to exactly one retained source slot or implicit
+role, and retained source slots keep their original indexes.
 
 Function signatures additionally resolve mutable references \<open>&mut T\<close>, optionally with a Rust
 lifetime, to the same \<open>Global_Store.ref\<close> model as raw pointers, sharing the signature's
@@ -32,7 +34,9 @@ lexical restrictions on Self and self in Rust type paths.
 
 An impl target resolves like a signature type, expanding type aliases to their nominal target; its
 canonical registry key and HOL Self type form the context of the impl's members, in which every
-type resolution reads \<open>Self\<close> as that type. Outside such a context \<open>Self\<close> is rejected.
+type resolution reads \<open>Self\<close> as that type. Source-sensitive owners additionally retain
+expanded structural argument identity, transported alongside their HOL Self type. Outside such a
+context \<open>Self\<close> is rejected.
 
 The per-function Proof_Data generic scope resolves after Self and before the parameter hook or
 registry. Type and const roles are checked recursively through tuples, references, pointers and
@@ -44,8 +48,24 @@ Existing registration serials distinguish equal expanded abbreviation bodies. Ca
 uses the native-fresh backend without freshening caller variables again; final unification and
 selection remain in the notation dispatcher.
 
-\<open>capture_generic_uses\<close> observes actual body reads and checked HOL source types before
-erasure, excluding inference seeds and foreign scopes. \<open>report_generic_reference\<close> checks
+Erased arguments accept supported nominal paths, grouping, primitives and normalized unsigned
+numeric leaves. Known schemes check all source arities, kinds and available bound evidence.
+Source-only validation requests no semantic backend, even for a known implicit mapping nested in
+an erased argument. Unsupported forms and scoped associated projections fail positionally.
+Retained arrays keep structural element and length meaning for alias substitution. Authored HOL
+meaning leaves receive the enclosing inference state's final substitution; canonical mapped
+templates retain their own scheme variables.
+
+The source-slot view \<open>generic_source_scheme_for_source\<close> preserves order, kind, bounds,
+sort, observed source use and optional witness availability. Legacy registrations mark source
+use unknown. Only actual witnesses are transported with the backend and native identity.
+The old exact generic records and registration APIs remain adapters; their witness view is absent
+for a sparse scheme. Sparse instantiation requires exactly the recorded availability mask.
+The entry getters retain full source arities, kinds, sorts and ordered erasure indexes.
+
+\<open>capture_generic_use_events\<close> separates source occurrence from witness demand, excluding
+inference seeds and foreign scopes. The compatible \<open>capture_generic_uses\<close> observes witness
+demand. \<open>report_generic_reference\<close> checks
 the current full parameter identity and forwards the original reference callback exactly once.
 Scope records and callbacks remain unchanged. Nested captures retain actual same-scope observations
 and deactivate on every exit; no observer or captured context is installed in declarations.
@@ -128,6 +148,16 @@ sig
     {canonical_path: string, self_type: typ, target_pos: Position.T,
      report_reference: Position.T -> unit}
   val resolve_impl_target: Proof.context -> URust_AST.rust_type -> impl_self
+  type source_identity
+  val resolve_impl_target_identity:
+    Proof.context -> URust_AST.rust_type -> impl_self * source_identity option
+  val with_impl_self_identity:
+    impl_self * source_identity option -> Proof.context -> Proof.context
+  val impl_source_identity: Proof.context -> source_identity option
+  val source_identity_name: source_identity -> string
+  val morph_source_identity: morphism -> source_identity -> source_identity
+  val resolve_type_identity:
+    Proof.context -> URust_AST.rust_type -> typ * source_identity option
   val impl_target_key: Proof.context -> URust_AST.rust_type -> string option
   val with_impl_self: impl_self -> Proof.context -> Proof.context
   val impl_self: Proof.context -> impl_self option
@@ -138,15 +168,42 @@ sig
   type generic_scope = {parameters: generic_parameter list}
   val with_generic_scope: generic_scope -> Proof.context -> Proof.context
   val generic_scope: Proof.context -> generic_scope option
-   val capture_generic_uses:
-     Proof.context -> (Proof.context -> 'a) -> 'a * string list
+  val capture_generic_uses:
+    Proof.context -> (Proof.context -> 'a) -> 'a * string list
   val report_generic_reference:
     Proof.context -> generic_parameter -> Position.T -> unit
+  val report_generic_source_reference:
+    Proof.context -> generic_parameter -> Position.T -> unit
+  val capture_generic_use_events:
+    Proof.context -> (Proof.context -> 'a) ->
+      'a * {source_uses: string list, witness_uses: string list}
+  val capture_generic_argument_events:
+    Proof.context -> (Proof.context -> 'a) ->
+      'a * {source_uses: string list, witness_uses: string list}
+  val replay_generic_argument_events:
+    Proof.context -> {source_uses: string list, witness_uses: string list} -> unit
+  val with_source_only_parameters: string list -> Proof.context -> Proof.context
+  val parameter_has_witness: Proof.context -> generic_parameter -> bool
+  val generic_reference_requires_witness: unit -> bool
   val parameter_names:
     Proof.context -> URust_AST.generic_parameter list ->
       ((string * Position.T) * (string * Position.T)) list -> (string * sort) list
   type generic_scheme_parameter =
     {rust: string, kind: URust_AST.generic_parameter_kind, hol: string * sort}
+  type generic_source_parameter =
+    {rust: string, kind: URust_AST.generic_parameter_kind,
+     hol: (string * sort) option, sort: sort, bounds: string list, source_used: bool option}
+  val generic_source_scheme_for_source:
+    Proof.context -> serial -> generic_source_parameter list option
+  val register_generic_source_scheme:
+    {identity: term, backend: term, sources: serial list,
+     parameters: generic_source_parameter list, pos: Position.T} ->
+      local_theory -> local_theory
+  val instantiate_generic_source_scheme_for_source:
+    Proof.context -> serial -> term -> (typ option * Position.T) list -> term option
+  val resolve_source_arguments:
+    Proof.context -> generic_source_parameter list -> URust_AST.rust_generic_argument list ->
+      {arguments: (typ option * Position.T) list, identities: string list}
   val generic_scheme: Proof.context -> term -> generic_scheme_parameter list option
   val generic_scheme_for_source:
     Proof.context -> serial -> generic_scheme_parameter list option
@@ -162,6 +219,8 @@ sig
   val entry_template: entry -> typ
   val entry_arities: entry -> int list
   val entry_parameter_sorts: entry -> sort list
+  val entry_parameter_kinds: entry -> URust_AST.generic_parameter_kind list
+  val entry_erased_parameters: entry -> int list
   val entry_backend_parameter_sorts: entry -> sort list
   (* Role-aware schemes preserve singleton identity. Legacy positional registration APIs accept
      the empty scheme or the established address/global pair. *)
@@ -216,9 +275,13 @@ struct
   datatype meaning =
       Meaning_Parameter of int
     | Meaning_Const_Parameter of int
+    | Meaning_Scoped_Parameter of serial * generic_parameter_kind
     | Meaning_Primitive of rust_primitive_type
-    | Meaning_Mapped of string * typ * sort list * (backend_role * sort) list * meaning list
+    | Meaning_Mapped of string * typ * sort list * int list * (backend_role * sort) list * meaning list
+    | Meaning_Opaque of (string * meaning list) list
+    | Meaning_Numeric of int
     | Meaning_Tuple of meaning list
+    | Meaning_Array of meaning * meaning
     | Meaning_Pointer of raw_pointer_mutability * meaning
     | Meaning_Reference of borrow_mode * meaning
     | Meaning_HOL of typ
@@ -235,6 +298,7 @@ struct
      template: typ,
      parameter_kinds: generic_parameter_kind list,
      parameter_sorts: sort list,
+     erased_parameters: int list,
      backend_roles: backend_role list,
      backend_parameter_sorts: sort list,
      meaning: meaning,
@@ -247,6 +311,8 @@ struct
   fun entry_arities ({segment_arities, ...}: entry) = segment_arities
   fun entry_parameter_sorts ({parameter_sorts, ...}: entry) =
     parameter_sorts
+  fun entry_parameter_kinds ({parameter_kinds, ...}: entry) = parameter_kinds
+  fun entry_erased_parameters ({erased_parameters, ...}: entry) = erased_parameters
   fun entry_backend_parameter_sorts
       ({backend_parameter_sorts, ...}: entry) =
     backend_parameter_sorts
@@ -280,6 +346,7 @@ struct
     left_template = right_template andalso
     #parameter_kinds left = #parameter_kinds right andalso
     left_sorts = right_sorts andalso
+    #erased_parameters left = #erased_parameters right andalso
     #backend_roles left = #backend_roles right andalso
     left_backend = right_backend andalso
     alias_origin left_origin = alias_origin right_origin andalso
@@ -534,10 +601,11 @@ struct
   (* A native locale export may rename schematic indexes and basenames. Transport the
      template and all slot witnesses as one type, then restore canonical identities from
      those transported witnesses. Transforming witnesses separately loses their sharing. *)
-  fun morph_scheme phi template parameter_sorts role_sorts =
+  fun morph_scheme phi template parameter_sorts erased_parameters role_sorts =
     let
-      val parameters = map_index (fn (index, sort) => canonical_parameter index sort)
-        parameter_sorts
+      val retained = map_index I parameter_sorts
+        |> filter_out (fn (index, _) => member (op =) erased_parameters index)
+      val parameters = map (fn (index, sort) => canonical_parameter index sort) retained
       val roles = map (fn (role, sort) => canonical_backend_parameter (role_index role) sort)
         role_sorts
       val transported =
@@ -553,10 +621,13 @@ struct
         | witness_sort _ =
             raise Fail "uRust type registry: morphism specialized a scheme parameter"
       val sorts = map witness_sort witnesses
-      val (parameter_sorts', backend_sorts') = chop (length parameters) sorts
+      val (retained_sorts, backend_sorts') = chop (length parameters) sorts
+      val transported_sorts = map fst retained ~~ retained_sorts
+      val parameter_sorts' = map_index (fn (index, sort) =>
+        the_default sort (AList.lookup (op =) transported_sorts index)) parameter_sorts
       val role_sorts' = map fst role_sorts ~~ backend_sorts'
       val restored =
-        map_index (fn (index, sort) => canonical_parameter index sort) parameter_sorts' @
+        map (fn (index, sort) => canonical_parameter index sort) transported_sorts @
         map (fn (role, sort) => canonical_backend_parameter (role_index role) sort) role_sorts'
     in
       (Term.typ_subst_atomic (witnesses ~~ restored) transformed,
@@ -571,11 +642,11 @@ struct
        DPT_I8, DPT_I16, DPT_I32, DPT_I64, DPT_I128, DPT_Isize,
        DPT_Bool, DPT_Char, DPT_Str, DPT_Never, DPT_Unit]
 
-  fun mapped_meaning base template parameter_sorts backend_sorts =
+  fun mapped_meaning base template parameter_sorts erased_parameters backend_sorts =
     (case primitive_meaning base of
        SOME primitive => Meaning_Primitive primitive
      | NONE =>
-         Meaning_Mapped (base, template, parameter_sorts, backend_sorts,
+         Meaning_Mapped (base, template, parameter_sorts, erased_parameters, backend_sorts,
            map_index (fn (index, _) => Meaning_Parameter index)
              parameter_sorts))
 
@@ -583,13 +654,17 @@ struct
     let
       fun morph (Meaning_Parameter index) = Meaning_Parameter index
         | morph (Meaning_Const_Parameter index) = Meaning_Const_Parameter index
+        | morph (Meaning_Scoped_Parameter parameter) = Meaning_Scoped_Parameter parameter
         | morph (Meaning_Primitive primitive) = Meaning_Primitive primitive
-        | morph (Meaning_Mapped (base, template, sorts, backend_sorts, arguments)) =
+        | morph (Meaning_Mapped (base, template, sorts, erased, backend_sorts, arguments)) =
             let val (template', sorts', backend_sorts') =
-              morph_scheme phi template sorts backend_sorts
+              morph_scheme phi template sorts erased backend_sorts
             in Meaning_Mapped
-              (base, template', sorts', backend_sorts', map morph arguments) end
+              (base, template', sorts', erased, backend_sorts', map morph arguments) end
+        | morph (Meaning_Opaque rows) = Meaning_Opaque (map (apsnd (map morph)) rows)
+        | morph (Meaning_Numeric n) = Meaning_Numeric n
         | morph (Meaning_Tuple types) = Meaning_Tuple (map morph types)
+        | morph (Meaning_Array (element, length)) = Meaning_Array (morph element, morph length)
         | morph (Meaning_Pointer (mutability, typ)) =
             Meaning_Pointer (mutability, morph typ)
         | morph (Meaning_Reference (mode, typ)) =
@@ -601,19 +676,81 @@ struct
     let
       fun instantiate (Meaning_Parameter index) = nth arguments index
         | instantiate (Meaning_Const_Parameter index) = nth arguments index
+        | instantiate (Meaning_Scoped_Parameter parameter) = Meaning_Scoped_Parameter parameter
         | instantiate (Meaning_Primitive primitive) =
             Meaning_Primitive primitive
-        | instantiate (Meaning_Mapped (base, template, sorts, backend_sorts, types)) =
+        | instantiate (Meaning_Mapped (base, template, sorts, erased, backend_sorts, types)) =
             Meaning_Mapped
-              (base, template, sorts, backend_sorts, map instantiate types)
+              (base, template, sorts, erased, backend_sorts, map instantiate types)
+        | instantiate (Meaning_Opaque rows) = Meaning_Opaque (map (apsnd (map instantiate)) rows)
+        | instantiate (Meaning_Numeric n) = Meaning_Numeric n
         | instantiate (Meaning_Tuple types) =
             Meaning_Tuple (map instantiate types)
+        | instantiate (Meaning_Array (element, length)) =
+            Meaning_Array (instantiate element, instantiate length)
         | instantiate (Meaning_Pointer (mutability, typ)) =
             Meaning_Pointer (mutability, instantiate typ)
         | instantiate (Meaning_Reference (mode, typ)) =
             Meaning_Reference (mode, instantiate typ)
         | instantiate (Meaning_HOL typ) = Meaning_HOL typ
     in instantiate end
+
+  type source_identity = meaning
+  val morph_source_identity = morph_meaning
+
+  (* The key names expanded source structure, never the HOL representation of an erased slot.
+     HOL escapes remain typed identities; the associated owner separately checks its full Self
+     type. Length prefixes in XML keep qualified names and nested arguments unambiguous. *)
+  fun source_identity_name meaning =
+    let
+      fun node name attrs children = XML.Elem ((name, attrs), children)
+      fun encode (Meaning_Parameter index) = node "parameter" [("index", string_of_int index)] []
+        | encode (Meaning_Const_Parameter index) = node "const" [("index", string_of_int index)] []
+        | encode (Meaning_Scoped_Parameter (identity, kind)) =
+            node "scope" [("identity", string_of_int identity),
+              ("kind", if kind = Type_Parameter then "type" else "const")] []
+        | encode (Meaning_Primitive primitive) =
+            node "primitive" [("name", rust_primitive_name primitive)] []
+        | encode (Meaning_Mapped (base, _, _, _, _, arguments)) =
+            node "mapped" [("name", base)] (map encode arguments)
+        | encode (Meaning_Opaque rows) = node "opaque" []
+            (map (fn (name, arguments) => node "segment" [("name", name)] (map encode arguments)) rows)
+        | encode (Meaning_Numeric value) = node "numeric" [("value", string_of_int value)] []
+        | encode (Meaning_Tuple types) = node "tuple" [] (map encode types)
+        | encode (Meaning_Array (element, length)) = node "array" [] [encode element, encode length]
+        | encode (Meaning_Pointer (mutability, typ)) =
+            node "pointer" [("mutable", Bool.toString (mutability = RPM_Mut))] [encode typ]
+        | encode (Meaning_Reference (mode, typ)) =
+            node "reference" [("mutable", Bool.toString (mode = BM_Mut))] [encode typ]
+        | encode (Meaning_HOL typ) = node "hol" [] (Term_XML.Encode.typ typ)
+    in XML.string_of (encode meaning) end
+
+  fun identity_sensitive (Meaning_Mapped (_, _, _, erased, _, arguments)) =
+        not (null erased) orelse exists identity_sensitive arguments
+    | identity_sensitive (Meaning_Opaque _) = true
+    | identity_sensitive (Meaning_Tuple types) = exists identity_sensitive types
+    | identity_sensitive (Meaning_Array (element, length)) =
+        identity_sensitive element orelse identity_sensitive length
+    | identity_sensitive (Meaning_Pointer (_, typ)) = identity_sensitive typ
+    | identity_sensitive (Meaning_Reference (_, typ)) = identity_sensitive typ
+    | identity_sensitive _ = false
+
+  (* Mapped templates have their own canonical scheme variables. Only authored HOL leaves
+     belong to the surrounding signature inference state and need its final substitution. *)
+  fun finish_meaning finish =
+    let
+      fun finish_source (Meaning_Mapped (base, template, sorts, erased, roles, arguments)) =
+            Meaning_Mapped (base, template, sorts, erased, roles, map finish_source arguments)
+        | finish_source (Meaning_Opaque rows) =
+            Meaning_Opaque (map (apsnd (map finish_source)) rows)
+        | finish_source (Meaning_Tuple types) = Meaning_Tuple (map finish_source types)
+        | finish_source (Meaning_Array (element, length)) =
+            Meaning_Array (finish_source element, finish_source length)
+        | finish_source (Meaning_Pointer (mode, typ)) = Meaning_Pointer (mode, finish_source typ)
+        | finish_source (Meaning_Reference (mode, typ)) = Meaning_Reference (mode, finish_source typ)
+        | finish_source (Meaning_HOL typ) = Meaning_HOL (the_single (finish [typ]))
+        | finish_source meaning = meaning
+    in finish_source end
 
   fun read_implicit_roles lthy source =
     let
@@ -647,8 +784,29 @@ struct
       val _ = fold distinct_binding roles ([], [])
     in map (fn (role, variable, _) => (role, variable)) roles end
 
+  fun read_erased_parameters lthy source =
+    let
+      fun read ctxt =
+        let
+          val keywords = Thy_Header.get_keywords' ctxt
+          val tokens = Token.tokenize keywords {strict = true} (Input.source_explode source)
+            |> filter Token.is_proper
+          val _ = Context_Position.reports_text ctxt (maps (Token.reports keywords) tokens)
+          val parser = Parse.enum "," (Parse.position Parse.type_ident) --| Scan.ahead Parse.eof
+        in
+          case Scan.read Token.stopper (Parse.!!! parser) tokens of
+            SOME parameters => parameters
+          | NONE => mapping_error "malformed erased placeholder list" (Input.pos_of source)
+        end
+      val parameters = URust_Report_Transaction.native lthy read
+      fun distinct_parameter (name, pos) seen =
+        if member (op =) seen name then mapping_error ("duplicate erased placeholder " ^ quote name) pos
+        else name :: seen
+      val _ = fold distinct_parameter parameters []
+    in parameters end
+
   fun checked_template lthy
-      ({parameters, ...}: key) roles source =
+      ({parameters, ...}: key) roles erased source =
     let
       val pos = Input.pos_of source
       val typ =
@@ -668,14 +826,20 @@ struct
       val tfrees = Term.add_tfreesT typ []
       val tfree_names = map fst tfrees
       val role_variables = map (fst o snd) roles
+      val erased_names = map (nth parameters) erased
+      val retained_names = filter_out (member (op =) erased_names) parameters
+      val _ = List.app (fn name =>
+        if member (op =) tfree_names name then
+          mapping_error ("erased placeholder " ^ quote name ^ " occurs in the HOL template") pos
+        else ()) erased_names
       val _ = List.app (fn (_, (name, pos)) =>
         if member (op =) parameters name then
           mapping_error ("implicit variable " ^ quote name ^ " is also a source placeholder") pos
         else if member (op =) tfree_names name then ()
         else mapping_error ("unused implicit variable " ^ quote name) pos) roles
-      val declared_variables = parameters @ role_variables
+      val declared_variables = retained_names @ role_variables
       val missing =
-        filter_out (member (op =) tfree_names) parameters
+        filter_out (member (op =) tfree_names) retained_names
       val extra =
         filter_out (member (op =) declared_variables) tfree_names
       val _ =
@@ -695,16 +859,17 @@ struct
          | NONE =>
              raise Fail
                "uRust type registry: validated template parameter is absent")
-      val parameter_sorts = map parameter_sort parameters
+      val parameter_sorts = map (fn name => if member (op =) erased_names name then []
+        else parameter_sort name) parameters
       val ordered_roles = role_order (map fst roles)
       val role_parameters = map (fn role =>
         let val (name, _) = the (AList.lookup (op =) roles role)
         in (role, (name, parameter_sort name)) end) ordered_roles
-      val canonical =
-        map_index
-          (fn (index, (name, sort)) =>
-            (TFree (name, sort), canonical_parameter index sort))
-          (parameters ~~ parameter_sorts) @
+      val canonical = map_index I (parameters ~~ parameter_sorts)
+        |> filter_out (fn (index, _) => member (op =) erased index)
+        |> map (fn (index, (name, sort)) =>
+          (TFree (name, sort), canonical_parameter index sort))
+      val canonical = canonical @
         map (fn (role, (name, sort)) =>
           (TFree (name, sort), canonical_backend_parameter (role_index role) sort))
           role_parameters
@@ -715,11 +880,12 @@ struct
     end
 
   fun make_entry origin declaration_pos segment_arities template
-      parameter_kinds parameter_sorts role_sorts meaning dependencies =
+      parameter_kinds parameter_sorts erased_parameters role_sorts meaning dependencies =
     {segment_arities = segment_arities,
      template = template,
      parameter_kinds = parameter_kinds,
      parameter_sorts = parameter_sorts,
+     erased_parameters = erased_parameters,
      backend_roles = map fst role_sorts,
      backend_parameter_sorts = map snd role_sorts,
      meaning = meaning,
@@ -729,16 +895,18 @@ struct
      identity = serial ()}: entry
 
   fun morph_entry phi
-      ({segment_arities, template, parameter_kinds, parameter_sorts, backend_roles, backend_parameter_sorts,
+      ({segment_arities, template, parameter_kinds, parameter_sorts, erased_parameters,
+        backend_roles, backend_parameter_sorts,
         meaning, dependencies, declaration_pos, origin, identity}: entry) =
     let
       val (template', parameter_sorts', role_sorts') =
-        morph_scheme phi template parameter_sorts (backend_roles ~~ backend_parameter_sorts)
+        morph_scheme phi template parameter_sorts erased_parameters (backend_roles ~~ backend_parameter_sorts)
     in
       {segment_arities = segment_arities,
        template = template',
        parameter_kinds = parameter_kinds,
        parameter_sorts = parameter_sorts',
+       erased_parameters = erased_parameters,
        backend_roles = backend_roles,
        backend_parameter_sorts = map snd role_sorts',
        meaning = morph_meaning phi meaning,
@@ -794,19 +962,26 @@ struct
         Navigation.defer_report ctxt pos Markup.tfree)
       (parameters ~~ parameter_positions)
 
-  fun declare_mapping origin roles (key_source, source)
+  fun declare_mapping origin roles erased_names (key_source, source)
       lthy =
     let
       val key as {base, segment_arities, parameter_kinds, ...} =
         parse_mapping_key_source key_source
       val key_pos = Input.pos_of key_source
+      val parameters = #parameters key
+      val _ = List.app (fn (name, pos) =>
+        if member (op =) parameters name then ()
+        else mapping_error ("unknown erased placeholder " ^ quote name) pos) erased_names
+      val erased = map_index (fn (index, name) =>
+        if member (op =) (map fst erased_names) name then SOME index else NONE) parameters
+        |> map_filter I
       val (template, parameter_sorts, role_sorts) =
-        checked_template lthy key roles source
+        checked_template lthy key roles erased source
       val _ = report_parameters lthy key
       val candidate =
         make_entry origin key_pos segment_arities template
-          parameter_kinds parameter_sorts role_sorts
-          (mapped_meaning base template parameter_sorts role_sorts) []
+          parameter_kinds parameter_sorts erased role_sorts
+          (mapped_meaning base template parameter_sorts erased role_sorts) []
     in install_prepared base candidate lthy end
 
   fun generated_candidate
@@ -823,8 +998,8 @@ struct
     in
       (base,
        make_entry (Generated hol_type_name) rust_pos
-         segment_arities (Type (hol_type_name, [])) [] [] []
-         (mapped_meaning base (Type (hol_type_name, [])) [] []) [])
+         segment_arities (Type (hol_type_name, [])) [] [] [] []
+         (mapped_meaning base (Type (hol_type_name, [])) [] [] []) [])
     end
 
   fun declaration_role_scheme_candidate
@@ -857,8 +1032,8 @@ struct
       val arities = take (length segment_arities - 1) segment_arities @ [length source_parameters]
     in
       (base, make_entry (Generated hol_type_name) rust_pos arities template
-        parameter_kinds source_sorts role_sorts
-        (mapped_meaning base template source_sorts role_sorts) [])
+        parameter_kinds source_sorts [] role_sorts
+        (mapped_meaning base template source_sorts [] role_sorts) [])
     end
 
   fun legacy_backend_parameters pos [] = []
@@ -981,8 +1156,17 @@ struct
     fun init _ = NONE
   )
 
-  fun with_impl_self self = Impl_Self.put (SOME self)
+  structure Impl_Source_Identity = Proof_Data
+  (
+    type T = source_identity option
+    fun init _ = NONE
+  )
+
+  fun with_impl_self self = Impl_Self.put (SOME self) #> Impl_Source_Identity.put NONE
+  fun with_impl_self_identity (self, identity) =
+    Impl_Self.put (SOME self) #> Impl_Source_Identity.put identity
   val impl_self = Impl_Self.get
+  val impl_source_identity = Impl_Source_Identity.get
 
   type generic_parameter =
     {rust: string, pos: Position.T, kind: generic_parameter_kind,
@@ -995,66 +1179,153 @@ struct
     fun init _ = NONE
   )
 
-  fun with_generic_scope scope = Generic_Scope.put (SOME scope)
   val generic_scope = Generic_Scope.get
 
   fun scope_parameters ctxt =
     (case generic_scope ctxt of NONE => [] | SOME {parameters} => parameters)
 
-   structure Generic_Uses = Proof_Data
-   (
-     type T = (generic_parameter list -> typ list -> unit) option
-     fun init _ = NONE
-   )
+  structure Generic_Uses = Proof_Data
+  (
+    type T = (generic_parameter list -> typ list -> bool -> unit) option
+    fun init _ = NONE
+  )
 
-   fun same_generic_parameter (left: generic_parameter, right: generic_parameter) =
-     #rust left = #rust right andalso #kind left = #kind right andalso
-     #hol left = #hol right andalso #bounds left = #bounds right andalso
-     Position.properties_of (#pos left) = Position.properties_of (#pos right) andalso
-     pointer_eq (#report_reference left, #report_reference right)
+  fun same_generic_parameter (left: generic_parameter, right: generic_parameter) =
+    #rust left = #rust right andalso #kind left = #kind right andalso
+    #hol left = #hol right andalso #bounds left = #bounds right andalso
+    Position.properties_of (#pos left) = Position.properties_of (#pos right) andalso
+    pointer_eq (#report_reference left, #report_reference right)
 
-   fun capture_generic_uses ctxt action =
-     (case generic_scope ctxt of
-        NONE => (action ctxt, [])
-      | SOME {parameters = []} => (action ctxt, [])
-      | SOME {parameters} =>
-          let
-            val uses = Unsynchronized.ref ([]: string list)
-            val active = Unsynchronized.ref true
-            fun note name =
-              if !active then uses := insert (op =) name (!uses) else ()
-            val parent = Generic_Uses.get ctxt
-            (* Observe actual scope identities without rewriting their callbacks. Nested reads
-               forward the same identities, so foreign scopes cannot become original reads. *)
-            fun observe_types current types =
-              let
-                val names = maps (fn typ => map fst (Term.add_tfreesT typ [])) types
-                fun observe parameter =
-                  if exists (fn tracked => same_generic_parameter (parameter, tracked))
-                      parameters andalso member (op =) names (fst (#hol parameter))
-                  then note (fst (#hol parameter)) else ()
-                val _ = List.app observe current
-              in Option.app (fn observe_parent => observe_parent current types) parent end
-            val observed_ctxt = Generic_Uses.put (SOME observe_types) ctxt
-          in
-            Thread_Attributes.uninterruptible_body (fn run =>
-              let
-                val result = Exn.capture0 (run (fn () => action observed_ctxt)) ()
-                val recorded = rev (!uses)
-                val _ = active := false
-              in (Exn.release result, recorded) end)
-          end)
+  structure Generic_Identities = Proof_Data
+  (
+    type T = (generic_parameter * serial) list
+    fun init _ = []
+  )
+  structure Source_Only_Parameters = Proof_Data
+  (
+    type T = generic_parameter list
+    fun init _ = []
+  )
+  structure Source_Only_Positions = Proof_Data
+  (
+    type T = Position.T list Unsynchronized.ref option
+    fun init _ = NONE
+  )
 
-   fun note_generic_types ctxt types =
-     Option.app (fn observe => observe (scope_parameters ctxt) types) (Generic_Uses.get ctxt)
+  fun with_generic_scope (scope as {parameters}: generic_scope) ctxt =
+    let
+      val previous = Generic_Identities.get ctxt
+      fun identity parameter =
+        (parameter, case find_first (fn (old, _) => same_generic_parameter (parameter, old)) previous of
+          SOME (_, identity) => identity | NONE => serial ())
+    in ctxt |> Generic_Scope.put (SOME scope)
+      |> Generic_Identities.put (map identity parameters)
+      |> Source_Only_Parameters.put [] end
 
-   fun report_generic_reference ctxt parameter pos =
-     (if exists (fn installed => same_generic_parameter (parameter, installed))
-         (scope_parameters ctxt)
-      then Option.app (fn observe => observe [parameter] [TFree (#hol parameter)])
-        (Generic_Uses.get ctxt)
-      else ();
-      #report_reference parameter pos)
+  fun with_source_only_parameters names ctxt =
+    Source_Only_Parameters.put
+      (filter (fn parameter => member (op =) names (fst (#hol parameter)))
+        (scope_parameters ctxt)) ctxt
+
+  fun parameter_has_witness ctxt parameter =
+    not (exists (fn installed => same_generic_parameter (parameter, installed))
+      (Source_Only_Parameters.get ctxt))
+
+  fun scoped_meaning ctxt parameter =
+    let
+      val identity = #2 (the (find_first
+        (fn (installed, _) => same_generic_parameter (parameter, installed))
+        (Generic_Identities.get ctxt)))
+    in Meaning_Scoped_Parameter (identity, #kind parameter) end
+
+  fun capture_generic_use_events ctxt action =
+    (case generic_scope ctxt of
+       NONE => (action ctxt, {source_uses = [], witness_uses = []})
+     | SOME {parameters = []} => (action ctxt, {source_uses = [], witness_uses = []})
+     | SOME {parameters} =>
+         let
+           val source_uses = Unsynchronized.ref ([]: string list)
+           val witness_uses = Unsynchronized.ref ([]: string list)
+           val active = Unsynchronized.ref true
+           fun note uses name = if !active then uses := insert (op =) name (!uses) else ()
+           val parent = Generic_Uses.get ctxt
+           (* An empty type list explicitly observes source identity, without creating a HOL
+              witness. Native type reads observe only the actual variables in those types. *)
+           fun observe current types demand =
+             let
+               val names = maps (fn typ => map fst (Term.add_tfreesT typ [])) types
+               fun observe_parameter parameter =
+                 if exists (fn tracked => same_generic_parameter (parameter, tracked)) parameters
+                    andalso (null types orelse member (op =) names (fst (#hol parameter)))
+                 then (note source_uses (fst (#hol parameter));
+                   if demand then note witness_uses (fst (#hol parameter)) else ())
+                 else ()
+               val _ = List.app observe_parameter current
+             in Option.app (fn observe_parent => observe_parent current types demand) parent end
+           val observed_ctxt = Generic_Uses.put (SOME observe) ctxt
+         in
+           Thread_Attributes.uninterruptible_body (fn run =>
+             let
+               val result = Exn.capture0 (run (fn () => action observed_ctxt)) ()
+               val recorded = {source_uses = rev (!source_uses), witness_uses = rev (!witness_uses)}
+               val _ = active := false
+             in (Exn.release result, recorded) end)
+         end)
+
+  fun capture_generic_uses ctxt action =
+    let val (result, {witness_uses, ...}) = capture_generic_use_events ctxt action
+    in (result, witness_uses) end
+
+  val speculative_generic_callbacks = Thread_Data.var (): bool Thread_Data.var
+
+  fun capture_generic_argument_events ctxt action =
+    Thread_Data.setmp speculative_generic_callbacks (SOME true)
+      (fn () => capture_generic_use_events (Generic_Uses.put NONE ctxt) action) ()
+
+  fun replay_generic_argument_events ctxt {source_uses, witness_uses} =
+    let
+      fun replay parameter =
+        let val name = fst (#hol parameter)
+        in
+          if member (op =) source_uses name then
+            Option.app (fn observe => observe [parameter] []
+              (member (op =) witness_uses name)) (Generic_Uses.get ctxt)
+          else ()
+        end
+    in List.app replay (scope_parameters ctxt) end
+
+  fun note_generic_types ctxt types =
+    if null types then () else
+      Option.app (fn observe => observe (scope_parameters ctxt) types true) (Generic_Uses.get ctxt)
+
+  fun observe_generic_reference demand ctxt parameter =
+    if exists (fn installed => same_generic_parameter (parameter, installed))
+        (scope_parameters ctxt)
+    then Option.app (fn observe => observe [parameter] [] demand) (Generic_Uses.get ctxt)
+    else ()
+
+  val generic_reference_demand = Thread_Data.var (): bool Thread_Data.var
+  fun generic_reference_requires_witness () =
+    the_default true (Thread_Data.get generic_reference_demand)
+
+  fun generic_reference_callback demand parameter pos =
+    let
+      fun original () = Thread_Data.setmp generic_reference_demand (SOME demand)
+        (fn () => #report_reference (parameter: generic_parameter) pos) ()
+    in
+      if the_default false (Thread_Data.get speculative_generic_callbacks)
+      then URust_Report_Transaction.defer_action original
+      else original ()
+    end
+
+  fun report_generic_reference ctxt parameter pos =
+    (observe_generic_reference true ctxt parameter;
+     generic_reference_callback true parameter pos)
+
+  fun report_generic_source_reference ctxt parameter pos =
+    (observe_generic_reference false ctxt parameter;
+     Option.app (fn positions => positions := pos :: !positions) (Source_Only_Positions.get ctxt);
+     generic_reference_callback false parameter pos)
 
   fun resolve_generic ctxt normalize base arities pos =
     (case find_index (fn ({rust, ...}: generic_parameter) => rust = base)
@@ -1071,15 +1342,17 @@ struct
            val _ = report_generic_reference ctxt parameter pos
          in
            SOME {typ = normalize (TFree hol),
-             meaning = (case kind of Type_Parameter => Meaning_Parameter index
-               | Const_Parameter => Meaning_Const_Parameter index)}
+             meaning = scoped_meaning ctxt parameter}
          end)
 
   type generic_scheme_parameter =
     {rust: string, kind: generic_parameter_kind, hol: string * sort}
+  type generic_source_parameter =
+    {rust: string, kind: generic_parameter_kind, hol: (string * sort) option,
+     sort: sort, bounds: string list, source_used: bool option}
   type function_scheme =
     {terms: term list, sources: serial list,
-     parameters: generic_scheme_parameter list, pos: Position.T}
+     parameters: generic_source_parameter list, pos: Position.T}
 
   (* Normalize the backend and witnesses together; a witness can name a parameter that
      never occurs in the backend, and independent channel slots must stay independent. *)
@@ -1096,13 +1369,32 @@ struct
             Vars.add (variable, Var (("_urust_function_value", index), typ))))
     in map (Term_Subst.instantiate (TVars.empty, inst)) typed end
 
+  fun parameter_core ({rust, kind, hol, sort, bounds, ...}: generic_source_parameter) =
+    (rust, kind, hol, sort, bounds)
+
   fun same_function_scheme (left: function_scheme, right: function_scheme) =
     eq_list (op aconv) (#terms left, #terms right) andalso
-      #parameters left = #parameters right andalso #sources left = #sources right
+      map parameter_core (#parameters left) = map parameter_core (#parameters right) andalso
+      #sources left = #sources right
+
+  fun merge_source_usage (left: generic_source_parameter, right: generic_source_parameter) =
+    let
+      val used = (case (#source_used left, #source_used right) of
+          (NONE, used) => used | (used, NONE) => used
+        | (SOME first, SOME second) => if first = second then SOME first
+            else error "urust_fn: conflicting source-use metadata for one source")
+    in {rust = #rust left, kind = #kind left, hol = #hol left, sort = #sort left,
+      bounds = #bounds left, source_used = used}: generic_source_parameter end
 
   fun add_function_scheme (candidate: function_scheme) entries =
-    if exists (fn entry => same_function_scheme (entry, candidate)) entries then entries
-    else
+    (case find_first (fn entry => same_function_scheme (entry, candidate)) entries of
+       SOME existing =>
+         let
+           val parameters = map merge_source_usage (#parameters existing ~~ #parameters candidate)
+           val merged = {terms = #terms existing, sources = #sources existing,
+             parameters = parameters, pos = #pos existing}: function_scheme
+         in map (fn entry => if same_function_scheme (entry, existing) then merged else entry) entries end
+     | NONE =>
       (case find_first (fn (entry: function_scheme) =>
           hd (#terms entry) aconv hd (#terms candidate) andalso
           nth (#terms entry) 1 aconv nth (#terms candidate) 1 andalso
@@ -1111,7 +1403,7 @@ struct
          NONE => candidate :: entries
        | SOME entry =>
            error ("urust_fn: conflicting generic schemes for one source" ^
-             Position.here_list [#pos entry, #pos candidate]))
+             Position.here_list [#pos entry, #pos candidate])))
 
   structure Function_Schemes = Generic_Data
   (
@@ -1120,28 +1412,37 @@ struct
     fun merge (left, right) = fold add_function_scheme right left
   )
 
-  fun register_generic_scheme {identity, backend, sources, parameters, pos} lthy =
+  fun register_function_scheme {identity, backend, sources, parameters, pos} witnesses lthy =
     if null parameters then lthy
     else
       let
         val terms = Variable.polymorphic lthy
-          (backend :: identity :: map (Logic.mk_type o TFree o #hol) parameters)
+          (backend :: identity :: map Logic.mk_type witnesses)
         fun install phi =
           let
             val transformed =
               map (Morphism.term phi) terms |> normalize_function_scheme
             val witnesses = map Logic.dest_type (drop 2 transformed)
-            val _ = if length witnesses = length parameters then ()
-              else raise Fail "uRust function scheme: inconsistent witness count"
-            val transported = map2
-              (fn {rust, kind, hol = (name, _)} => fn witness =>
-                {rust = rust, kind = kind,
-                 hol = (name, Type.sort_of_atyp witness)}) parameters witnesses
+            fun transport ({rust, kind, hol = NONE, sort, bounds, source_used}: generic_source_parameter) pending =
+                  ({rust = rust, kind = kind, hol = NONE, sort = sort, bounds = bounds,
+                    source_used = source_used}, pending)
+              | transport {rust, kind, hol = SOME (name, _), sort = _, bounds, source_used} (witness :: pending) =
+                  let val sort = Type.sort_of_atyp witness
+                  in ({rust = rust, kind = kind, hol = SOME (name, sort), sort = sort,
+                    bounds = bounds, source_used = source_used}, pending) end
+              | transport _ [] = raise Fail "uRust function scheme: inconsistent witness count"
+            val (transported, remaining) = fold_map transport parameters witnesses
+            val _ = if null remaining then () else
+              raise Fail "uRust function scheme: extra witnesses"
           in Function_Schemes.map (add_function_scheme
             {terms = transformed, sources = sources, parameters = transported, pos = pos}) end
       in
         Local_Theory.declaration {pervasive = false, syntax = false, pos = pos} install lthy
       end
+
+  fun register_generic_source_scheme (registration as {parameters, ...}) lthy =
+    register_function_scheme registration
+      (map_filter (Option.map TFree o #hol) parameters) lthy
 
   fun function_schemes ctxt = Function_Schemes.get (Context.Proof ctxt)
 
@@ -1174,35 +1475,88 @@ struct
         else error ("urust_fn: inconsistent generic metadata for one source" ^
           Position.here_list (map #pos (entry :: entries)))
 
-  fun generic_scheme ctxt backend = consistent_parameters (matching_function_schemes ctxt backend)
+  fun witnessed_parameters parameters =
+    if forall (is_some o #hol) (parameters: generic_source_parameter list) then
+      SOME (map (fn {rust, kind, hol, ...} => {rust = rust, kind = kind, hol = the hol}) parameters)
+    else NONE
+
+  fun generic_scheme ctxt backend =
+    Option.mapPartial witnessed_parameters
+      (consistent_parameters (matching_function_schemes ctxt backend))
 
   fun schemes_for_source ctxt source =
     filter (fn (entry: function_scheme) => member (op =) (#sources entry) source)
       (function_schemes ctxt)
 
-  fun generic_scheme_for_source ctxt source = consistent_parameters (schemes_for_source ctxt source)
+  fun generic_source_scheme_for_source ctxt source = consistent_parameters (schemes_for_source ctxt source)
+  fun generic_scheme_for_source ctxt source =
+    Option.mapPartial witnessed_parameters (generic_source_scheme_for_source ctxt source)
+
+  fun register_generic_scheme {identity, backend, sources, parameters, pos} lthy =
+    let
+      val legacy = map (fn {rust, kind, hol} =>
+        {rust = rust, kind = kind, hol = SOME hol, sort = snd hol, bounds = [],
+         source_used = NONE}: generic_source_parameter) parameters
+      (* The old record cannot express bounds or observed source use. Preserve authoritative
+         metadata when its unique existing native scheme agrees with every supplied old slot.
+         Its actual witnesses also need native joint alignment: a supplied backend may already
+         be polymorphic, so recreating named TFree witnesses would disconnect used slots. *)
+      fun core ({rust, kind, hol, sort, ...}: generic_source_parameter) = (rust, kind, hol, sort)
+      val thy = Proof_Context.theory_of lthy
+      val schemes = function_schemes lthy
+      val caller_max = fold Term.maxidx_term [backend, identity] (Variable.maxidx_of lthy)
+      val scheme_max = fold (fold Term.maxidx_term o #terms) schemes ~1
+      val shift = Int.max (caller_max, scheme_max) + 1
+      fun align (entry: function_scheme) =
+        let
+          val terms = map (Term.map_types (Logic.incr_tvar shift)) (#terms entry)
+          val environment = Pattern.match thy (hd terms, backend) (Vartab.empty, Vartab.empty)
+            |> Pattern.match thy (nth terms 1, identity)
+          val witnesses = map (Logic.dest_type #> Envir.subst_type (#1 environment)) (drop 2 terms)
+        in (entry, witnesses) end
+      val entries = map_filter (try align) schemes
+      val previous = (case entries of
+          (entry, witnesses) :: others =>
+            if length (distinct (op aconv)
+                  (map (fn (scheme, _) => nth (#terms scheme) 1) entries)) = 1
+                andalso forall (fn (other, _) => #parameters other = #parameters entry) others
+                andalso map core (#parameters entry) = map core legacy
+            then SOME (#parameters entry, witnesses) else NONE
+        | [] => NONE)
+      val registration = {identity = identity, backend = backend, sources = sources,
+        parameters = legacy, pos = pos}
+    in
+      case previous of SOME (parameters, witnesses) =>
+        register_function_scheme {identity = identity, backend = backend, sources = sources,
+          parameters = parameters, pos = pos} witnesses lthy
+      | NONE => register_generic_source_scheme registration lthy
+    end
 
   fun instantiate_function_schemes ctxt entries candidate arguments =
     let
       val _ = consistent_parameters entries
-      val caller_max = fold (Term.maxidx_typ o fst) arguments (Variable.maxidx_of ctxt)
+      val caller_max = fold (fn (typ, _) => fn max => case typ of NONE => max
+        | SOME typ => Term.maxidx_typ typ max) arguments (Variable.maxidx_of ctxt)
       val scheme_max = fold (fold Term.maxidx_term o #terms) entries ~1
       val shift = Int.max (caller_max, scheme_max) + 1
       (* Freshen only candidate variables, before caller substitution, and away from unused
          scheme witnesses as well as caller/context indexes. *)
       val fresh_candidate = Term.map_types (Logic.incr_tvar shift) candidate
       fun instantiate ({terms, parameters, ...}: function_scheme) =
-        if length parameters <> length arguments then NONE
+        if length parameters <> length arguments orelse
+          not (forall (fn (parameter, (argument, _)) =>
+            is_some (#hol parameter) = is_some argument) (parameters ~~ arguments)) then NONE
         else
            let
              val thy = Proof_Context.theory_of ctxt
              val witnesses = map Logic.dest_type (drop 2 terms)
-             val _ = if length witnesses = length parameters then ()
-               else raise Fail "uRust function scheme: inconsistent witness count"
-             val compatible = forall
+             val supplied = map_filter (fn (parameter, (argument, pos)) =>
+               if is_some (#hol parameter) then Option.map (fn typ => (typ, pos)) argument else NONE)
+               (parameters ~~ arguments)
+             val compatible = length supplied = length witnesses andalso forall
                (fn (witness, (argument, _)) =>
                  Sign.of_sort thy (argument, Type.sort_of_atyp witness))
-               (witnesses ~~ arguments)
+               (if length supplied = length witnesses then witnesses ~~ supplied else [])
              val aligned =
                try (Pattern.match thy (hd terms, fresh_candidate)) (Vartab.empty, Vartab.empty)
              fun substitute (tyenv, _) =
@@ -1219,7 +1573,7 @@ struct
                  Option.map
                    (fn substitutions =>
                      Term.map_types (Term.typ_subst_atomic substitutions) fresh_candidate)
-                   (fold inst (slots ~~ arguments) (SOME []))
+                   (fold inst (slots ~~ supplied) (SOME []))
                end
            in if compatible then Option.mapPartial substitute aligned else NONE end
       val results = map_filter instantiate entries |> distinct (op aconv)
@@ -1229,9 +1583,14 @@ struct
     end
 
   fun instantiate_generic_scheme ctxt backend candidate arguments =
-    instantiate_function_schemes ctxt (matching_function_schemes ctxt backend) candidate arguments
+    instantiate_function_schemes ctxt (matching_function_schemes ctxt backend) candidate
+      (map (apfst SOME) arguments)
 
   fun instantiate_generic_scheme_for_source ctxt source candidate arguments =
+    instantiate_function_schemes ctxt (schemes_for_source ctxt source) candidate
+      (map (apfst SOME) arguments)
+
+  fun instantiate_generic_source_scheme_for_source ctxt source candidate arguments =
     instantiate_function_schemes ctxt (schemes_for_source ctxt source) candidate arguments
 
   fun self_outside_impl pos =
@@ -1257,7 +1616,8 @@ struct
              val _ = report_reference pos
              val _ =
                Navigation.defer_report_text ctxt pos Markup.typing ("Self = " ^ canonical_path)
-           in SOME {typ = self_type, meaning = Meaning_HOL self_type} end)
+           in SOME {typ = self_type,
+             meaning = the_default (Meaning_HOL self_type) (impl_source_identity ctxt)} end)
 
   (* This path-shape rule applies even when a declared HOL signature skips type resolution. *)
   fun check_type_path_start kind segments =
@@ -1467,8 +1827,8 @@ struct
            Option.map (pair role) (AList.lookup (op =) (!backend_slots) role)) backend_roles}
     end
 
-  fun resolve_values kind ctxt read_escape check_sort normalize backend
-      parameter dependency rust_types =
+  fun resolve_value_operations kind ctxt read_escape check_sort normalize backend
+      parameter dependency =
     let
       (* Raw pointers and mutable references share one reference model and one backend pair. *)
       fun reference_typ target pos =
@@ -1483,6 +1843,163 @@ struct
             \<^typ>\<open>('urust_address, 'urust_global, 'urust_value) Global_Store.ref\<close>
           |> Proof_Context.cert_typ ctxt
         end
+
+      fun unsigned_value integer =
+        let
+          val pos = integer_literal_position integer
+          val _ = if is_none (integer_literal_suffix_position integer) then ()
+            else mapping_error "const arguments must be unsuffixed integer literals" pos
+        in
+          case Parser_Utils.read_unsigned_integer (integer_literal_lexeme integer) of
+            SOME value => value
+          | NONE => mapping_error "invalid complete unsuffixed const argument" pos
+        end
+
+      fun source_kind (Meaning_Const_Parameter _) = Const_Parameter
+        | source_kind (Meaning_Scoped_Parameter (_, role)) = role
+        | source_kind (Meaning_Numeric _) = Const_Parameter
+        | source_kind _ = Type_Parameter
+
+      fun source_sort base sort ({meaning, evidence, pos}: {meaning: meaning, evidence: typ option, pos: Position.T}) =
+        if null sort orelse Sign.subsort (Proof_Context.theory_of ctxt) (\<^sort>\<open>type\<close>, sort)
+        then ()
+        else
+          (case (meaning, evidence) of
+             (Meaning_Numeric value, _) =>
+               if Sign.subsort (Proof_Context.theory_of ctxt)
+                 (if value = 0 then \<^sort>\<open>len0\<close> else \<^sort>\<open>len\<close>, sort)
+               then ()
+               else mapping_error ("erased const argument cannot validate sort " ^
+                 quote (Syntax.string_of_sort ctxt sort) ^ " required by " ^ quote base) pos
+           | (_, SOME typ) =>
+               (* Source-only evidence retains its checked sorts. Unifying here would strengthen
+                  a discarded canonical backend role instead of validating an existing bound. *)
+               if Sign.of_sort (Proof_Context.theory_of ctxt) (typ, sort) then ()
+               else sort_error kind ctxt base typ sort pos
+           | _ => mapping_error ("erased source argument has no denotation to validate sort " ^
+               quote (Syntax.string_of_sort ctxt sort) ^ " required by " ^ quote base) pos)
+
+      fun source_argument expected (Rust_Type_Argument typ) = source_type (SOME expected) typ
+        | source_argument Const_Parameter (Rust_Numeric_Argument integer) =
+            {meaning = Meaning_Numeric (unsigned_value integer), evidence = NONE,
+             pos = integer_literal_position integer}
+        | source_argument Type_Parameter (Rust_Numeric_Argument integer) =
+            unsupported kind "numeric generic arguments for type parameters"
+              (integer_literal_position integer)
+        | source_argument _ (Rust_Lifetime_Argument (Rust_Lifetime (_, pos))) =
+            unsupported kind "lifetime generic arguments" pos
+        | source_argument _ (Rust_Associated_Type_Argument (_, pos, _)) =
+            unsupported kind "associated type bindings" pos
+        | source_argument _ (Rust_Const_Expression_Argument source) =
+            unsupported kind "const expression generic arguments" (Input.pos_of source)
+
+      and opaque_argument (Rust_Type_Argument typ) = source_type NONE typ
+        | opaque_argument (Rust_Numeric_Argument integer) = source_argument Const_Parameter
+            (Rust_Numeric_Argument integer)
+        | opaque_argument argument = source_argument Type_Parameter argument
+
+      and source_nominal base positions arities arguments pos rows primitive =
+        let
+          val _ = (case rows of (head, head_pos, _) :: _ :: _ =>
+              if head = "Self" orelse
+                exists (fn ({rust, ...}: generic_parameter) => rust = head) (scope_parameters ctxt)
+                orelse is_some (parameter head [0] head_pos)
+              then unsupported kind "associated paths on scoped parameters in erased arguments" head_pos
+              else ()
+            | _ => ())
+          val scoped = find_index (fn ({rust, ...}: generic_parameter) => rust = base)
+            (scope_parameters ctxt)
+          val value = if scoped >= 0 then
+              let
+                val parameter = nth (scope_parameters ctxt) scoped
+                val _ = if arities = [0] then () else
+                  mapping_error "generic parameters cannot take generic arguments" pos
+                val _ = report_generic_source_reference ctxt parameter pos
+                val _ = Navigation.defer_report ctxt pos Markup.tfree
+              in SOME {meaning = scoped_meaning ctxt parameter,
+                  evidence = SOME (TFree (#hol parameter)), pos = pos} end
+            else if base = "Self" then
+              (case impl_self ctxt of NONE => self_outside_impl pos
+               | SOME {self_type, report_reference, ...} =>
+                   (if arities = [0] then () else mapping_error
+                     "Self cannot take generic arguments" pos;
+                    report_reference pos;
+                    Navigation.defer_report ctxt pos Markup.keyword3;
+                    SOME {meaning = the_default (Meaning_HOL self_type)
+                      (impl_source_identity ctxt), evidence = SOME self_type, pos = pos}))
+            else Option.map (fn ({typ, meaning}: resolved) =>
+                {meaning = meaning, evidence = SOME (normalize typ), pos = pos})
+              (parameter base arities pos)
+        in
+          case value of SOME value => value
+          | NONE =>
+              (case imported_type_path ctxt kind rows of
+                 SOME (canonical_rows, (alias_pos, binding)) =>
+                   let
+                     val {base, positions, arities, arguments} = row_information canonical_rows
+                     val value = source_registry base positions arities arguments pos
+                       canonical_rows primitive
+                     val _ = URust_Import_Scope.defer_use_reference ctxt alias_pos binding
+                   in value end
+               | NONE => source_registry base positions arities arguments pos rows primitive)
+        end
+
+      and source_registry base positions arities arguments pos rows primitive =
+        let
+          val active = lookup ctxt base
+          val _ = dependency base active pos
+        in
+          case active of
+            NONE =>
+              let
+                val meanings = map (fn (name, _, args) =>
+                  (name, map (#meaning o opaque_argument) args)) rows
+              in {meaning = (case primitive of SOME p => Meaning_Primitive p
+                    | NONE => Meaning_Opaque meanings), evidence = NONE, pos = pos} end
+          | SOME entry =>
+              let
+                val _ = if #segment_arities entry = arities then ()
+                  else arity_error kind base (#segment_arities entry) arities pos
+                val resolved = map2 source_argument (#parameter_kinds entry) arguments
+                val _ = List.app (fn (argument, sort) => source_sort base sort argument)
+                  (resolved ~~ #parameter_sorts entry)
+                val substitutions = map_index (fn (index, ({evidence, ...}, sort)) =>
+                  if member (op =) (#erased_parameters entry) index then SOME NONE
+                  else Option.map (fn typ => SOME ((("_urust_type", index), sort), normalize typ)) evidence)
+                  (resolved ~~ #parameter_sorts entry)
+                val evidence = if forall is_some substitutions then
+                    SOME (Term_Subst.instantiateT
+                      (TVars.make (map_filter I (map the substitutions))) (#template entry))
+                  else NONE
+                val _ = List.app (fn position => report_reference ctxt position base entry) positions
+              in {meaning = instantiate_meaning (map #meaning resolved) (#meaning entry),
+                evidence = evidence, pos = pos} end
+        end
+
+      and source_type expected rust_type =
+        let
+          val value = (case rust_type of
+              Group_Type (typ, _) => source_type expected typ
+            | Primitive_Type (primitive, pos) => source_nominal
+                (rust_primitive_name primitive) [pos] [0] [] pos
+                [(rust_primitive_name primitive, pos, [])] (SOME primitive)
+            | Path_Type (segments, layout) =>
+                let
+                  val _ = check_type_path_start kind segments
+                  val _ = (case segments of
+                    Rust_Type_Path_Segment ("self", pos, _, _) :: _ =>
+                      mapping_error "`self` cannot be used as a type" pos
+                  | _ => ())
+                  val rows = path_rows segments
+                  val {base, positions, arities, arguments} = row_information rows
+                in source_nominal base positions arities arguments (source_span layout) rows NONE end
+            | _ => unsupported kind "this source type form in an erased argument"
+                (rust_type_position rust_type))
+          val _ = case expected of NONE => () | SOME role =>
+            if source_kind (#meaning value) = role then ()
+            else unsupported kind (if role = Const_Parameter then "type parameters used as const arguments"
+              else "const parameters used as type arguments") (#pos value)
+        in value end
 
       fun resolve_nominal base positions arities arguments pos primitive =
         (case (case resolve_generic ctxt normalize base arities pos of
@@ -1502,50 +2019,47 @@ struct
                val _ =
                  if expected_arities = arities then ()
                  else arity_error kind base expected_arities arities pos
-               fun resolve_argument (argument, parameter_kind) =
-                 (case (argument, parameter_kind) of
-                    (Rust_Type_Argument argument, parameter_kind) =>
-                      let
-                        val value = resolve_type (SOME parameter_kind) argument
-                        val pos = rust_type_position argument
-                        val _ = if parameter_kind = Const_Parameter then
-                          check_sort "const argument" (#typ value) \<^sort>\<open>len0\<close> pos
-                          else ()
-                      in (value, pos) end
-                  | (Rust_Numeric_Argument integer, Const_Parameter) =>
-                      let val typ = length_literal ctxt integer in
-                        ({typ = typ, meaning = Meaning_HOL typ}, numeric_argument_position integer)
-                      end
-                  | (Rust_Numeric_Argument integer, Type_Parameter) =>
-                      unsupported kind "numeric generic arguments for type parameters"
-                        (numeric_argument_position integer)
-                  | (Rust_Lifetime_Argument (Rust_Lifetime (_, pos)), _) =>
-                      unsupported kind "lifetime generic arguments" pos
-                  | (Rust_Associated_Type_Argument (_, pos, _), _) =>
-                      unsupported kind "associated type bindings" pos
-                  | (Rust_Const_Expression_Argument source, _) =>
-                      unsupported kind "const expression generic arguments" (Input.pos_of source))
-               val resolved_arguments = map resolve_argument (arguments ~~ #parameter_kinds entry)
+               fun resolve_argument (index, (argument, parameter_kind)) =
+                 if member (op =) (#erased_parameters entry) index then
+                   let val value = source_argument parameter_kind argument
+                       val _ = source_sort base (nth (#parameter_sorts entry) index) value
+                   in (#meaning value, NONE) end
+                 else
+                   let
+                     val (value, argument_pos) =
+                       (case (argument, parameter_kind) of
+                          (Rust_Type_Argument argument, parameter_kind) =>
+                            let
+                              val value = resolve_type (SOME parameter_kind) argument
+                              val pos = rust_type_position argument
+                              val _ = if parameter_kind = Const_Parameter then
+                                check_sort "const argument" (#typ value) \<^sort>\<open>len0\<close> pos else ()
+                            in (value, pos) end
+                        | (Rust_Numeric_Argument integer, Const_Parameter) =>
+                            ({typ = length_literal ctxt integer,
+                              meaning = Meaning_Numeric (unsigned_value integer)},
+                              numeric_argument_position integer)
+                        | (Rust_Numeric_Argument integer, Type_Parameter) =>
+                            unsupported kind "numeric generic arguments for type parameters"
+                              (numeric_argument_position integer)
+                        | (Rust_Lifetime_Argument (Rust_Lifetime (_, pos)), _) =>
+                            unsupported kind "lifetime generic arguments" pos
+                        | (Rust_Associated_Type_Argument (_, pos, _), _) =>
+                            unsupported kind "associated type bindings" pos
+                        | (Rust_Const_Expression_Argument source, _) =>
+                            unsupported kind "const expression generic arguments" (Input.pos_of source))
+                     val sort = nth (#parameter_sorts entry) index
+                     val _ = check_sort base (#typ value) sort argument_pos
+                   in (#meaning value, SOME (index, sort, normalize (#typ value))) end
+               val resolved_arguments = map_index resolve_argument (arguments ~~ #parameter_kinds entry)
                val parameter_sorts = #parameter_sorts entry
                val backend_sorts = #backend_parameter_sorts entry
                val roles = #backend_roles entry
-               val _ =
-                 if length resolved_arguments = length parameter_sorts then ()
-                 else raise Fail
-                   "uRust type registry: generic arity metadata is inconsistent"
-               val _ =
-                 List.app
-                   (fn (({typ, ...}: resolved, argument_pos), sort) =>
-                     check_sort base typ sort argument_pos)
-                   (resolved_arguments ~~ parameter_sorts)
-               val argument_types =
-                 map (normalize o #typ o fst) resolved_arguments
+               val retained = map_filter snd resolved_arguments
                val backend_types = backend (roles ~~ backend_sorts) pos
                val substitutions =
-                 map_index
-                   (fn (index, (sort, argument)) =>
-                     ((("_urust_type", index), sort), argument))
-                   (parameter_sorts ~~ argument_types) @
+                 map (fn (index, sort, argument) =>
+                     ((("_urust_type", index), sort), argument)) retained @
                  map
                    (fn (role, (sort, argument)) =>
                      ((("_urust_backend", role_index role), sort), argument))
@@ -1568,7 +2082,7 @@ struct
              in
                {typ = result,
                 meaning = instantiate_meaning
-                  (map (#meaning o fst) resolved_arguments) (#meaning entry)}
+                  (map fst resolved_arguments) (#meaning entry)}
              end
 
       (* Validate each source role before a wrapper can erase or wrap its meaning. Grouping
@@ -1586,6 +2100,13 @@ struct
                    (rust_type_position rust_type)
              | (Meaning_Const_Parameter _, NONE) =>
                  unsupported kind "const parameters used as field types"
+                   (rust_type_position rust_type)
+             | (Meaning_Scoped_Parameter (_, actual), expected) =>
+                 if actual = the_default Type_Parameter expected then ()
+                 else unsupported kind
+                   (if actual = Type_Parameter then "type parameters used as const arguments"
+                    else if is_some expected then "const parameters used as type arguments"
+                    else "const parameters used as field types")
                    (rust_type_position rust_type)
              | _ => ())
         in value end
@@ -1666,13 +2187,14 @@ struct
             unsupported kind "Rust slice types" (source_span layout)
         | resolve_type_value _ (Array_Type (element, integer, layout)) =
             let val length = length_literal ctxt integer in
-              resolve_array (resolve_type NONE element) length (source_span layout)
+              resolve_array (resolve_type NONE element)
+                {typ = length, meaning = Meaning_Numeric (unsigned_value integer)} (source_span layout)
             end
         | resolve_type_value _ (Const_Array_Type (element, length, layout)) =
             let
               val resolved = resolve_type NONE element
-              val length_type = #typ (resolve_type (SOME Const_Parameter) length)
-            in resolve_array resolved length_type (source_span layout) end
+              val resolved_length = resolve_type (SOME Const_Parameter) length
+            in resolve_array resolved resolved_length (source_span layout) end
         | resolve_type_value _ (Function_Type (_, _, layout)) =
             unsupported kind "Rust function pointer types" (source_span layout)
         | resolve_type_value _ (Impl_Trait_Type (_, layout)) =
@@ -1683,12 +2205,39 @@ struct
             let val typ = read_escape source in
               {typ = typ, meaning = Meaning_HOL typ}
             end
-      and resolve_array ({typ = element_type, ...}: resolved) length pos =
+      and resolve_array ({typ = element_type, meaning = element}: resolved)
+          ({typ = length_type, meaning = length}: resolved) pos =
         let
-          val _ = check_sort "fixed array length" length \<^sort>\<open>len\<close> pos
-          val typ = Type (\<^type_name>\<open>array\<close>, [element_type, normalize length])
-        in {typ = typ, meaning = Meaning_HOL typ} end
-    in map (resolve_type NONE) rust_types end
+          val _ = check_sort "fixed array length" length_type \<^sort>\<open>len\<close> pos
+          val typ = Type (\<^type_name>\<open>array\<close>, [element_type, normalize length_type])
+        in {typ = typ, meaning = Meaning_Array (element, length)} end
+      fun call_argument ({kind = expected, hol, sort, ...}: generic_source_parameter) argument =
+        (case hol of
+           NONE =>
+             let
+               val value = source_argument expected argument
+               val _ = source_sort "function argument" sort value
+             in {typ = NONE, meaning = #meaning value, pos = #pos value} end
+         | SOME (_, sort) =>
+             let
+               val (value, pos) = case argument of
+                   Rust_Type_Argument typ => (resolve_type (SOME expected) typ, rust_type_position typ)
+                 | Rust_Numeric_Argument integer =>
+                     if expected = Const_Parameter then
+                       ({typ = length_literal ctxt integer,
+                         meaning = Meaning_Numeric (unsigned_value integer)},
+                        integer_literal_position integer)
+                     else unsupported kind "numeric generic arguments for type parameters"
+                       (integer_literal_position integer)
+                 | _ => (ignore (source_argument expected argument);
+                     raise Fail "unsupported source argument survived validation")
+             in {typ = SOME (#typ value), meaning = #meaning value, pos = pos} end)
+    in {types = map (resolve_type NONE),
+      arguments = fn specifications => fn arguments => map2 call_argument specifications arguments} end
+
+  fun resolve_values kind ctxt read_escape check_sort normalize backend parameter dependency rust_types =
+    #types (resolve_value_operations kind ctxt read_escape check_sort normalize backend
+      parameter dependency) rust_types
 
   fun no_parameter _ _ _ = NONE
   fun no_dependency _ _ _ = ()
@@ -1961,11 +2510,17 @@ struct
 
   (* assemble receives the resolved leading HOL sources and the resolved Rust types, and returns
      the types to finish. *)
-  fun resolve_signature_with kind ctxt leading lifetimes rust_types assemble =
+  fun resolve_signature_operations kind original_ctxt leading lifetimes rust_types
+      specifications arguments assemble =
     let
+      val source_positions = Unsynchronized.ref ([]: Position.T list)
+      val ctxt = Source_Only_Positions.put (SOME source_positions) original_ctxt
       val _ = check_lifetimes lifetimes rust_types
       val parameters = scope_parameters ctxt
-      val reads = leading @ map authored_read (maps hol_sources rust_types)
+      val witnessed_types = map_filter (fn ({hol, ...}: generic_source_parameter, argument) =>
+        if is_some hol then (case argument of Rust_Type_Argument typ => SOME typ | _ => NONE)
+        else NONE) (specifications ~~ arguments)
+      val reads = leading @ map authored_read (maps hol_sources (rust_types @ witnessed_types))
       fun parse read_ctxt ({source, cited, label}: signature_read) =
         positioned_result kind cited
           (fn () =>
@@ -2052,15 +2607,18 @@ struct
                    SOME parameter => parameter
                  | NONE => typ)
             | typ => typ) |> normalize
-      val resolved =
-        resolve_values kind ctxt read_escape check_sort scoped_normalize
-          backend no_parameter no_dependency rust_types
+      val operations = resolve_value_operations kind ctxt read_escape check_sort scoped_normalize
+        backend no_parameter no_dependency
+      val resolved = #types operations rust_types
+      val resolved_arguments = #arguments operations specifications arguments
       val _ =
         if null (!pending) then ()
         else
           raise Fail
             "uRust type registry: unconsumed signature HOL escape"
       fun report_generic name pos =
+        if exists (fn source_pos => Position.properties_of source_pos = Position.properties_of pos)
+          (!source_positions) then () else
         (case find_first (fn ({rust, ...}: generic_parameter) => rust = name) parameters of
            NONE => ()
          | SOME {hol = (hol_name, sort), ...} =>
@@ -2079,7 +2637,34 @@ struct
             (report_generic name pos; List.app report_type (rust_type_operands typ))
         | report_type typ = List.app report_type (rust_type_operands typ)
       val _ = List.app report_type rust_types
-    in finish (assemble leading_types resolved) end
+      val supplied_types = map_filter #typ resolved_arguments
+      val finished_types = finish supplied_types
+      fun finish_argument {typ = NONE, meaning, pos} pending =
+            ((NONE, pos), pending)
+        | finish_argument {typ = SOME _, meaning, pos} (typ :: pending) =
+            ((SOME typ, pos), pending)
+        | finish_argument _ [] = raise Fail "missing finished function argument"
+      val (actual_arguments, unused) = fold_map finish_argument resolved_arguments finished_types
+      val _ = if null unused then () else raise Fail "extra finished function arguments"
+      val finished_resolved = map (fn {typ, meaning} =>
+        {typ = typ, meaning = finish_meaning finish meaning}) resolved
+    in (finish (assemble leading_types finished_resolved),
+      {arguments = actual_arguments, identities =
+        map (source_identity_name o finish_meaning finish o #meaning) resolved_arguments}) end
+
+  fun resolve_signature_with kind ctxt leading lifetimes rust_types assemble =
+    #1 (resolve_signature_operations kind ctxt leading lifetimes rust_types [] [] assemble)
+
+  fun resolve_source_arguments ctxt specifications arguments =
+    let
+      val result = #2 (resolve_signature_operations Function_Signature ctxt [] [] []
+        specifications arguments (K (K [])))
+      fun validate ((SOME argument, pos), {sort, ...}: generic_source_parameter) =
+            if Sign.of_sort (Proof_Context.theory_of ctxt) (argument, sort) then ()
+            else sort_error Function_Signature ctxt "function argument" argument sort pos
+        | validate ((NONE, _), _) = ()
+      val _ = List.app validate (#arguments result ~~ specifications)
+    in result end
 
   fun resolve_signature ctxt rust_types =
     resolve_signature_with Function_Signature ctxt [] [] rust_types (K (map #typ))
@@ -2129,12 +2714,14 @@ struct
     | non_path_description (Const_Array_Type _) = "an array type"
     | non_path_description _ = "a type without a Rust path"
 
-  fun meaning_description _ (Meaning_Tuple _) = "a tuple type"
-    | meaning_description _ (Meaning_Pointer _) = "a raw pointer type"
-    | meaning_description _ (Meaning_Reference _) = "a reference type"
-    | meaning_description ctxt (Meaning_HOL typ) =
+  fun meaning_description _ _ (Meaning_Tuple _) = "a tuple type"
+    | meaning_description _ _ (Meaning_Pointer _) = "a raw pointer type"
+    | meaning_description _ _ (Meaning_Reference _) = "a reference type"
+    | meaning_description ctxt typ (Meaning_Array _) =
         "the HOL type " ^ quote (Syntax.string_of_typ ctxt typ)
-    | meaning_description _ _ = "a type without a Rust path"
+    | meaning_description ctxt _ (Meaning_HOL typ) =
+        "the HOL type " ^ quote (Syntax.string_of_typ ctxt typ)
+    | meaning_description _ _ _ = "a type without a Rust path"
 
   fun primitive_target_error name via pos =
     error
@@ -2154,7 +2741,7 @@ struct
   fun target_rows (Path_Type (segments, _)) = SOME (path_rows segments)
     | target_rows _ = NONE
 
-  fun resolve_impl_target ctxt target =
+  fun resolve_impl_target_identity ctxt target =
     let
       val pos = rust_type_position target
       val rows =
@@ -2188,13 +2775,13 @@ struct
         the_single (resolve_signature_with Impl_Target ctxt [] [] [target] assemble)
       val canonical_path =
         (case the (!meaning) of
-           Meaning_Mapped (base, _, _, _, _) => base
+           Meaning_Mapped (base, _, _, _, _, _) => base
          | Meaning_Primitive primitive =>
              primitive_target_error (rust_primitive_name primitive) via pos
          | other =>
              error
                ("urust: impl target " ^ quote written_key ^ " is a type alias of " ^
-                 meaning_description ctxt other ^ "; impl targets must be Rust type paths" ^
+                 meaning_description ctxt self_type other ^ "; impl targets must be Rust type paths" ^
                  Position.here pos))
       val _ =
         if null (Term.add_tvarsT self_type []) then ()
@@ -2205,9 +2792,21 @@ struct
       fun report_target_reference use_pos =
         Option.app (report_reference ctxt use_pos written_key) written_entry
     in
-      {canonical_path = canonical_path, self_type = self_type, target_pos = pos,
-       report_reference = report_target_reference}
+      ({canonical_path = canonical_path, self_type = self_type, target_pos = pos,
+        report_reference = report_target_reference},
+       if identity_sensitive (the (!meaning)) then !meaning else NONE)
     end
+
+  fun resolve_impl_target ctxt target = #1 (resolve_impl_target_identity ctxt target)
+
+  fun resolve_type_identity ctxt target =
+    let
+      val meaning = Unsynchronized.ref NONE
+      fun assemble _ resolved =
+        (case resolved of [{typ, meaning = source}] => (meaning := SOME source; [typ])
+         | _ => raise Fail "source identity resolution expected one type")
+      val typ = the_single (resolve_signature_with Function_Signature ctxt [] [] [target] assemble)
+    in (typ, if identity_sensitive (the (!meaning)) then !meaning else NONE) end
 
   (* The canonical path of an impl target, without reports or errors: the expansion of an alias
      or import when the head is registered, the written path when it is not (yet), and NONE for a
@@ -2221,7 +2820,7 @@ struct
               NONE => SOME key
             | SOME entry =>
                 (case #meaning entry of
-                   Meaning_Mapped (base, _, _, _, _) => SOME base
+                   Meaning_Mapped (base, _, _, _, _, _) => SOME base
                  | _ => NONE))
          end)
 
@@ -2428,9 +3027,13 @@ struct
       val arities =
         take (length segment_arities - 1) segment_arities @
           [length parameters]
+      val erased_parameters = map_index (fn (index, ((name, _), sort)) =>
+        if member (op =) (!used_parameters) name andalso
+           not (member (op =) (Term.add_tvarsT template []) (("_urust_type", index), sort))
+        then SOME index else NONE) (parameters ~~ parameter_sorts) |> map_filter I
       val candidate =
         make_entry Alias declaration_pos arities template
-          parameter_kinds parameter_sorts role_sorts (#meaning result) (!dependencies)
+          parameter_kinds parameter_sorts erased_parameters role_sorts (#meaning result) (!dependencies)
       val prepared = preflight lthy base candidate
       val _ =
         List.app
@@ -2484,7 +3087,7 @@ struct
   fun unknown_mapping_option (name, pos) =
     mapping_error ("unknown option " ^ quote name) pos
 
-  val mapping_option_configs = Symtab.make [("implicit", ())]
+  val mapping_option_configs = Symtab.make [("implicit", ()), ("erase", ())]
 
   fun add_mapping_option ((name, pos), value) options =
     if Symtab.defined options name then mapping_error ("duplicate option " ^ quote name) pos
@@ -2503,7 +3106,9 @@ struct
       val (result, reports) = URust_Report_Transaction.capture (fn () =>
         let val roles = case Symtab.lookup options "implicit" of
           NONE => [] | SOME source => read_implicit_roles lthy source
-        in declare_mapping Manual roles payload lthy end)
+            val erased = case Symtab.lookup options "erase" of
+              NONE => [] | SOME source => read_erased_parameters lthy source
+        in declare_mapping Manual roles erased payload lthy end)
       val _ = URust_Report_Transaction.replay result reports
     in result end
 

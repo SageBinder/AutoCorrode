@@ -5103,4 +5103,264 @@ in end
 end
 \<close>
 
+section\<open> Erased source slots and sparse generic schemes \<close>
+
+ML_val\<open>
+local
+  open Parser_Trait_Test
+  structure M = URust_Type_Mappings
+  val ctxt = \<^context>
+  val thy = \<^theory>
+  val previous = neighboring_snapshot [] ctxt
+  fun parsed current label text = URust_Parser.parse_type_source current (source label text)
+  fun resolved current label text = M.resolve_type_identity current (parsed current label text)
+  fun identity current text =
+    resolved current "erasure-identity" text |> #2 |> the |> M.source_identity_name
+  fun slots name =
+    let val entry = the_single (Parser_Test_Calls.entries ctxt name)
+    in (entry, the (M.generic_source_scheme_for_source ctxt (#serial entry))) end
+  val (erased, erased_slots) = slots "ErasureIdentity"
+  val (mixed, mixed_slots) = slots "ErasureMixedIdentity"
+  val (_, unused_slots) = slots "SignatureUnused"
+  val _ = require "full source order/kinds persist without fabricated witnesses"
+    (map #rust erased_slots = ["T", "N"] andalso
+     map #kind erased_slots = [URust_AST.Type_Parameter, URust_AST.Const_Parameter] andalso
+     forall (is_none o #hol) erased_slots andalso
+     map #source_used erased_slots = [SOME true, SOME true] andalso
+     is_none (M.generic_scheme_for_source ctxt (#serial erased)))
+  val _ = require "mixed source indexes preserve only the payload witness"
+    (map #rust mixed_slots = ["Tag", "P", "N"] andalso
+     map (is_some o #hol) mixed_slots = [false, true, false] andalso
+     map #source_used mixed_slots = [SOME true, SOME true, SOME true])
+  val _ = require "entirely unused legacy parameters keep their original witness view"
+    (forall (is_some o #hol) unused_slots andalso
+     forall (fn parameter => #source_used parameter = SOME false) unused_slots)
+  val legacy = the_single (Parser_Test_Calls.entries ctxt "SignatureIdentity")
+  val legacy_parameters: M.generic_scheme_parameter list =
+    the (M.generic_scheme_for_source ctxt (#serial legacy))
+  val legacy_lthy = Named_Target.theory_init thy
+  val replayed_legacy = M.register_generic_scheme
+    {identity = #hol_term legacy, backend = #hol_term legacy, sources = [#serial legacy],
+     parameters = legacy_parameters, pos = #reg_pos legacy} legacy_lthy
+  val _ = require "direct old exact-record registration/lookup preserves witnessed type and known source use"
+    (M.generic_scheme_for_source replayed_legacy (#serial legacy) = SOME legacy_parameters andalso
+     map #source_used (the (M.generic_source_scheme_for_source replayed_legacy (#serial legacy))) =
+       [SOME true])
+  val legacy_unused = the_single (Parser_Test_Calls.entries ctxt "SignatureUnused")
+  val legacy_unused_parameters: M.generic_scheme_parameter list =
+    the (M.generic_scheme_for_source ctxt (#serial legacy_unused))
+  val replayed_unused = M.register_generic_scheme
+    {identity = #hol_term legacy_unused, backend = #hol_term legacy_unused,
+     sources = [#serial legacy_unused], parameters = legacy_unused_parameters,
+     pos = #reg_pos legacy_unused} legacy_lthy
+  val _ = require "old bound/unused registration retains authoritative source bounds and usage"
+    (M.generic_source_scheme_for_source replayed_unused (#serial legacy_unused) = SOME unused_slots)
+  val role_bound_declarations =
+    "urust_type [implicit = " ^ cartouche " global = 'g " ^ "] \"ErasureWeakRole\" = " ^
+      cartouche " 'g " ^ "\n" ^
+    "urust_type [implicit = " ^ cartouche " global = 'g " ^ "] \"ErasureStrongRole\" = " ^
+      cartouche " 'g::trait_scale "
+  val role_bound_ctxt = context (run thy "erasure-role-bound-fixture" role_bound_declarations)
+  val (_, bound_slots) = slots "ErasureBound"
+  fun role_argument label text = URust_AST.Rust_Type_Argument (parsed role_bound_ctxt label text)
+  val weak_argument = role_argument "erasure-weak-role-bound" "ErasureWeakRole"
+  val weak_observed = capture (fn () => Reports.capture (fn () =>
+    M.resolve_source_arguments role_bound_ctxt bound_slots [weak_argument]))
+  val weak_message = error_message "erasure-weak-role-bound" "function argument" (#result weak_observed)
+  val weak_positions = Generic_Syntax_Test.message_positions weak_message
+  val _ = require "erased bounds do not strengthen discarded implicit roles and preserve leaf positions"
+    (not (null weak_positions) andalso
+     Generic_Syntax_Test.position_range (hd weak_positions) = (1, 16) andalso
+     Position.file_of (hd weak_positions) = SOME "erasure-weak-role-bound" andalso
+     null (#markup weak_observed) andalso #reports weak_observed = "" andalso
+     M.entry_backend_parameter_sorts (the (M.lookup role_bound_ctxt "ErasureWeakRole")) =
+       [\<^sort>\<open>type\<close>])
+  val (strong_result, _) = Reports.capture (fn () => M.resolve_source_arguments role_bound_ctxt
+    bound_slots [role_argument "erasure-strong-role-bound" "ErasureStrongRole"])
+  val (strong_enclosing, _) = Reports.capture (fn () =>
+    M.resolve_declaration_roles role_bound_ctxt [] []
+      [parsed role_bound_ctxt "erasure-strong-role-enclosing" "ErasureBox<ErasureStrongRole,0>"])
+  val _ = require "existing implicit-role bound evidence passes without a witness or semantic allocation"
+    (forall (is_none o #1) (#arguments strong_result) andalso
+     #types strong_enclosing = [\<^typ>\<open>nat\<close>] andalso
+     null (#backend_parameters strong_enclosing))
+  val _ = require "source-only aliases count their parameters as used"
+    (M.entry_erased_parameters (the (M.lookup ctxt "ErasureAlias")) = [0, 1] andalso
+     M.entry_erased_parameters (the (M.lookup ctxt "ErasureArrayAlias")) = [0])
+  val _ = List.app (fn argument =>
+    require ("supported erased source shape " ^ argument)
+      (#1 (resolved ctxt "erasure-positive" ("ErasureBox<" ^ argument ^ ",0>")) = \<^typ>\<open>nat\<close>))
+    ["Foreign", "foreign::Tag<u8,0>", "(Foreign)", "outer::Tag<inner::Tag<0x_10>>", "u8"]
+  val _ = require "normalized numeric identity retains value rather than spelling"
+    (identity ctxt "ErasureBox<Foreign,16>" = identity ctxt "ErasureBox<Foreign,0x_10>" andalso
+     identity ctxt "ErasureBox<Foreign,0>" <> identity ctxt "ErasureBox<Foreign,1>" andalso
+     identity ctxt "ErasureBox<Alpha,0>" <> identity ctxt "ErasureBox<Beta,0>")
+  val _ = require "generic retained array aliases substitute both element and const length identity"
+    (identity ctxt "ErasureArrayAlias<Alpha,u8,4>" =
+       identity ctxt "ErasurePayload<Alpha,[u8;4]>" andalso
+     identity ctxt "ErasureArrayAlias<Alpha,u16,4>" <>
+       identity ctxt "ErasureArrayAlias<Alpha,u8,4>" andalso
+     identity ctxt "ErasureArrayAlias<Alpha,u8,5>" <>
+       identity ctxt "ErasureArrayAlias<Alpha,u8,4>")
+  val escaped = "ErasurePayload<Alpha,\<tau>" ^ cartouche "'source_unique" ^ ">"
+  val _ = require "authored HOL leaves are finalized before source identity capture"
+    (identity ctxt escaped = identity ctxt escaped andalso
+     not (String.isSubstring "_urust_inference_" (identity ctxt escaped)))
+  val locale_owners = Micro_Rust_Names.associated_source_functions ctxt "ErasurePayload::locale_identity"
+  val _ = require "retained HOL source leaves morph independently through repeated native interpretations"
+    (length locale_owners = 2 andalso forall (fn owner =>
+      #source_identity owner = SOME (identity ctxt
+        ("ErasurePayload<Alpha,\<tau>" ^ cartouche
+          (if #self_type owner = \<^typ>\<open>nat option\<close> then "nat" else "bool") ^ ">"))) locale_owners)
+  val _ = require "sparse instantiation accepts exactly its actual witness mask"
+    (is_some (M.instantiate_generic_source_scheme_for_source ctxt (#serial mixed)
+       (#hol_term mixed) [(NONE, Position.none), (SOME \<^typ>\<open>8 word\<close>, Position.none),
+         (NONE, Position.none)]) andalso
+     is_none (M.instantiate_generic_source_scheme_for_source ctxt (#serial mixed)
+       (#hol_term mixed) [(SOME \<^typ>\<open>bool\<close>, Position.none),
+         (SOME \<^typ>\<open>8 word\<close>, Position.none), (NONE, Position.none)]) andalso
+     is_none (M.instantiate_generic_scheme_for_source ctxt (#serial mixed) (#hol_term mixed)
+       [(\<^typ>\<open>bool\<close>, Position.none), (\<^typ>\<open>8 word\<close>, Position.none),
+         (\<^typ>\<open>0\<close>, Position.none)]))
+  fun rejected_source current label expected text =
+    let
+      val rust_type = parsed current label text
+      val observed = capture (fn () => Reports.capture (fn () => M.resolve_type_identity current rust_type))
+      val _ = error_message label expected (#result observed)
+      val _ = require (label ^ ": failed source read leaked native or navigation reports")
+        (null (#markup observed) andalso #reports observed = "" andalso #output observed = "")
+    in () end
+  val _ = List.app (fn (label, shape) =>
+    rejected_source ctxt label "in an erased argument" ("ErasureBox<" ^ shape ^ ",0>"))
+    [("erasure-pointer", "*const u8"), ("erasure-reference", "&mut u8"),
+     ("erasure-array", "[u8;4]"), ("erasure-slice", "[u8]"),
+     ("erasure-callable", "fn(u8)->u8"), ("erasure-impl-trait", "impl Marker"),
+     ("erasure-hol", "\<tau>" ^ cartouche "bool"),
+     ("erasure-nested-pointer", "foreign::Tag<*const u8>")]
+  val _ = rejected_source ctxt "erasure-associated-binding" "associated type bindings"
+    "ErasureBox<Foreign<Item=u8>,0>"
+  val _ = rejected_source ctxt "erasure-const-expression" "const expression generic arguments"
+    "ErasureBox<Foreign<{1+2}>,0>"
+  val _ = rejected_source ctxt "erasure-known-arity" "generic arities"
+    "ErasureBox<ErasureMixed<Foreign>,0>"
+  val _ = rejected_source ctxt "erasure-suffixed-number" "unsuffixed"
+    "ErasureBox<Foreign,0usize>"
+  fun parameter rust kind hol : M.generic_parameter =
+    {rust = rust, pos = start "erasure-scope", kind = kind, hol = hol,
+     bounds = [], report_reference = K ()}
+  val scoped = M.with_generic_scope {parameters =
+    [parameter "T" URust_AST.Type_Parameter ("'erasure_t", \<^sort>\<open>type\<close>),
+     parameter "N" URust_AST.Const_Parameter ("'erasure_n", \<^sort>\<open>len0\<close>)]} ctxt
+  fun imported_binding alias : URust_Import_Scope.binding =
+    {alias = alias, alias_pos = start "erasure-import", namespace = URust_Import_Scope.Type_Namespace,
+     key = "ErasureBoundEvidence", roles = [URust_Import_Scope.Mapped_Type], available = true,
+     identity = serial (), declaration_pos = start "erasure-import"}
+  val imported_scope = URust_Import_Scope.push_frame
+    [imported_binding "T", imported_binding "N"] scoped
+  fun observed_identity current label text =
+    let val rust_type = parsed current label text
+        val ((value, _), events) = M.capture_generic_use_events current (fn observed =>
+          Reports.capture (fn () => M.resolve_type_identity observed rust_type))
+    in (Option.map M.source_identity_name (#2 value), events) end
+  val (scoped_identity, scoped_events) =
+    observed_identity scoped "erasure-import-expected" "ErasureBox<T,0>"
+  val (imported_identity, imported_events) =
+    observed_identity imported_scope "erasure-import-actual" "ErasureBox<T,0>"
+  val _ = require "source scope precedes same-spelled imports without losing source-only observations"
+    (scoped_identity = imported_identity andalso scoped_events = imported_events andalso
+     #source_uses imported_events = ["'erasure_t"] andalso null (#witness_uses imported_events))
+  val imported_wrong_type = parsed imported_scope "erasure-import-wrong-kind" "ErasureBox<N,0>"
+  val imported_failure = capture (fn () => Reports.capture
+    (fn () => M.resolve_type_identity imported_scope imported_wrong_type))
+  val imported_message = error_message "erasure-import-wrong-kind"
+    "const parameters used as type arguments" (#result imported_failure)
+  val imported_positions = Generic_Syntax_Test.message_positions imported_message
+  val _ = require "same-spelled imports preserve the responsible scoped argument position and rollback"
+    (not (null imported_positions) andalso
+     Generic_Syntax_Test.position_range (hd imported_positions) = (12, 13) andalso
+     Position.file_of (hd imported_positions) = SOME "erasure-import-wrong-kind" andalso
+     null (#markup imported_failure) andalso #reports imported_failure = "")
+  val _ = rejected_source imported_scope "erasure-import-scoped-projection"
+    "associated paths on scoped parameters" "ErasureBox<T::Tag,0>"
+  val _ = rejected_source scoped "erasure-type-as-const" "type parameters used as const arguments"
+    "ErasureBox<Foreign,T>"
+  val _ = rejected_source scoped "erasure-const-as-type" "const parameters used as type arguments"
+    "ErasureBox<N,0>"
+  val _ = rejected_source scoped "erasure-scoped-projection" "associated paths on scoped parameters"
+    "ErasureBox<T::Tag,0>"
+  val _ = rejected_source scoped "erasure-nested-scoped-projection" "associated paths on scoped parameters"
+    "ErasureBox<Foreign<N::Tag>,0>"
+  fun rejected_function label expected item =
+    let
+      val text = "urust_fn [verbosity = 0] " ^ cartouche item
+      val observed = capture (fn () => run thy label text)
+      val _ = error_message label expected (#result observed)
+      val markup = #markup observed
+      (* Keep the owner's established lexical/header/binder diagnostics. Failed candidates must
+         publish no positioned semantic entities or semantic types at their source arguments. *)
+      val semantic = filter (fn (name, props) => name = Markup.entityN andalso
+        Properties.get props Markup.kindN <> SOME "urust_var" andalso
+        is_some (Properties.get props Markup.offsetN)) markup
+      val _ = require (label ^ ": failed declaration published semantic navigation or output")
+        (null semantic andalso #output observed = "")
+      val _ = if String.isSubstring "::<" text then
+        let
+          val first = find_from text "::<" 0 + size "::<"
+          val last = find_from text ">" first
+          val begin = Position.symbol_explode (String.substring (text, 0, first)) (start label)
+          val stop = Position.symbol_explode (String.substring (text, first, last - first)) begin
+          fun argument props = case Position.offset_of (Position.of_properties props) of
+              SOME offset => offset >= the (Position.offset_of begin) andalso
+                offset < the (Position.offset_of stop)
+            | NONE => false
+          fun lexical props = exists (fn (name, other) =>
+            member (op =) [Markup.keyword1N, Markup.keyword2N, Markup.keyword3N,
+              Markup.delimiterN, Markup.numeralN] name andalso
+            Properties.get props Markup.offsetN = Properties.get other Markup.offsetN andalso
+            Properties.get props Markup.end_offsetN = Properties.get other Markup.end_offsetN) markup
+          val leaked = filter (fn (name, props) => argument props andalso
+            (member (op =) [Markup.entityN, Markup.sortingN, Markup.tfreeN, Markup.tvarN] name orelse
+             name = Markup.typingN andalso not (lexical props))) markup
+        in require (label ^ ": failed candidate published semantic argument reports") (null leaked) end
+        else ()
+    in () end
+  val _ = rejected_function "erasure-missing-witness" "does not occur in the signature"
+    "fn ErasureMissingWitness<T,const N:usize>(value:ErasureBox<T,N>)->ErasureBox<T,N>{let _ = N; value}"
+  val _ = rejected_function "erasure-missing-inference" "require explicit source arguments"
+    "fn ErasureMissingInference(value:ErasureBox<Foreign,0>)->ErasureBox<Foreign,0>{ErasureIdentity(value)}"
+  val _ = rejected_function "erasure-selected-kind" "type parameters used as const arguments"
+    "fn ErasureWrongKind<T>(value:ErasureBox<T,0>)->ErasureBox<T,0>{ErasureIdentity::<T,T>(value)}"
+  val _ = rejected_function "erasure-selected-unknown-retained" "unknown Rust type"
+    "fn ErasureWrongRetained(value:ErasureMixed<Foreign,u8,0>)->ErasureMixed<Foreign,u8,0>{ErasureMixedIdentity::<Foreign,Unknown,0>(value)}"
+  val _ = rejected_function "erasure-selected-bound" "no denotation to validate sort"
+    "fn ErasureWrongBound(value:ErasureBox<Foreign,0>)->ErasureBox<Foreign,0>{ErasureBound::<Foreign>(value)}"
+  val _ = rejected_function "erasure-scoped-bound" "function argument"
+    "fn ErasureScopeBound<T>(value:ErasureBox<T,0>)->ErasureBox<T,0>{ErasureBound::<T>(value)}"
+  val calls = Unsynchronized.ref 0
+  val deferred_parameter: M.generic_parameter =
+    {rust = "T", pos = start "erasure-deferred", kind = URust_AST.Type_Parameter,
+     hol = ("'erasure_deferred", \<^sort>\<open>type\<close>), bounds = [],
+     report_reference = fn _ => calls := !calls + 1}
+  val deferred_scope = M.with_generic_scope {parameters = [deferred_parameter]} ctxt
+  val ((_, deferred_events), pending) = Reports.capture_isolated (fn () =>
+    M.capture_generic_argument_events deferred_scope (fn observed =>
+      M.report_generic_source_reference observed deferred_parameter (start "erasure-deferred")))
+  val _ = require "speculative scope capture executed an original callback before selection" (!calls = 0)
+  val _ = M.replay_generic_argument_events deferred_scope deferred_events
+  val _ = Reports.replay deferred_scope pending
+  val _ = require "selected scope replay invokes the original callback exactly once" (!calls = 1)
+  val failed_scope = Exn.capture (fn () => Reports.capture_isolated (fn () =>
+    M.capture_generic_argument_events deferred_scope (fn observed =>
+      (M.report_generic_source_reference observed deferred_parameter (start "erasure-discarded");
+       error "discarded speculative argument")))) ()
+  val _ = error_message "discarded speculative callback" "discarded speculative argument" failed_scope
+  val _ = require "failed speculative capture invoked a discarded callback" (!calls = 1)
+  val _ = M.report_generic_source_reference deferred_scope deferred_parameter (start "erasure-ordinary")
+  val _ = require "speculative failure changed ordinary immediate scope callback behavior" (!calls = 2)
+  val _ = require "all failed source and declaration probes preserve the original registries"
+    (neighboring_snapshot [] ctxt = previous)
+  val _ = writeln "U2 erased kinds/shapes/identity/finalization/availability/legacy/atomicity PASS"
+in end
+\<close>
+
 end

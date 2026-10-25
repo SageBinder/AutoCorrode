@@ -3040,4 +3040,146 @@ local
 in end
 \<close>
 
+section\<open> Erased impl identities and candidate isolation \<close>
+
+ML_val\<open>
+local
+  open Impl_Declaration_Test
+  structure M = URust_Type_Mappings
+  structure N = Micro_Rust_Names
+  structure D = Micro_Rust_Dispatch
+  val ctxt = \<^context>
+  val thy = \<^theory>
+  val previous = N.dump ctxt
+  val owners = N.associated_source_functions ctxt "ErasureOwner::erased_get"
+  val _ = require "same-HOL concrete impl owners retain independent erased identities"
+    (length owners = 2 andalso map #self_type owners = [\<^typ>\<open>nat\<close>, \<^typ>\<open>nat\<close>] andalso
+     #source_identity (hd owners) <> #source_identity (List.last owners))
+  fun key text =
+    URust_Parser.parse_type_source ctxt (source "erasure-impl-identity" text)
+    |> M.resolve_impl_target_identity ctxt |> #2 |> the |> M.source_identity_name
+  val _ = require "impl aliases and expanded spelling share a source key"
+    (key "ErasureAlpha" = key "ErasureOwner<Alpha,0>" andalso
+     key "ErasureOwner<Alpha,0>" <> key "ErasureOwner<Beta,0>" andalso
+     key "ErasureOwner<Alpha,0>" <> key "ErasureOwner<Alpha,1>")
+  fun reject label expected item =
+    let
+      val text = quiet (chunk item)
+      val observed = capture false label thy text
+      val message = case #result observed of
+          Exn.Exn exn => if Exn.is_interrupt exn then Exn.reraise exn else Runtime.exn_message exn
+        | _ => error (label ^ ": rejected impl fixture was accepted")
+      val _ = require (label ^ ": wrong rejection") (String.isSubstring expected message)
+      val command_start = #1 (range_of text "urust " 0)
+      (* Lexical diagnostics and the failing member's genuine binder type are retained by the
+         existing release-on-failure path. Candidate/item/backend navigation must stay absent. *)
+      val _ = require (label ^ ": declaration leaked semantic navigation or ordinary output")
+        (null (filter (fn event => #1 (report_range event) >= command_start)
+           (semantic_entities (#reports observed))) andalso null (#output observed))
+    in () end
+  val _ = reject "erasure-method-identity" "receiver has no source identity"
+    "fn ErasureMissingReceiver(value:ErasureAlpha)->ErasureAlpha{value.erased_get()}"
+  val _ = reject "erasure-impl-inference" "explicit type arguments"
+    "fn ErasureMissingOwner(value:ErasureAlpha)->ErasureAlpha{ErasureOwner::erased_get(value)}"
+  val _ = reject "erasure-alias-conflict" "overlapping Self types"
+    ("impl ErasureAlpha {\n" ^ annotation "name = \"erasure_duplicate_get\"" ^
+      "\nfn erased_get(self)->Self{self}\n}")
+  fun event_control method =
+    let
+      val calls = Unsynchronized.ref ([]: Position.T list)
+      val start = start_position ("erasure-selected-" ^ method)
+      fun reference pos =
+        (calls := pos :: !calls;
+         Micro_Rust_Semantic_Navigation.defer_report ctxt pos (Markup.entity "erasure_parameter" "T"))
+      val parameter: M.generic_parameter =
+        {rust = "T", pos = start, kind = URust_AST.Type_Parameter,
+         hol = ("'erasure_observed", \<^sort>\<open>type\<close>), bounds = [],
+         report_reference = reference}
+      val scoped = ctxt |> M.with_generic_scope {parameters = [parameter]}
+        |> M.with_source_only_parameters ["'erasure_observed"]
+        |> Variable.declare_typ (TFree (#hol parameter))
+      val body = Parser_Lex_Util.positioned_content_source ("value." ^ method ^ "::<T>(value)") start
+      val ((_, events), markup) = Parser_Test_Reports.markup (fn () =>
+        M.capture_generic_use_events scoped (fn observed =>
+          Parser_Test_Elaboration.function observed
+            {raw_type = ("nat => (unit,nat,unit,unit,unit) function_body", start),
+             parameters = [("value", start)], parameters_pos = start, body = body}))
+      val _ = require "unrelated retained candidate leaked witness demand or duplicated a callback"
+        (#source_uses events = ["'erasure_observed"] andalso null (#witness_uses events) andalso
+         length (!calls) = 1)
+      val position = hd (!calls)
+      fun at_source (_, props) =
+        Properties.get props Markup.offsetN = Option.map string_of_int (Position.offset_of position)
+      val authored = filter at_source markup
+      val _ = require "selected source-only argument gains one navigation reference and no HOL typing"
+        (length (filter (fn (name, _) => name = Markup.entityN) authored) = 1 andalso
+         not (exists (fn (name, _) => name = Markup.typingN) authored))
+    in () end
+  val _ = event_control "sparse_owner"
+  val _ = event_control "reverse_owner"
+  fun failed_event_control rust kind hol method expected =
+    let
+      val calls = Unsynchronized.ref 0
+      val start = start_position ("erasure-failed-" ^ method)
+      val parameter: M.generic_parameter =
+        {rust = rust, pos = start, kind = kind, hol = hol, bounds = [],
+         report_reference = fn _ => calls := !calls + 1}
+      val scoped = ctxt |> M.with_generic_scope {parameters = [parameter]}
+        |> M.with_source_only_parameters [fst hol] |> Variable.declare_typ (TFree hol)
+      val prefix = "value." ^ method ^ "::<"
+      val body = Parser_Lex_Util.positioned_content_source (prefix ^ rust ^ ">(value)") start
+      val ((result, events), markup) = Parser_Test_Reports.markup (fn () =>
+        M.capture_generic_use_events scoped (fn observed => Exn.capture0 (fn () =>
+          Parser_Test_Elaboration.function observed
+            {raw_type = ("nat => (unit,nat,unit,unit,unit) function_body", start),
+             parameters = [("value", start)], parameters_pos = start, body = body}) ()))
+      val _ = (case result of Exn.Exn exn =>
+          if Exn.is_interrupt exn then Exn.reraise exn else
+            require "selected failure lost its actual diagnostic"
+              (String.isSubstring expected (Runtime.exn_message exn))
+        | _ => error "erasure failed native candidate was accepted")
+      val _ = require "ambiguous or invalid native selection leaked speculative events or callbacks"
+        (null (#source_uses events) andalso null (#witness_uses events) andalso !calls = 0)
+      val at_argument = filter (fn (_, props) =>
+        Properties.get props Markup.offsetN = SOME (string_of_int (size prefix + 1))) markup
+      val _ = require "discarded source argument published semantic navigation or HOL typing/sorting"
+        (not (exists (fn (name, _) => member (op =)
+          [Markup.entityN, Markup.typingN, Markup.sortingN, Markup.tfreeN, Markup.tvarN] name) at_argument))
+    in () end
+  val _ = failed_event_control "T" URust_AST.Type_Parameter ("'erasure_failed_t", \<^sort>\<open>type\<close>)
+    "ambiguous_erased" "Ambiguous"
+  val _ = failed_event_control "N" URust_AST.Const_Parameter ("'erasure_failed_n", \<^sort>\<open>len0\<close>)
+    "sparse_owner" "const"
+  val position = Position.of_properties [(Markup.lineN, "2"), (Markup.offsetN, "9"),
+    (Markup.end_offsetN, "14"), (Markup.fileN, "erasure-sparse-carrier"), ("custom", "a,b;c")]
+  val generic = the_single (filter (fn entry =>
+    is_none (M.generic_scheme_for_source ctxt (#serial entry)))
+    (entries ctxt "sparse_owner"))
+  val metadata: D.sparse_generic_arguments =
+    {instances = [{source = #serial generic, arguments = [(NONE, position)],
+       identities = ["<opaque><segment name=\"Foreign\"/></opaque>"]}],
+     pos = position, pending = NONE}
+  val marker = D.mk_marker N.NFunction "sparse_owner" position (Free ("sparse_owner", dummyT))
+  val wrapped = D.with_sparse_generic_arguments metadata marker
+  val _ = require "sparse carrier retains source metadata and arbitrary native positions with no TYPE witness"
+    (D.marker_sparse_generic_arguments wrapped = SOME metadata andalso
+     is_none (D.marker_generic_arguments wrapped) andalso
+     not (Term.exists_subterm (fn Const (name, _) => name = \<^const_name>\<open>Pure.type\<close>
+       | _ => false) wrapped) andalso D.dest_marker_untyped wrapped = D.dest_marker_untyped marker)
+  val filters = [N.Only_Sources [#serial generic]]
+  val _ = require "sparse metadata composes with the existing native source filter"
+    (D.restrict_backends filters wrapped aconv
+      D.with_sparse_generic_arguments metadata (D.restrict_backends filters marker))
+  val _ = List.app (fn bad =>
+    ignore (expect_failure "erasure-malformed-carrier" ["malformed urust_dispatch generic arguments"]
+      (fn () => D.with_sparse_generic_arguments bad marker)))
+    [{instances = [], pos = position, pending = NONE},
+     {instances = [{source = #serial generic, arguments = [(NONE, position)], identities = []}],
+       pos = position, pending = NONE}]
+  val _ = require "source identity, failure and carrier probes leave native entries unchanged"
+    (N.dump ctxt = previous)
+  val _ = writeln "U2 concrete source identity/alias/conflict/native isolation/reversed order/carrier PASS"
+in end
+\<close>
+
 end

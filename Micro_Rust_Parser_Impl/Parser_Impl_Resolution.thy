@@ -23,7 +23,11 @@ responsible-owner arity, kind and bound failures retain their list or argument p
 notation dispatcher owns final fresh candidate unification, covering, deduplication, ambiguity and
 selected-backend navigation. Calls without generic arguments and explicit-only payloads keep their
 ordinary behavior. Generic reference events use the lower context-aware reporter, retaining exact
-scope records, callbacks and native report order.
+scope records, callbacks and native report order. Sparse generated calls defer positioned source
+argument validation until native full-type filtering. Each compatible candidate captures reports
+and source/witness observations independently; only the selected candidate commits them.
+Concrete source-sensitive impl paths compare expanded source identity with HOL Self. HOL-only
+local receivers request an explicit associated spelling rather than recovering erased tags.
 \<close>
 
 ML\<open>
@@ -963,12 +967,15 @@ struct
   fun source_scheme ctxt ({serial, ...}: Micro_Rust_Names.entry) =
     URust_Type_Mappings.generic_scheme_for_source ctxt serial
 
+  fun source_slots ctxt ({serial, ...}: Micro_Rust_Names.entry) =
+    URust_Type_Mappings.generic_source_scheme_for_source ctxt serial
+
   fun generated_generic_entries ctxt filters name =
     Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NFunction name
     |> Micro_Rust_Names.eligible_entries ctxt filters
     |> filter (fn entry as {serial, ...} =>
         Micro_Rust_Names.is_automatic_serial (Context.Proof ctxt) serial andalso
-          is_some (source_scheme ctxt entry))
+          is_some (source_slots ctxt entry))
 
   fun reject_mixed_generic_key ctxt filters name generated pos =
     let
@@ -1036,6 +1043,23 @@ struct
              Position.here (Input.pos_of source)))
     end
 
+  fun sparse_generated_arguments ctxt name filters generated
+      (Generic_Args (arguments, pos)) function =
+    let
+      val _ = reject_mixed_generic_key ctxt filters name generated pos
+      val _ = if exists (fn entry => length (the (source_slots ctxt entry)) = length arguments)
+          generated then () else generic_count_error name (length arguments) pos
+      val sources = map (fn argument =>
+        let val source = generic_argument_source argument
+        in (Input.string_of source, Input.pos_of source) end) arguments
+      (* Candidate-specific validation belongs after native receiver/full-type filtering. The
+         pending carrier retains the original inputs and positions without inventing witnesses. *)
+      val instances = map (fn {serial, ...}: Micro_Rust_Names.entry =>
+        {source = serial, arguments = map (fn (_, pos) => (NONE, pos)) sources,
+         identities = replicate (length sources) ""}) generated
+    in Micro_Rust_Dispatch.with_sparse_generic_arguments
+      {instances = instances, pos = pos, pending = SOME sources} function end
+
   fun generated_generic_arguments ctxt name filters generated
       (Generic_Args (arguments, pos)) function =
     let
@@ -1101,7 +1125,9 @@ struct
                       (map (parse_antiquotation ctxt environment) (generic_sources generic_arguments))
                   end
               | generated =>
-                  generated_generic_arguments ctxt name filters generated generic_arguments function)
+                  if exists (fn entry => exists (is_none o #hol) (the (source_slots ctxt entry))) generated
+                  then sparse_generated_arguments ctxt name filters generated generic_arguments function
+                  else generated_generic_arguments ctxt name filters generated generic_arguments function)
          | NONE =>
              T.apply_parameters (Micro_Rust_Dispatch.exclude_generated_backends function)
                (map (parse_antiquotation ctxt environment) (generic_sources generic_arguments)))
@@ -1238,6 +1264,89 @@ struct
   val _ = Theory.setup (Micro_Rust_Dispatch.register_generic_candidate_transform
     \<^binding>\<open>urust_generated_function\<close> generic_candidate_transform)
 
+  fun sparse_candidate_transform ctxt
+      ({instances, pos, pending}: Micro_Rust_Dispatch.sparse_generic_arguments) occurrence_type
+      ({name, eligible = genuine, maximal = entries}: Micro_Rust_Dispatch.generic_candidate_sources) =
+    let
+      fun selected {serial, ...} = exists (fn {source, ...} => source = serial) instances
+      fun native_eligible ({hol_term, ...}: Micro_Rust_Names.entry) =
+        is_some (Micro_Rust_Dispatch.unify_and_instantiate ctxt occurrence_type
+          (Micro_Rust_Dispatch.fresh_backend ctxt hol_term))
+      val eligible = filter (fn entry => selected entry andalso native_eligible entry) entries
+      fun parameter_key ({kind, sort, hol, ...}: URust_Type_Mappings.generic_source_parameter) =
+        (kind, sort, is_some hol)
+      val cache = Unsynchronized.ref []
+      fun prepare parameters sources =
+        let
+          val key = map parameter_key parameters
+        in case AList.lookup (op =) (!cache) key of SOME result => result
+         | NONE =>
+             let
+               val result = Exn.capture0 (fn () =>
+                 let
+                   val _ = if length parameters = length sources then ()
+                     else generic_count_error name (length sources) pos
+                   val ((resolved, events), reports) = URust_Report_Transaction.capture_isolated
+                     (fn () => URust_Type_Mappings.capture_generic_argument_events ctxt
+                       (fn observed =>
+                         let val parsed = map (fn (text, position) =>
+                           URust_Parser.parse_generic_argument_source observed
+                             (Parser_Lex_Util.positioned_content_source text position)) sources
+                         in URust_Type_Mappings.resolve_source_arguments observed parameters parsed end))
+                   fun commit () =
+                     (URust_Type_Mappings.replay_generic_argument_events ctxt events;
+                      URust_Report_Transaction.replay ctxt reports)
+                 in (#arguments resolved, commit) end) ()
+               val _ = (case result of Exn.Exn exn =>
+                 if Exn.is_interrupt exn then Exn.reraise exn else () | _ => ())
+               val _ = cache := (key, result) :: !cache
+             in result end
+        end
+      fun prepared (entry as {serial, ...}: Micro_Rust_Names.entry) =
+        (case pending of
+           NONE => (case find_first (fn {source, ...} => source = serial) instances of
+             SOME {arguments, ...} => Exn.Res (arguments, fn () => ())
+           | NONE => raise Fail "missing sparse candidate source")
+         | SOME sources => prepare (the (source_slots ctxt entry)) sources)
+      val results = map (fn entry => (entry, prepared entry)) eligible
+      val successful = map_filter (fn (entry, Exn.Res result) => SOME (entry, result)
+        | _ => NONE) results
+      fun receiver_matches ({serial, hol_term, ...}: Micro_Rust_Names.entry) =
+        Micro_Rust_Names.is_method_only_serial (Context.Proof ctxt) serial andalso
+        (case (binder_types occurrence_type, binder_types (fastype_of hol_term)) of
+           (receiver :: _, backend_receiver :: _) =>
+             can (Type.raw_unify (receiver,
+               Logic.incr_tvar (Term.maxidx_of_typ occurrence_type + 1) backend_receiver)) Vartab.empty
+         | _ => false)
+      val _ = if null successful then
+          (case map_filter (fn (_, Exn.Exn exn) => SOME exn | _ => NONE) results of
+             exn :: _ => Exn.reraise exn
+           | [] => (case find_first receiver_matches genuine of
+               NONE => ()
+             | SOME owner => (case source_slots ctxt owner of
+                 NONE => error ("urust_expr: generic arguments are not supported on generated Rust function paths" ^
+                   Position.here pos)
+               | SOME parameters => (case pending of
+                   NONE => () | SOME sources => ignore (Exn.release (prepare parameters sources))))))
+        else ()
+    in fn {serial, ...} => fn candidate =>
+      (case find_first (fn ({serial = source, ...}, _) => source = serial) successful of
+         NONE => NONE
+       | SOME (_, (arguments, commit)) => Option.map (fn term => (term, commit))
+           (URust_Type_Mappings.instantiate_generic_source_scheme_for_source ctxt serial candidate arguments))
+    end
+
+  val _ = Theory.setup (Micro_Rust_Dispatch.register_sparse_generic_candidate_transform
+    sparse_candidate_transform)
+
+  fun check_source_inference ctxt entries pos =
+    if exists (fn entry => case source_slots ctxt entry of
+        SOME slots => exists (is_none o #hol) slots | NONE => false) entries then
+      error ("urust: erased generic arguments require explicit source arguments" ^ Position.here pos)
+    else ()
+
+  val _ = Theory.setup (Micro_Rust_Dispatch.register_generic_inference_check check_source_inference)
+
   fun has_intermediate_generics path =
     let
       val segments = path_segments path
@@ -1278,7 +1387,7 @@ struct
      spelling. *)
   (* A selection type, its written spelling, and whether inference holes stand for omitted
      generic arguments. *)
-  type selection = {typ: typ, written: string, inferred: bool}
+  type selection = {typ: typ, written: string, inferred: bool, source_identity: string option}
 
   datatype route_origin =
       Import_Origin of S.binding
@@ -1348,9 +1457,13 @@ struct
       val arities = if length arities = length names then arities else map (K 0) names
       (* The type is positioned at the written head, so resolution errors cite it. *)
       val typ = Path_Type (map_index segment (names ~~ arities), make_source_layout pos [])
-      val inferred =
-        is_none arguments andalso List.last arities > 0
-    in (the_single (URust_Type_Mappings.resolve_signature ctxt [typ]), inferred) end
+      val inferred = is_none arguments andalso List.last arities > 0
+      val _ = if inferred andalso (case URust_Type_Mappings.lookup ctxt key of
+          SOME entry => not (null (URust_Type_Mappings.entry_erased_parameters entry))
+        | NONE => false) then error
+        ("urust: source identity requires explicit type arguments" ^ Position.here pos) else ()
+      val (resolved, identity) = URust_Type_Mappings.resolve_type_identity ctxt typ
+    in (resolved, Option.map URust_Type_Mappings.source_identity_name identity, inferred) end
 
   (* The canonical nominal key that a type alias key expands to. *)
   fun alias_expansion ctxt key =
@@ -1404,7 +1517,9 @@ struct
                    canonical = UR_Path (head, canonical_segments canonical_path pos NONE @ rest, span),
                    occurrence = pos,
                    selection =
-                     SOME (fn () => {typ = self_type, written = "Self", inferred = false})}
+                     SOME (fn () => {typ = self_type, written = "Self", inferred = false,
+                       source_identity = Option.map URust_Type_Mappings.source_identity_name
+                         (URust_Type_Mappings.impl_source_identity ctxt)})}
               end)
      | _ => NONE)
 
@@ -1419,8 +1534,9 @@ struct
                 occurrence = pos,
                 selection =
                   SOME (fn () =>
-                    let val (typ, inferred) = selection_type ctxt name pos arguments
-                    in {typ = typ, written = written_type_name name arguments, inferred = inferred}
+                    let val (typ, source_identity, inferred) = selection_type ctxt name pos arguments
+                    in {typ = typ, written = written_type_name name arguments, inferred = inferred,
+                      source_identity = source_identity}
                     end)}
          | NONE => NONE)
     | alias_route _ _ = NONE
@@ -1442,8 +1558,9 @@ struct
                 occurrence = pos,
                 selection =
                   SOME (fn () =>
-                    let val (typ, inferred) = selection_type ctxt (#key binding) pos arguments
-                    in {typ = typ, written = written_type_name name arguments, inferred = inferred}
+                    let val (typ, source_identity, inferred) = selection_type ctxt (#key binding) pos arguments
+                    in {typ = typ, written = written_type_name name arguments, inferred = inferred,
+                      source_identity = source_identity}
                     end)}
          | NONE => imported_type_route binding path)
     | imported_head_route _ _ _ = NONE
@@ -1948,7 +2065,7 @@ struct
              split_last type_segments
            val type_key = space_implode "::" (map (#1 o segment_identifier) type_segments)
            val key = type_key ^ "::" ^ name
-           val owners = Micro_Rust_Names.associated_functions ctxt key
+           val owners = Micro_Rust_Names.associated_source_functions ctxt key
          in
            if null owners orelse is_primitive_path path then NONE
            else
@@ -1974,9 +2091,10 @@ struct
                   | NONE =>
                       Option.map
                         (fn arguments => fn () =>
-                          {typ = #1 (selection_type ctxt type_key type_pos (SOME arguments)),
-                           written = written_type_name type_name (SOME arguments),
-                           inferred = false})
+                          let val (typ, source_identity, _) =
+                            selection_type ctxt type_key type_pos (SOME arguments)
+                          in {typ = typ, source_identity = source_identity,
+                            written = written_type_name type_name (SOME arguments), inferred = false} end)
                         type_arguments)
                fun ambiguous candidates =
                  error
@@ -1986,13 +2104,17 @@ struct
                      implode (map (Position.here o #2) candidates))
              in
                (case selection of
-                  NONE => if length impls >= 2 then ambiguous impls else SOME (stripped, [])
+                  NONE => if exists (is_some o #source_identity) owners then
+                    error ("urust: source identity requires explicit type arguments on " ^ type_key ^
+                      Position.here type_pos)
+                  else if length impls >= 2 then ambiguous impls else SOME (stripped, [])
                 | SOME select =>
                     let
-                      val {typ = selected_type, written, inferred} = select ()
+                      val {typ = selected_type, source_identity, written, inferred} = select ()
                       val selected =
                         owners
-                        |> filter (fn {self_type, ...} =>
+                        |> filter (fn {self_type, source_identity = owner_source, ...} =>
+                            (is_none owner_source orelse owner_source = source_identity) andalso
                             unifying_self_types (selected_type, self_type))
                         |> map #identity |> distinct (op =)
                     in

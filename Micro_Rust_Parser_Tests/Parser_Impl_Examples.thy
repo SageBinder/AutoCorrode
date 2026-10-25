@@ -457,6 +457,7 @@ lemma slot_stored_matches_control:
   unfolding slot_stored_def control_slot_stored_def
   by (rule refl)
 
+
 end
 
 interpretation impl_store_nat: impl_store \<open>TYPE(nat)\<close> .
@@ -1117,5 +1118,71 @@ lemma direct_calls_skip_methods:
   unfolding describe_direct_def describe_direct_control_def describe_methods_def
     describe_both_control_def
   by (rule refl)+
+
+chapter\<open> Source identities of concrete impls \<close>
+
+urust_type [erase = \<open> 'tag, 'capacity \<close>]
+  "ErasureOwner<'tag, const 'capacity>" = \<open> nat \<close>
+urust_type_alias \<open> type ErasureAlpha = ErasureOwner<Alpha, 0>; \<close>
+
+text\<open>
+These owners have the same HOL Self type. Their erased source tags distinguish associated
+selection. A HOL-only local receiver cannot recover a tag, so use an explicit associated path.
+\<close>
+
+urust \<open>
+  impl ErasureOwner<Alpha, 0> {
+    \<omega>\<open>name = "erasure_alpha_get"\<close>
+    fn erased_get(self) -> Self { self }
+    fn erased_self(self) -> Self { Self::erased_get(self) }
+  }
+  impl ErasureOwner<Beta, 0> {
+    \<omega>\<open>name = "erasure_beta_get"\<close>
+    fn erased_get(self) -> Self { self }
+  }
+  fn ErasureViaAlias(value: ErasureAlpha) -> ErasureAlpha {
+    ErasureAlpha::erased_get(value)
+  }
+  fn ErasureViaExpanded(value: ErasureOwner<Alpha, 0>) -> ErasureOwner<Alpha, 0> {
+    ErasureOwner::<Alpha, 0>::erased_get(value)
+  }
+\<close>
+lemma erasure_alias_expanded: \<open> erasure_via_alias = erasure_via_expanded \<close>
+  unfolding erasure_via_alias_def erasure_via_expanded_def by (rule refl)
+
+urust_type "ErasureNatural" = \<open> nat \<close>
+urust_type "ErasureBoolean" = \<open> bool \<close>
+urust_type "ErasureOtherNatural" = \<open> nat \<close>
+
+urust \<open>
+  impl ErasureOtherNatural {
+    fn reverse_owner<T>(self, value: T) -> Self { self }
+  }
+  impl ErasureNatural {
+    fn sparse_owner<T>(self, value: ErasureOwner<T, 0>) -> Self { self }
+  }
+  impl ErasureBoolean {
+    fn sparse_owner<T>(self, value: T) -> Self { self }
+    fn reverse_owner<T>(self, value: T) -> Self { self }
+  }
+  impl ErasureNatural {
+    fn reverse_owner<T>(self, value: ErasureOwner<T, 0>) -> Self { self }
+  }
+  impl ErasureOtherNatural {
+    fn sparse_owner<T>(self, value: T) -> Self { self }
+  }
+  impl ErasureNatural {
+    fn ambiguous_erased<T>(self, value: ErasureOwner<T, 0>) -> Self { self }
+  }
+  impl ErasureOtherNatural {
+    fn ambiguous_erased<T>(self, value: ErasureOwner<T, 0>) -> Self { self }
+  }
+  fn ErasureScopedForward<T>(value: ErasureOwner<T, 0>) -> ErasureOwner<T, 0> {
+    value.sparse_owner::<T>(value)
+  }
+  fn ErasureScopedReverse<T>(value: ErasureOwner<T, 0>) -> ErasureOwner<T, 0> {
+    value.reverse_owner::<T>(value)
+  }
+\<close>
 
 end

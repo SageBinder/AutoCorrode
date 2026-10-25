@@ -7648,4 +7648,159 @@ local
 in val _ = writeln "implicit manual mapping diagnostics, markup and rollback audits passed" end
 \<close>
 
+section\<open> Erased mapping partitions and datatype compatibility \<close>
+
+ML_val\<open>
+local
+  structure T = Selector_Name_Test
+  structure M = URust_Type_Mappings
+  val thy = \<^theory>
+  fun require label ok = if ok then () else error ("erased mapping audit: " ^ label)
+  fun declaration options key template =
+    "urust_type " ^ options ^ " " ^ quote key ^ " = " ^ T.cartouche (" " ^ template ^ " ")
+  fun erase names = "[erase = " ^ T.cartouche (" " ^ names ^ " ") ^ "]"
+  val declarations =
+    declaration (erase "'tag, 'capacity") "ErasureCell<'tag,const 'capacity>" "nat" ^ "\n" ^
+    declaration "[implicit = \<open> address = 'a \<close>]" "ErasureInside" "'a option"
+  val ctxt = T.succeeded thy "erasure-mapping-fixture" declarations
+  val native_thy = Proof_Context.theory_of ctxt
+  val cell = the (M.lookup ctxt "ErasureCell")
+  val _ = require "full source arity/kinds and erasure indexes survive independently"
+    (M.entry_arities cell = [2] andalso M.entry_erased_parameters cell = [0, 1] andalso
+     length (M.entry_parameter_sorts cell) = 2 andalso
+     M.entry_parameter_kinds cell = [URust_AST.Type_Parameter, URust_AST.Const_Parameter])
+  val nested = URust_Parser.parse_type_source ctxt
+    (Parser_Lex_Util.positioned_content_source "ErasureCell<ErasureInside,0>"
+      (Position.make0 1 1 0 "" "erasure-nested-backend" ""))
+  val (resolved, _) = URust_Report_Transaction.capture (fn () => M.resolve_declaration_roles ctxt [] [] [nested])
+  val _ = require "known implicit mapping wholly inside an erased argument allocated an unused backend"
+    (#types resolved = [\<^typ>\<open>nat\<close>] andalso null (#backend_parameters resolved))
+  val generated = T.succeeded native_thy "erasure-declared-phantom"
+    ("urust_datatype " ^ T.cartouche
+      " struct ErasureDeclared<T,const N:usize> { value: ErasureCell<T,N> } ")
+  val entry = the (M.lookup generated "ErasureDeclared")
+  val _ = require "declared datatype phantom source parameters keep their old witnessed scheme"
+    (null (M.entry_erased_parameters entry) andalso
+     length (M.entry_parameter_sorts entry) = 2 andalso
+     M.entry_parameter_kinds entry = [URust_AST.Type_Parameter, URust_AST.Const_Parameter])
+  fun formal_position label = Position.make0 1 1 0 "" label label
+  fun imported_binding alias : URust_Import_Scope.binding =
+    {alias = alias, alias_pos = formal_position "erasure-formal-import",
+     namespace = URust_Import_Scope.Type_Namespace, key = "ErasureInside",
+     roles = [URust_Import_Scope.Mapped_Type], available = true, identity = serial (),
+     declaration_pos = formal_position "erasure-formal-import"}
+  val imported_formals = Named_Target.theory_init native_thy |>
+    URust_Import_Scope.push_frame [imported_binding "T", imported_binding "N"]
+  fun formal_parameter label name kind =
+    URust_AST.Generic_Parameter (name, formal_position label, kind)
+  fun formal_type label text = URust_Parser.parse_type_source imported_formals
+    (Parser_Lex_Util.positioned_content_source text (formal_position label))
+  fun formal_alias label name parameter rhs =
+    M.declare_generic_alias
+      {registration = NONE, item_name = (name, formal_position label), parameters = [parameter],
+       rhs = formal_type label rhs} imported_formals
+  val formal_alias_ctxt = formal_alias "erasure-formal-import-alias" "ErasureFormalImport"
+    (formal_parameter "erasure-formal-import-alias" "T" URust_AST.Type_Parameter) "ErasureCell<T,0>"
+  val _ = require "alias parameter hooks precede imports and keep source-only parameters used"
+    (M.entry_erased_parameters (the (M.lookup formal_alias_ctxt "ErasureFormalImport")) = [0])
+  val (formal_fields, _) = URust_Report_Transaction.capture (fn () =>
+    M.resolve_declaration_roles imported_formals
+      [formal_parameter "erasure-formal-import-field" "T" URust_AST.Type_Parameter] []
+      [formal_type "erasure-formal-import-field" "ErasureCell<T,0>"])
+  val _ = require "datatype parameter hooks precede imports without allocating an imported backend"
+    (#types formal_fields = [\<^typ>\<open>nat\<close>] andalso null (#backend_parameters formal_fields))
+  fun rejected_formal label expected prefix token text action =
+    let
+      val observed = Exn.capture0 (fn () => URust_Report_Transaction.capture action) ()
+      val preceding = #1 (Substring.position (prefix ^ token) (Substring.full text))
+      val start = Substring.size preceding + size prefix + 1
+    in
+      (case observed of Exn.Exn exn =>
+        let val positions = T.message_positions exn in
+          require (label ^ ": formal parameter fell through to an imported type")
+            (String.isSubstring expected (T.plain_message exn));
+          require (label ^ ": imported formal error lost its argument or prefix position")
+            (not (null positions) andalso Position.offset_of (hd positions) = SOME start andalso
+             Position.end_offset_of (hd positions) = SOME (start + size token) andalso
+             Position.file_of (hd positions) = SOME label)
+        end
+      | _ => error (label ^ ": imported formal misuse accepted"))
+    end
+  val _ = List.app (fn (label, expected, text, prefix, name, kind) =>
+    let val parameter = formal_parameter label name kind in
+      rejected_formal label expected prefix name text (fn () =>
+        formal_alias label "ErasureFormalRejected" parameter text);
+      rejected_formal label expected prefix name text (fn () =>
+        M.resolve_declaration_roles imported_formals [parameter] [] [formal_type label text])
+    end)
+    [("erasure-formal-import-kind", "const parameters used as type arguments",
+       "ErasureCell<N,0>", "ErasureCell<", "N", URust_AST.Const_Parameter),
+     ("erasure-formal-import-projection", "associated paths on scoped parameters",
+       "(T,ErasureCell<T::Tag,0>)", "ErasureCell<", "T", URust_AST.Type_Parameter)]
+  val _ = List.app (fn (label, command, prefix, token) =>
+    let val observed = T.run_output native_thy label command in
+      (case #result observed of Exn.Exn exn =>
+         let
+           val (start, stop) = T.source_range command 1 (prefix, token)
+           val positions = T.message_positions exn
+         in
+           require (label ^ ": declaration parameter fell through to an opaque associated path")
+             (String.isSubstring "associated paths on scoped parameters" (T.plain_message exn));
+           require (label ^ ": scoped projection did not identify its responsible prefix")
+             (not (null positions) andalso Position.offset_of (hd positions) = SOME start andalso
+              Position.end_offset_of (hd positions) = SOME stop andalso
+              Position.file_of (hd positions) = SOME label)
+         end
+       | _ => error (label ^ ": scoped projection was accepted"));
+      require (label ^ ": failed declaration installed a mapping")
+        (is_none (M.lookup ctxt "ErasureProjected"))
+    end)
+    [("erasure-alias-type-projection", "urust_type_alias " ^ T.cartouche
+        " type ErasureProjected<T> = (T,ErasureCell<T::Tag,0>); ", "ErasureCell<", "T"),
+     ("erasure-alias-const-projection", "urust_type_alias " ^ T.cartouche
+        " type ErasureProjected<const N:usize> = ErasureCell<Foreign<N::Tag>,0>; ", "Foreign<", "N"),
+     ("erasure-struct-const-projection", "urust_datatype " ^ T.cartouche
+        " struct ErasureProjected<const N:usize> { value: ErasureCell<Foreign<N::Tag>,0> } ",
+        "Foreign<", "N")]
+  fun no_native_markup markup =
+    not (exists (fn (name, _) =>
+      member (op =) [Markup.typingN, Markup.sortingN, Markup.tfreeN, Markup.tvarN] name) markup)
+  val rows =
+    [("erasure-unknown", erase "'unknown", "ErasureBad<'tag>", "nat", "unknown erased placeholder"),
+     ("erasure-duplicate", erase "'tag,'tag", "ErasureBad<'tag>", "nat", "duplicate erased placeholder"),
+     ("erasure-in-template", erase "'tag", "ErasureBad<'tag>", "'tag option", "occurs in the HOL template"),
+     ("erasure-missing-retained", erase "'tag", "ErasureBad<'tag,'payload>", "nat", "missing"),
+     ("erasure-native-read", erase "'tag", "ErasureBad<'tag>", "missing_erasure_type", "Undefined type name")]
+  val _ = List.app (fn (label, options, key, template, expected) =>
+    let val failed = T.run_output native_thy label (declaration options key template) in
+      (case #result failed of Exn.Exn exn =>
+         require (label ^ ": lost positioned mapping diagnostic")
+           (String.isSubstring expected (T.plain_message exn) andalso
+            not (null (T.message_positions exn)))
+       | _ => error (label ^ ": invalid erased mapping accepted"));
+      require (label ^ ": native type or payload reports leaked") (no_native_markup (#markup failed));
+      require (label ^ ": failed mapping installed registry state")
+        (is_none (M.lookup ctxt "ErasureBad"))
+    end) rows
+  val parent = Theory.end_theory native_thy
+  fun branch label placeholder =
+    Theory.begin_theory (label, Position.none) [parent]
+    |> (fn branch_thy => T.succeeded branch_thy label
+      (declaration (erase placeholder) ("ErasureMerged<" ^ placeholder ^ ">") "nat"))
+    |> Proof_Context.theory_of |> Theory.end_theory
+  val left = branch "erasure-merge-left" "'tag"
+  val right = branch "erasure-merge-right" "'renamed"
+  fun merged label parents =
+    Theory.begin_theory (label, Position.none) parents |> Proof_Context.init_global
+  val first = merged "ErasureMergeForward" [left, right]
+  val second = merged "ErasureMergeReverse" [right, left]
+  val _ = require "alpha-renaming or merge order changed source-slot metadata"
+    (M.entry_template (the (M.lookup first "ErasureMerged")) =
+       M.entry_template (the (M.lookup second "ErasureMerged")) andalso
+     M.entry_erased_parameters (the (M.lookup first "ErasureMerged")) = [0] andalso
+     M.entry_erased_parameters (the (M.lookup second "ErasureMerged")) = [0])
+  val _ = writeln "U2 mapping partition/native rollback/nested implicit/declared phantom/alpha/merges PASS"
+in end
+\<close>
+
 end
