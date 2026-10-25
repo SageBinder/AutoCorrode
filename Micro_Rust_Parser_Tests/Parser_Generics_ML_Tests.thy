@@ -1030,7 +1030,10 @@ local
     (map (fn (name, bounds) => (name, map bound_name bounds)) (function_bounds projected) =
       [("T", ["A", "outer::B", "D", "E", "F"]), ("U", ["C"])])
   val _ = require "authored where entries stay separate"
-    (map #1 (#where_clause (function_generics projected)) = ["U", "T", "T"])
+    (map (fn Rust_Type_Predicate
+        (Path_Type ([Rust_Type_Path_Segment (name, _, NONE, _)], _), _, _) => name
+      | _ => error "unexpected projected predicate")
+      (#where_clause (function_generics projected)) = ["U", "T", "T"])
   val _ = require "empty list stays authored"
     (String.isSubstring "Empty<>" (URust_Printer.string_of_function URust_Printer.serialized_options
       (parse ctxt "empty-preservation" "fn Empty<>() {}")))
@@ -1095,7 +1098,32 @@ local
      ("where-reference", "where clauses may only bound this function's type parameters", "fn Bad<T>() where &T: Trait {}", "&", 0),
      ("legacy-parser-where", "where clauses may only bound this function's type parameters", "fn Where(value: u64) -> u64 where u64: Copy { value }", "u64", 2),
      ("legacy-command-where", "where clauses may only bound this function's type parameters", "fn WhereClause(x: u64) -> u64 where X: Y { x }", "X", 0)]
-  val _ = List.app (rejects ctxt) tests
+  val deferred =
+    ["lifetime-parameter-bound", "lifetime-parameter-plus-bounds", "lifetime-inline-bound",
+     "lifetime-inline-plus-bound", "lifetime-where-bound", "fn-inline-bound", "fn-where-bound",
+     "generic-inline-bound", "generic-empty-bound", "generic-associated-bound", "const-u8",
+     "const-named-type", "where-unknown", "where-const", "where-concrete", "where-qualified",
+     "where-applied", "where-reference", "legacy-parser-where", "legacy-command-where"]
+  val _ = List.app (rejects ctxt)
+    (filter_out (fn (label, _, _, _, _) => member (op =) deferred label) tests)
+  val _ = List.app (fn (label, expected, rust, needle, occurrence) =>
+    if member (op =) deferred label then
+      let
+        val _ = roundtrip ctxt (label ^ "-retained") rust
+        val (expected, needle, occurrence) =
+          if label = "lifetime-parameter-bound" orelse label = "lifetime-parameter-plus-bounds"
+          then ("undeclared lifetime \"'b\"", "'b", 0)
+          else if label = "where-reference"
+          then ("reference lifetime must be explicit in a where predicate", "&", 0)
+          else if label = "where-const"
+          then ("const parameters cannot be used as type where heads", needle, occurrence)
+          else (expected, needle, occurrence)
+        val text = "urust_fn [verbosity = 0] " ^ cartouche rust
+        val diagnostic = failure label expected (fn () => run @{theory} label text)
+        val _ = require (label ^ ": authoritative phase lost the original unsupported span")
+          (hd (map position_range (message_positions diagnostic)) = range_of text needle occurrence)
+      in () end
+    else ()) tests
 in val _ = () end
 \<close>
 
@@ -3489,7 +3517,8 @@ local
   val _ = require "D175 literal HOL signature bypass retains O7 final-HOL anchoring"
     (String.isPrefix "urust: generic parameter T does not occur in the signature"
       (XML.content_of (YXML.parse_body literal_raw)) andalso
-      map position_range (message_positions literal_raw) = [range_of literal "T" 0, (1, 9)] andalso
+       map position_range (message_positions literal_raw) =
+         [range_of literal "T" 4, range_of literal "T" 0, (1, 9)] andalso
       null (ordinary literal_events) andalso null (declaration_reports literal_events))
 in
   val _ = writeln "U4 A31 exact seven erased-slot negatives plus named/renamed/dual/nested/D175 controls PASS"
@@ -5401,6 +5430,391 @@ ML_val\<open>
        ("generic_combined_call", "generic_combined_call_twin")]
     val _ = Generic_Signature_Test.require_scope_closed "combined declarations" ctxt
   in val _ = () end
+\<close>
+
+chapter\<open> Rich headers and declared denotation \<close>
+
+ML_val\<open>
+local
+  open Generic_Signature_Test
+  open URust_AST
+  val thy = \<^theory>
+  val ctxt = \<^context>
+  val old_names = snapshot ctxt
+  val old_schemes = scheme_snapshot ctxt
+  val complete = "nat => ('s, nat, 'abort, 'i, 'o) function_body"
+  fun command options target typ rust =
+    "urust_fn [" ^ options ^ "verbosity = 0] " ^ target ^ " :: " ^ cartouche typ ^ " " ^ cartouche rust
+  fun item parameters predicates =
+    "fn RetainedHeader<" ^ parameters ^ ">(value: Unknown) -> Unknown " ^ predicates ^ "{ value }"
+  val rows =
+    [("generic-trait", "T: outer::Trait<u8>", ""),
+     ("generic-trait-bare-const", "const N: usize, T: Marker<N>", ""),
+     ("associated-type", "T: outer::Sequence<Item = T>", ""),
+     ("nested-associated-type", "'a, T: outer::Sequence<Item = Inner<&'a T>>", ""),
+     ("empty-trait-arguments", "T: Trait<>", ""),
+     ("callable-zero", "F: Fn()", ""),
+     ("callable-unit", "F: Fn(())", ""),
+     ("callable-many", "F: std::ops::FnMut(Unknown, (u8, bool),) -> Unknown", ""),
+     ("callable-once", "F: FnOnce(Unknown)", ""),
+     ("callable-elided-reference", "F: Fn(&Unknown) -> &Unknown", ""),
+     ("callable-placeholder-reference", "F: Fn(&'_ Unknown) -> &'_ Unknown", ""),
+     ("trait-function-pointer-elision", "T: Marker<fn(&Unknown) -> &Unknown>", ""),
+     ("where-function-pointer-elision", "T", "where fn(&Unknown) -> &Unknown: Marker, "),
+     ("compat-first-for-identifier", "for", ""),
+     ("compat-later-for-identifier", "T, for", ""),
+     ("compat-for-where-head", "for", "where for: Marker, "),
+     ("compat-for-plain-bound", "T: for", ""),
+     ("compat-for-qualified-bound", "T: outer::for", ""),
+     ("compat-for-generic-trait", "T: for<u8>", ""),
+     ("inline-outlives", "'a: 'b, 'b, T: 'a + 'static", ""),
+     ("where-outlives", "'a, 'b, T", "where 'a: 'b, T: 'static, "),
+     ("where-qualified", "T", "where outer::Head<T>: outer::Trait<T>, "),
+     ("where-tuple", "T", "where (T, u8): Unknown, "),
+     ("where-array", "T, const N: usize", "where [T; N]: Unknown, "),
+     ("higher-ranked", "F: for<'a,> Fn(&'a Unknown) -> Unknown", ""),
+     ("higher-ranked-empty", "F: for<> Fn()", ""),
+     ("higher-ranked-where", "F", "where F: for<'a> Fn(&'a Unknown), "),
+     ("higher-ranked-head", "T", "where for<'a> &'a T: Unknown, "),
+     ("higher-ranked-empty-head", "F", "where for<> F: Fn(), "),
+     ("conditional-const", "F: [const] FnOnce(Unknown) -> Unknown + [const] Marker", ""),
+     ("higher-ranked-const", "F: for<'a> [const] FnOnce(&'a Unknown)", ""),
+     ("trailing-plus", "T: outer::Trait<u8> +", "where T: Marker +, "),
+     ("ordinary-mapped-bound", "T: Scale", ""),
+     ("const-u8", "const N: u8", ""),
+     ("const-u64", "const N: u64", ""),
+     ("const-bool", "const N: bool", ""),
+     ("const-char", "const N: char", ""),
+     ("const-named", "const N: UnmappedLength", "")]
+  fun check (label, parameters, predicates) =
+    let
+      val rust = item parameters predicates
+      val _ = roundtrip ctxt (label ^ "-standalone") rust
+      val chunk_source = rust ^ "\nimpl UnmappedOwner { " ^ rust ^ " }"
+      val parsed = chunk ctxt (label ^ "-placements") chunk_source
+      val _ = List.app (fn options =>
+        let val printed = URust_Printer.string_of_chunk options parsed
+            val again = chunk ctxt (label ^ "-placements-printed") printed
+        in require (label ^ ": chunk/member structured roundtrip changed")
+          (URust_Printer.tokens_of_chunk options parsed = URust_Printer.tokens_of_chunk options again)
+        end) [URust_Printer.serialized_options, URust_Printer.human_options]
+      val text = command "pp_test, " "retained_actual" complete rust ^ "\n" ^
+        command "" "retained_plain" complete "fn RetainedPlain(value: Unknown) -> Unknown { value }" ^
+        "\nlemma retained_twin: " ^ cartouche "retained_actual = retained_plain" ^
+        " unfolding retained_actual_def retained_plain_def by (rule refl)"
+      val callbacks = saved_callbacks ()
+      val reporter = !Private_Output.report_fn
+      val (result, events) = capture (fn () => run thy label text)
+      val completed = Exn.release result |> Toplevel.context_of
+      val actual = entry completed "RetainedHeader"
+      val slots = entry_scheme completed actual
+      val descriptors = function_type_parameters (parse completed label rust)
+      val _ = check_header label descriptors slots
+      val _ = require (label ^ ": complete type/sorts/channels changed")
+        (Sign.typ_equiv (Proof_Context.theory_of completed)
+          (fastype_of (#hol_term actual), Logic.varifyT_global (Syntax.read_typ completed complete)))
+      val reports = fold Parser_Test_Reports.collect_markup (trees "report" events) []
+      val _ = require (label ^ ": ignored header resolved a Rust trait/type mapping")
+        (not (exists (fn (name, props) => name = Markup.entityN andalso
+          Library.member (op =) ["urust_trait", "micro_rust_type_mapping"]
+            (the_default "" (Properties.get props Markup.kindN))) reports))
+      val _ = require (label ^ ": legacy scheme or declaration reports missing")
+        (length slots = length descriptors andalso not (null (declaration_reports events)))
+      val _ = require (label ^ ": source registries or native callbacks escaped the transaction")
+        (snapshot ctxt = old_names andalso scheme_snapshot ctxt = old_schemes andalso
+          same_callbacks callbacks andalso PolyML.pointerEq (reporter, !Private_Output.report_fn))
+      val _ = require_scope_closed label completed
+    in () end
+  val _ = List.app check rows
+  val _ = List.app (fn (label, rust) =>
+    let
+      val _ = roundtrip ctxt label rust
+      val completed = run thy label (command "pp_test, " "compat_for" complete rust)
+        |> Toplevel.context_of
+      val _ = require_scope_closed label completed
+    in () end)
+    [("compat-exact-first-for", "fn Compat<for>(value: for) -> for { value }"),
+     ("compat-exact-later-for", "fn Compat<T, for>(value: T) -> T { value }"),
+     ("compat-exact-for-head", "fn Compat<for>(value: for) -> for where for: Marker { value }"),
+     ("compat-exact-for-bound", "fn Compat<T: for>(value: T) -> T { value }")]
+  val weak = entry ctxt "DeclaredWeakSort"
+  val _ = require "explicit parameter-name sorts and ordinary bounds cannot strengthen a complete type"
+    (map #hol (entry_scheme ctxt weak) = [("'payload", \<^sort>\<open>type\<close>)] andalso
+      Sign.typ_equiv (Proof_Context.theory_of ctxt)
+        (fastype_of (#hol_term weak), Logic.varifyT_global
+          \<^typ>\<open>'payload \<Rightarrow> ('s, 'payload, 'abort, 'i, 'o) function_body\<close>))
+  val _ = require "ignored bounds cannot populate a declared source scheme's trait keys"
+    (forall (null o #bounds)
+      (the (URust_Type_Mappings.generic_source_scheme_for_source ctxt (#serial weak))))
+  val _ = require "non-usize declared const metadata keeps the old unused witnessed convention"
+    (map #hol (entry_scheme ctxt (entry ctxt "DeclaredRichHeader")) =
+      [("'t", \<^sort>\<open>type\<close>), ("'n", \<^sort>\<open>len0\<close>)])
+in val _ = () end
+\<close>
+
+ML_val\<open>
+local
+  open Generic_Signature_Test
+  val thy = \<^theory>
+  val ctxt = \<^context>
+  val complete = "nat => ('s, nat, 'abort, 'i, 'o) function_body"
+  fun command typ rust =
+    "urust_fn [verbosity = 0] retained_failure :: " ^ cartouche typ ^ " " ^ cartouche rust
+  val structural_rows =
+    [("missing-associated-type", "syntax error", complete,
+       "fn Bad<T: Sequence<Item =>>(value: Unknown) { value }"),
+     ("missing-callable-result", "syntax error", complete,
+       "fn Bad<F: Fn() ->>(value: Unknown) { value }"),
+     ("missing-const-trait", "syntax error", complete,
+       "fn Bad<T: [const]>(value: Unknown) { value }"),
+     ("empty-local-binder-comma", "syntax error", complete,
+       "fn Bad<F: for<,> Fn()>(value: Unknown) { value }"),
+     ("duplicate-const-modifier", "syntax error", complete,
+       "fn Bad<T: [const] [const] Unknown>(value: Unknown) { value }"),
+     ("duplicate-for-modifier", "syntax error", complete,
+       "fn Bad<F: for<'a> for<'b> Fn(&'a &'b Unknown)>(value: Unknown) { value }"),
+     ("const-before-for", "syntax error", complete,
+       "fn Bad<F: [const] for<'a> Fn(&'a Unknown)>(value: Unknown) { value }"),
+     ("const-outlives-modifier", "syntax error", complete,
+       "fn Bad<'a, T: [const] 'a>(value: Unknown) { value }"),
+     ("for-outlives-modifier", "syntax error", complete,
+       "fn Bad<T: for<'a> 'a>(value: Unknown) { value }"),
+     ("for-lifetime-predicate", "syntax error", complete,
+       "fn Bad<'b>(value: Unknown) where for<'a> 'a: 'b { value }"),
+     ("duplicate-local-binder", "duplicate lifetime parameter", complete,
+       "fn Bad<F: for<'a, 'a> Fn(&'a Unknown)>(value: Unknown) { value }"),
+     ("shadow-item-lifetime", "shadows an enclosing lifetime", complete,
+       "fn Bad<'a, F: for<'a> Fn(&'a Unknown)>(value: Unknown) { value }"),
+     ("undeclared-local-lifetime", "undeclared lifetime \"'b\"", complete,
+       "fn Bad<F: for<'a> Fn(&'b Unknown)>(value: Unknown) { value }"),
+     ("local-binder-leak", "undeclared lifetime \"'a\"", complete,
+       "fn Bad<F: for<'a> Fn(&'a Unknown)>(value: &'a Unknown) { value }"),
+     ("undeclared-associated-lifetime", "undeclared lifetime \"'a\"", complete,
+       "fn Bad<T: Sequence<Item = &'a Unknown>>(value: Unknown) { value }"),
+     ("generic-trait-reference-elision", "reference lifetime must be explicit in a generic trait bound", complete,
+       "fn Bad<T: Marker<&Unknown>>(value: Unknown) { value }"),
+     ("generic-trait-placeholder-lifetime", "placeholder lifetime", complete,
+       "fn Bad<T: Marker<'_>>(value: Unknown) { value }"),
+     ("generic-trait-placeholder-reference", "placeholder lifetime", complete,
+       "fn Bad<T: Marker<&'_ Unknown>>(value: Unknown) { value }"),
+     ("associated-reference-elision", "reference lifetime must be explicit in a generic trait bound", complete,
+       "fn Bad<T: Sequence<Item = &Unknown>>(value: Unknown) { value }"),
+     ("nested-function-pointer-lifetime", "undeclared lifetime \"'missing\"", complete,
+       "fn Bad<T: Marker<fn(&'missing Unknown)>>(value: Unknown) { value }"),
+     ("callable-unconstrained-result", "callable result lifetime must be explicit", complete,
+       "fn Bad<F: Fn() -> &Unknown>(value: Unknown) { value }"),
+     ("callable-ambiguous-result", "callable result lifetime must be explicit", complete,
+       "fn Bad<F: Fn(&Unknown, &Unknown) -> &Unknown>(value: Unknown) { value }"),
+     ("callable-repeated-named-result", "callable result lifetime must be explicit", complete,
+       "fn Bad<'a, F: Fn(&'a Unknown, &'a Unknown) -> &Unknown>(value: Unknown) { value }"),
+     ("callable-pointer-result-scope", "callable result lifetime must be explicit", complete,
+       "fn Bad<F: Fn(fn(&Unknown) -> &Unknown) -> &Unknown>(value: Unknown) { value }"),
+     ("placeholder-outlives", "placeholder lifetime", complete,
+       "fn Bad<T: '_>(value: Unknown) { value }"),
+     ("where-reference-elision", "reference lifetime must be explicit", complete,
+       "fn Bad<T>(value: Unknown) where &T: Unknown { value }"),
+     ("where-const-kind", "const parameters cannot be used as type where heads", complete,
+       "fn Bad<const N: usize>(value: Unknown) where N: Marker { value }"),
+     ("where-grouped-const-kind", "const parameters cannot be used as type where heads", complete,
+       "fn Bad<const N: usize>(value: Unknown) where (N): Marker { value }"),
+     ("where-type-length-kind", "type parameters cannot be used as const where operands", complete,
+       "fn Bad<T>(value: Unknown) where [u8; T]: Marker { value }"),
+     ("callable-const-kind", "const parameters cannot be used as callable type operands", complete,
+       "fn Bad<const N: usize, F: Fn(N)>(value: Unknown) { value }"),
+     ("associated-type-const-kind", "const parameters cannot be used as generic trait type operands", complete,
+       "fn Bad<const N: usize, T: Sequence<Item = N>>(value: Unknown) { value }"),
+     ("trait-array-type-length-kind", "type parameters cannot be used as const generic trait operands", complete,
+       "fn Bad<T, U: Marker<[u8; T]>>(value: Unknown) { value }")]
+  val rows = structural_rows @
+    [("body-unmapped-type", "unknown Rust type", complete,
+       "fn Bad<T: Unknown>(value: Unknown) { SignatureIdentity::<UnmappedBody>(value) }"),
+     ("body-absent-type", "generic parameter T does not occur in the signature", complete,
+       "fn Bad<T: Unknown>(value: Unknown) { SignatureIdentity::<T>(value) }"),
+     ("body-absent-erased-source", "generic parameter T does not occur in the signature", complete,
+       "fn Bad<T: Unknown>(value: Unknown) { ErasureIdentity::<T, 0>(value) }"),
+     ("body-absent-const", "generic parameter N does not occur in the signature", complete,
+       "fn Bad<const N: bool>(value: Unknown) { N }"),
+     ("body-weak-trait", "no associated constant CEILING",
+       "'t => ('s, nat, 'abort, 'i, 'o) function_body",
+       "fn Bad<T: Scale>(marker: Unknown) { T::CEILING }"),
+     ("body-weak-const", "does not satisfy sort len0", "'n => ('s, 64 word, 'abort, 'i, 'o) function_body",
+       "fn Bad<const N: usize>(marker: Unknown) { N }")]
+  val old_names = snapshot ctxt
+  val old_schemes = scheme_snapshot ctxt
+  val _ = List.app (fn (label, expected, typ, rust) =>
+    let
+      val callbacks = saved_callbacks ()
+      val reporter = !Private_Output.report_fn
+      val (result, events) = capture (fn () =>
+        failure label expected (fn () => run thy label (command typ rust)))
+      val diagnostic = Exn.release result
+      val _ = require (label ^ ": genuine failure has no position")
+        (not (null (message_positions diagnostic)))
+      val _ = require (label ^ ": failed declaration leaked successful output or definition reports")
+        (null (ordinary events) andalso null (declaration_reports events))
+      val _ = require (label ^ ": failure changed registries/callbacks")
+        (snapshot ctxt = old_names andalso scheme_snapshot ctxt = old_schemes andalso
+          same_callbacks callbacks andalso PolyML.pointerEq (reporter, !Private_Output.report_fn))
+      val _ = if Library.member (op =) (map #1 structural_rows) label then
+        let
+          val (authoritative, authoritative_events) = capture (fn () =>
+            failure (label ^ "-authoritative") expected (fn () =>
+              run thy (label ^ "-authoritative")
+                ("urust_fn [verbosity = 0] retained_failure " ^ cartouche rust)))
+          val _ = require (label ^ ": authoritative structural error has no position")
+            (not (null (message_positions (Exn.release authoritative))))
+          val _ = require (label ^ ": authoritative failure leaked successful reports/output")
+            (null (ordinary authoritative_events) andalso
+              null (declaration_reports authoritative_events))
+          val _ = if expected = "syntax error" then
+            ignore (failure (label ^ "-raw") expected (fn () => parse ctxt (label ^ "-raw") rust))
+            else ()
+        in () end else ()
+      val recovered = run thy (label ^ "-recovery")
+        (command complete "fn RetainedRecovery(value: Unknown) { value }") |> Toplevel.context_of
+      val _ = require (label ^ ": recovery did not install its ordinary declaration")
+        (is_some (Parser_Test_Calls.lookup recovered "RetainedRecovery"))
+      val _ = require_scope_closed label recovered
+    in () end) rows
+in val _ = () end
+\<close>
+
+section\<open> Complete callable types and native declaration artifacts \<close>
+
+ML_val\<open>
+local
+  open Generic_Signature_Test
+  val thy = \<^theory>
+  val ctxt = \<^context>
+  val callback = "nat => ('s, nat, 'abort, 'i, 'o) function_body"
+  val complete = "(" ^ callback ^ ") => nat => ('s, nat, 'abort, 'i, 'o) function_body"
+  val rich = "fn RetainedArtifact<F: Fn() + Unregistered, T: Scale, const N: char>" ^
+    "(callback: Unknown, value: Unknown) -> Unknown { value }"
+  val plain = "fn RetainedArtifactPlain(callback: Unknown, value: Unknown) -> Unknown { value }"
+  fun command options target rust =
+    "urust_fn [" ^ options ^ "pp_test, verbosity = 0] " ^ target ^ " :: " ^
+      cartouche complete ^ " " ^ cartouche rust
+  val _ = List.app (fn (label, options, abbreviation, registered) =>
+    let
+      val text = command options "retained_artifact" rich ^ "\n" ^
+        command options "retained_artifact_plain" plain ^ "\n" ^
+        "lemma retained_artifact_twin: " ^
+        cartouche "retained_artifact = retained_artifact_plain" ^
+        (if abbreviation then "" else
+          " unfolding retained_artifact_def retained_artifact_plain_def") ^ " by (rule refl)"
+      val completed = run thy label text |> Toplevel.context_of
+      val actual = Proof_Context.read_const {proper = true, strict = false}
+        completed "retained_artifact"
+      val twin = Proof_Context.read_const {proper = true, strict = false}
+        completed "retained_artifact_plain"
+      val _ = require (label ^ ": complete callback arity, sorts or channels changed")
+        (Sign.typ_equiv (Proof_Context.theory_of completed)
+          (fastype_of actual, Logic.varifyT_global (Syntax.read_typ completed complete)) andalso
+         Sign.typ_equiv (Proof_Context.theory_of completed) (fastype_of actual, fastype_of twin) andalso
+         length (binder_types (fastype_of actual)) = 2 andalso
+         length (binder_types (hd (binder_types (fastype_of actual)))) = 1)
+      val _ = require (label ^ ": native source scheme lost ordered compatibility slots")
+        (map #rust (scheme completed actual) = ["F", "T", "N"])
+      val _ = require (label ^ ": automatic registration policy changed")
+        (not (null (Parser_Test_Calls.entries completed "RetainedArtifact")) = registered)
+      val _ = if abbreviation then () else
+        let
+          val definition = Proof_Context.get_thm completed "retained_artifact_def"
+          val twin_definition = Proof_Context.get_thm completed "retained_artifact_plain_def"
+          val _ = require (label ^ ": native definition theorem scheme changed")
+            (Sign.typ_equiv (Proof_Context.theory_of completed)
+              (fastype_of (snd (Logic.dest_equals (Thm.prop_of definition))),
+               fastype_of (snd (Logic.dest_equals (Thm.prop_of twin_definition)))))
+        in () end
+      val _ = require_scope_closed label completed
+    in () end)
+    [("retained-definition", "", false, true),
+     ("retained-application-definition", "application_def, ", false, true),
+     ("retained-abbreviation", "abbrev, ", true, true),
+     ("retained-disabled", "register_notation = false, ", false, false)]
+  val anonymous = run thy "retained-anonymous" (command "" "_" rich) |> Toplevel.context_of
+  val _ = require "anonymous complete rich declaration leaves the native namespace unchanged"
+    (snapshot anonymous = snapshot ctxt)
+  val _ = require_scope_closed "retained-anonymous" anonymous
+in val _ = () end
+\<close>
+
+section\<open> Native bound-local lifetime identities and ranges \<close>
+
+ML_val\<open>
+local
+  open Generic_Signature_Test
+  val thy = \<^theory>
+  val ctxt = \<^context>
+  val label = "retained-lifetime-reports"
+  val escaped = str (Char.chr 92) ^ "<alpha>"
+  val comment = "/* " ^ escaped ^ " nested /* inner */ comment */"
+  val rust = comment ^ " fn HeaderReport<'left: 'right, 'right, " ^
+    "F: for " ^ comment ^ " <'local> [const] Fn(&'local Unknown) -> &'left Unknown, " ^
+    "T: Sequence<" ^ comment ^ " Item = &'right Unknown>>(value: &'left Unknown) -> &'right Unknown " ^
+    "where for<'nested> &'nested T: Unknown, 'left: 'right { value }"
+  val text = "urust_fn [pp_test, verbosity = 0] retained_lifetime_reports :: " ^
+    cartouche "nat => ('state, nat, 'exit, 'input, 'output) function_body" ^ " " ^ cartouche rust
+  val (result, events) = capture (fn () => run thy label text)
+  val completed = Exn.release result |> Toplevel.context_of
+  val all_reports = fold Parser_Test_Reports.collect_markup (trees "report" events) []
+  val reports = all_reports
+    |> filter (fn (name, props) => name = Markup.entityN andalso
+      Properties.get props Markup.kindN = SOME "urust_lifetime")
+  fun identity property name occurrence =
+    reports |> filter (fn (_, props) =>
+      Properties.get props Markup.nameN = SOME name andalso
+      Properties.get props Markup.fileN = SOME label andalso
+      position_range (Position.of_properties props) = range_of text name occurrence)
+    |> map_filter (fn (_, props) => Properties.get props property)
+    |> the_single
+  val _ = List.app (fn (name, declaration, references) =>
+    let
+      val declared = identity Markup.defN name declaration
+      val _ = List.app (fn occurrence =>
+        require (name ^ ": reference lost its actual local declaration identity/range")
+          (identity Markup.refN name occurrence = declared)) references
+    in () end)
+    [("'left", 0, [1, 2, 3]), ("'right", 1, [0, 2, 3, 4]),
+     ("'local", 0, [1]), ("'nested", 0, [1])]
+  val _ = require "lifetime identity reports contain exactly the retained header declarations and uses"
+    (length reports = 13)
+  val _ = require "escaped-symbol rich header comment retains its native symbol range"
+    (exists (fn (name, props) => name = Markup.comment1N andalso
+      position_range (Position.of_properties props) = range_of text comment 0) all_reports)
+  val _ = require "comment-separated rich binder retains its native keyword symbol range"
+    (exists (fn (name, props) => name = Markup.keyword1N andalso
+      position_range (Position.of_properties props) = range_of text "for" 0) all_reports)
+  val _ = require "an absent generic in an ignored header retains lexical declaration navigation"
+    (exists (fn (name, props) => name = Markup.entityN andalso
+      Properties.get props Markup.kindN = SOME "urust_generic_parameter" andalso
+      Properties.get props Markup.nameN = SOME "T" andalso
+      is_some (Properties.get props Markup.refN) andalso
+      position_range (Position.of_properties props) = range_of text "T" 1) all_reports)
+  val _ = require "an absent generic header reference receives no HOL typing tooltip"
+    (not (exists (fn (name, props) => name = Markup.typingN andalso
+      position_range (Position.of_properties props) = range_of text "T" 1) all_reports))
+  val parsed = roundtrip ctxt (label ^ "-roundtrip") rust
+  val _ = require "rich wrapper and associated payload preserve exact symbol token ranges"
+    (case #parameters (URust_AST.function_generics parsed) of
+       [_, _, URust_AST.Generic_Type (_, _,
+           [URust_AST.Rust_For_Bound (_, URust_AST.Rust_Const_Bound (_, const_layout), for_layout)]),
+          URust_AST.Generic_Type (_, _, [URust_AST.Rust_Generic_Trait_Bound
+            (URust_AST.Path_Type ([URust_AST.Rust_Type_Path_Segment (_, _, SOME
+              [URust_AST.Rust_Associated_Type_Argument (_, item_pos,
+                URust_AST.Reference_Type (_, SOME (URust_AST.Rust_Lifetime (_, lifetime_pos)),
+                  _, _))], _)], _), _)])] =>
+         map position_range (URust_AST.source_token_positions for_layout
+           (URust_AST.Keyword_Token "for")) = [range_of rust "for" 0] andalso
+         map position_range (URust_AST.source_token_positions const_layout
+           (URust_AST.Keyword_Token "const")) = [range_of rust "const" 0] andalso
+         position_range item_pos = range_of rust "Item" 0 andalso
+         position_range lifetime_pos = range_of rust "'right" 2
+     | _ => false)
+  val _ = require "rich lifetime report probe leaves the original namespace unchanged"
+    (snapshot ctxt = snapshot (Proof_Context.init_global thy))
+  val _ = require_scope_closed label completed
+in val _ = () end
 \<close>
 
 end

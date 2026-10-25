@@ -327,14 +327,25 @@ sig
       UR_Arm of ur_pat * (ur_expr * Position.T) option * ur_expr * source_layout
 
   datatype rust_trait_bound =
-    Rust_Trait_Bound of (string * Position.T) list * source_layout
+      Rust_Trait_Bound of (string * Position.T) list * source_layout
+    | Rust_Generic_Trait_Bound of rust_type * source_layout
+    | Rust_Callable_Bound of
+        (string * Position.T) list * rust_type list * rust_type option * source_layout
+    | Rust_Outlives_Bound of rust_lifetime
+    | Rust_Const_Bound of rust_trait_bound * source_layout
+    | Rust_For_Bound of rust_lifetime list * rust_trait_bound * source_layout
+  datatype function_predicate =
+      Rust_Type_Predicate of rust_type * rust_trait_bound list * source_layout
+    | Rust_Lifetime_Predicate of rust_lifetime * rust_trait_bound list * source_layout
+    | Rust_For_Predicate of rust_lifetime list * function_predicate * source_layout
   datatype function_generic =
       Generic_Lifetime of rust_lifetime
+    | Generic_Lifetime_Bounds of rust_lifetime * rust_trait_bound list * source_layout
     | Generic_Type of string * Position.T * rust_trait_bound list
     | Generic_Const of string * Position.T * rust_type
   type function_generics =
     {parameters: function_generic list,
-     where_clause: (string * Position.T * rust_trait_bound list) list,
+     where_clause: function_predicate list,
      layout: source_layout}
   datatype receiver_form =
       Receiver_Value
@@ -380,6 +391,7 @@ sig
   val function_lifetime_parameters: urust_function -> rust_lifetime list
   val function_type_parameters: urust_function -> generic_parameter list
   val function_bounds: urust_function -> (string * rust_trait_bound list) list
+  val trait_bound_layout: rust_trait_bound -> source_layout
   val function_parameters: urust_function -> function_parameter list
   val function_return_type: urust_function -> rust_type option
   val function_parameter_position: function_parameter -> Position.T
@@ -1234,14 +1246,25 @@ struct
       UR_Arm of ur_pat * (ur_expr * Position.T) option * ur_expr * source_layout
 
   datatype rust_trait_bound =
-    Rust_Trait_Bound of (string * Position.T) list * source_layout
+      Rust_Trait_Bound of (string * Position.T) list * source_layout
+    | Rust_Generic_Trait_Bound of rust_type * source_layout
+    | Rust_Callable_Bound of
+        (string * Position.T) list * rust_type list * rust_type option * source_layout
+    | Rust_Outlives_Bound of rust_lifetime
+    | Rust_Const_Bound of rust_trait_bound * source_layout
+    | Rust_For_Bound of rust_lifetime list * rust_trait_bound * source_layout
+  datatype function_predicate =
+      Rust_Type_Predicate of rust_type * rust_trait_bound list * source_layout
+    | Rust_Lifetime_Predicate of rust_lifetime * rust_trait_bound list * source_layout
+    | Rust_For_Predicate of rust_lifetime list * function_predicate * source_layout
   datatype function_generic =
       Generic_Lifetime of rust_lifetime
+    | Generic_Lifetime_Bounds of rust_lifetime * rust_trait_bound list * source_layout
     | Generic_Type of string * Position.T * rust_trait_bound list
     | Generic_Const of string * Position.T * rust_type
   type function_generics =
     {parameters: function_generic list,
-     where_clause: (string * Position.T * rust_trait_bound list) list,
+     where_clause: function_predicate list,
      layout: source_layout}
   datatype receiver_form =
       Receiver_Value
@@ -1309,7 +1332,8 @@ struct
 
   fun function_lifetime_parameters function =
     #parameters (function_generics function)
-    |> map_filter (fn Generic_Lifetime lifetime => SOME lifetime | _ => NONE)
+    |> map_filter (fn Generic_Lifetime lifetime => SOME lifetime
+      | Generic_Lifetime_Bounds (lifetime, _, _) => SOME lifetime | _ => NONE)
 
   fun function_type_parameters function =
     #parameters (function_generics function)
@@ -1318,16 +1342,28 @@ struct
             SOME (Generic_Parameter (name, pos, Type_Parameter))
         | Generic_Const (name, pos, _) =>
             SOME (Generic_Parameter (name, pos, Const_Parameter))
-        | Generic_Lifetime _ => NONE)
+        | _ => NONE)
 
   fun function_bounds function =
     let
       val {parameters, where_clause, ...} = function_generics function
+      fun predicate_bounds name
+          (Rust_Type_Predicate
+            (Path_Type ([Rust_Type_Path_Segment (head, _, NONE, _)], _), bounds, _)) =
+            if head = name then bounds else []
+        | predicate_bounds _ _ = []
       fun bounds (Generic_Type (name, _, inline)) =
-            SOME (name, inline @
-              maps (fn (head, _, bounds) => if head = name then bounds else []) where_clause)
+            SOME (name, inline @ maps (predicate_bounds name) where_clause)
         | bounds _ = NONE
     in map_filter bounds parameters end
+
+  fun trait_bound_layout (Rust_Trait_Bound (_, layout)) = layout
+    | trait_bound_layout (Rust_Generic_Trait_Bound (_, layout)) = layout
+    | trait_bound_layout (Rust_Callable_Bound (_, _, _, layout)) = layout
+    | trait_bound_layout (Rust_Outlives_Bound (Rust_Lifetime (_, pos))) =
+        make_source_layout pos [(Name_Token, pos)]
+    | trait_bound_layout (Rust_Const_Bound (_, layout)) = layout
+    | trait_bound_layout (Rust_For_Bound (_, _, layout)) = layout
 
   fun function_parameters
       (Function_Item (_, _, _, parameters, _, _, _)) = parameters

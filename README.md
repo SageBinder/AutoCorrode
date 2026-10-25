@@ -218,13 +218,45 @@ strengthened to `len` by fixed arrays or retained mapped const slots. Const name
 slots and array lengths; type names occupy type slots. Checked `τ‹…›` escapes remain kind-neutral.
 The same finalized variables are shared by signature/body escapes and channel options.
 
-Inline `T: A + B` and `where T: C` bounds resolve registered traits and combine their minimized HOL
-sorts. Only the function's own type parameters may head a `where` clause. The inline-only
+In Rust-authoritative signatures, inline `T: A + B` and `where T: C` bounds resolve registered
+traits and combine their minimized HOL sorts. Only the function's own type parameters may head
+these trait predicates, and const declarations require `usize`. The inline-only
 `hol_type_parameters = ["T" → ‹'element::ord›, "N" → ‹'length::len›]` option chooses distinct HOL
 names and adds sorts that are minimized together with default and bound requirements and may be
 strengthened further during signature inference; names cannot
 capture ambient fixed type variables. It is allowed on a function or concrete impl member,
 including in a chunk annotation, but not as an impl default.
+
+With a complete `urust_fn … :: TYPE` signature, the positioned header also retains generic trait
+arguments and associated bindings, callable bounds, outlives, `[const]` modifiers, local
+`for<'a>` binders, compound `where` heads and other const declaration types. These ignored
+headers do not resolve mappings, add sorts or infer a relationship between Rust and HOL types.
+They still obey generic ordering, duplicate/default rules and lifetime scope. A local binder
+cannot shadow an item lifetime or escape its bound. Optional `?Sized` bounds remain unsupported.
+Generic trait operands and `where` type heads require explicit reference lifetimes; nested
+function-pointer types keep their own elision boundary. Callable result elision requires exactly
+one source-visible input lifetime occurrence. Header validation does not resolve external nominal
+types or aliases to infer hidden lifetimes.
+
+```isabelle
+urust_fn [pp_test] :: ‹nat ⇒ ('s, nat, 'abort, 'i, 'o) function_body›
+  ‹ fn Retained<F: for<'a> Fn(&'a Unknown) -> Unknown,
+                T: Sequence<Item = Unknown>, const N: bool>
+       (value: Unknown) -> Unknown
+       where T: [const] Marker { value } ›
+```
+
+`[const]` here preserves syntax, including on an ordinary `fn`; const eligibility/evaluation and
+function qualifiers are outside this abstraction. The Rust-valid conditional-const forms require
+the corresponding gated `const fn` context. These richer bounds still reject during authoritative
+HOL denotation, after parsing.
+
+In complete-HOL mode, `hol_type_parameters` keeps its validated default/explicit name binding
+without strengthening the authored type. A generic body reference requires that selected HOL
+name to occur in the complete type, with its actual authored sort. Unused slots retain legacy
+ordered scheme metadata, including `'n::len0`, but that metadata supplies no body witness or
+typing tooltip. An associated constant used by the body resolves against its actual authored
+HOL sort; a const body value requires an actual `len0` witness. Insufficient authored sorts fail.
 
 Entirely unused parameters are allowed and keep their ordered callable witnesses, including
 abbreviations and declarations with registration disabled. A parameter used only in explicitly

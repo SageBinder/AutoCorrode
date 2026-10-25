@@ -3242,4 +3242,59 @@ ML_val\<open>
   in val _ = () end
 \<close>
 
+section\<open> Rich member headers reject during denotation \<close>
+
+ML_val\<open>
+local
+  open Impl_Declaration_Test
+  val thy = \<^theory>
+  val ctxt = \<^context>
+  val prior_registry = registry_snapshot ctxt
+  val rows =
+    [("generic", "T: Sequence<Item = u8>", "", "generic trait bounds are not supported"),
+     ("callable", "F: FnOnce(u8) -> u8", "", "Fn trait bounds are not supported"),
+     ("higher-ranked", "F: for<'a> Fn(&'a u8)", "", "higher-ranked trait bounds are not supported"),
+     ("conditional-const", "T: [const] Marker", "", "conditional-const trait bounds are not supported"),
+     ("outlives", "'a, T: 'a", "", "lifetime bounds are not supported"),
+     ("const-type", "const N: bool", "", "const parameters require usize"),
+     ("where-head", "T", "where (T, u8): Marker ", "where clauses may only bound")]
+  val _ = List.app (fn (label, parameters, predicate, expected) =>
+    let
+      val member_source = "fn late<" ^ parameters ^ ">(self, value: u8) -> u8 " ^ predicate ^ "{ value }"
+      val raw = "struct HeaderOwner { value: u8 }\nimpl HeaderOwner {" ^
+        " fn early(self, value: u8) -> u8 { value }\n" ^ member_source ^ "\n}"
+      val parsed = the_chunk ctxt (label ^ "-parse") raw
+      val _ = List.app (fn options =>
+        let val printed = URust_Printer.string_of_chunk options parsed
+        in require (label ^ ": rich member syntax failed its structured roundtrip")
+          (URust_Printer.tokens_of_chunk options parsed =
+            URust_Printer.tokens_of_chunk options (the_chunk ctxt (label ^ "-printed") printed))
+        end) [URust_Printer.serialized_options, URust_Printer.human_options]
+      val reporter = !Private_Output.report_fn
+      val writer = !Private_Output.writeln_fn
+      val {result, output, reports, ...} =
+        capture true (label ^ "-denotation") thy
+          ("urust [verbosity = 2] " ^ command_source raw)
+      val diagnostic = case result of Exn.Exn exn => Runtime.exn_message exn
+        | _ => error (label ^ ": unsupported member denotation was accepted")
+      val _ = require (label ^ ": member did not fail at authoritative denotation")
+        (String.isSubstring expected diagnostic)
+      val _ = require (label ^ ": late member failure leaked chunk output/definitions")
+        (null (authored_output output) andalso
+          not (exists (fn (name, props) => name = Markup.entityN andalso
+            is_some (Properties.get props Markup.defN) andalso
+            member (op =) ["constant", "micro_rust_type", "urust_generic_parameter"]
+              (the_default "" (Properties.get props Markup.kindN))) (report_events reports)))
+      val _ = require (label ^ ": member failure escaped registry/callback state")
+        (registry_snapshot ctxt = prior_registry andalso
+          PolyML.pointerEq (reporter, !Private_Output.report_fn) andalso
+          PolyML.pointerEq (writer, !Private_Output.writeln_fn))
+      val recovered = context_after (label ^ "-recovery") thy
+        (chunk "struct HeaderOwner { value: u8 }\nimpl HeaderOwner { fn early(self) -> Self { self } }")
+      val _ = require (label ^ ": member failure blocked recovery")
+        (not (null (entries recovered "HeaderOwner::early")))
+    in () end) rows
+in val _ = () end
+\<close>
+
 end

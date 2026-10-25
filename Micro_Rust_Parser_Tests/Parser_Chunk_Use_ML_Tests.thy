@@ -3556,4 +3556,52 @@ in
 end
 \<close>
 
+subsection\<open> Rich free-function headers preserve chunk atomicity \<close>
+
+ML_val\<open>
+local
+  open Chunk_Test
+  val thy = \<^theory>
+  val ctxt = \<^context>
+  val prior_registry = registry_snapshot ctxt
+  val rows =
+    [("chunk-callable", "F: FnOnce(u8) -> u8", "Fn trait bounds are not supported"),
+     ("chunk-associated-bound", "T: Sequence<Item = u8>", "generic trait bounds are not supported"),
+     ("chunk-const-type", "const N: char", "const parameters require usize")]
+  val _ = List.app (fn (label, parameters, expected) =>
+    let
+      val raw = "fn HeaderEarlier(value: u8) -> u8 { value }\n" ^
+        "fn HeaderLater<" ^ parameters ^ ">(value: u8) -> u8 { value }"
+      val parsed = the_chunk ctxt label raw
+      val printed = URust_Printer.string_of_chunk URust_Printer.serialized_options parsed
+      val _ = require (label ^ ": rich free-function header did not roundtrip")
+        (URust_Printer.tokens_of_chunk URust_Printer.serialized_options parsed =
+          URust_Printer.tokens_of_chunk URust_Printer.serialized_options
+            (the_chunk ctxt (label ^ "-printed") printed))
+      val reporter = !Private_Output.report_fn
+      val writer = !Private_Output.writeln_fn
+      val {result, output, reports, ...} = capture true label thy
+        ("urust [verbosity = 2] " ^ command_source raw)
+      val diagnostic = case result of Exn.Exn exn => Runtime.exn_message exn
+        | _ => error (label ^ ": unsupported free-function denotation accepted")
+      val _ = require (label ^ ": wrong authoritative phase diagnostic")
+        (String.isSubstring expected diagnostic)
+      val _ = require (label ^ ": late header failure leaked earlier output or definitions")
+        (null (authored_output output) andalso
+          not (exists (fn (name, props) => name = Markup.entityN andalso
+            is_some (Properties.get props Markup.defN) andalso
+            Properties.get props Markup.kindN = SOME "constant") (report_events reports)))
+      val _ = require (label ^ ": late header failure changed original registries/callbacks")
+        (registry_snapshot ctxt = prior_registry andalso
+          PolyML.pointerEq (reporter, !Private_Output.report_fn) andalso
+          PolyML.pointerEq (writer, !Private_Output.writeln_fn))
+      val recovery = run_commands false (label ^ "-recovery") thy
+        ("urust " ^ command_source "fn HeaderEarlier(value: u8) -> u8 { value }")
+        |> Toplevel.context_of
+      val _ = require (label ^ ": ordinary command recovery failed")
+        (is_some (Parser_Test_Calls.lookup recovery "HeaderEarlier"))
+    in () end) rows
+in val _ = () end
+\<close>
+
 end

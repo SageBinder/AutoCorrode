@@ -1558,4 +1558,29 @@ lemma
   \<open>selector_name_tries (make_selector_name_receipt i a) = a\<close>
   by simp_all
 
+subsection\<open> Retained generic headers \<close>
+
+text\<open>
+The complete HOL type supplies the body and channels while the Rust header keeps its structured
+generic/callable bounds and local lifetime binder. The unmapped header names require no registry
+entry. This preserves header syntax, without adding a trait solver or const evaluation.
+\<close>
+
+urust_fn [pp_test] showoff_retained_header
+  :: \<open> nat \<Rightarrow> ('s, nat, 'abort, 'i, 'o) function_body \<close>
+\<open>
+  fn ShowoffRetainedHeader<F: for<'a> Fn(&'a Unknown) -> Unknown,
+      T: Sequence<Item = Unknown>, const N: bool>(value: Unknown) -> Unknown
+    where T: [const] Marker
+  { value }
+\<close>
+
+urust_fn showoff_retained_header_plain
+  :: \<open> nat \<Rightarrow> ('s, nat, 'abort, 'i, 'o) function_body \<close>
+  \<open> fn ShowoffRetainedHeaderPlain(value: Unknown) -> Unknown { value } \<close>
+
+lemma showoff_retained_header_twin:
+  \<open>showoff_retained_header = showoff_retained_header_plain\<close>
+  unfolding showoff_retained_header_def showoff_retained_header_plain_def by (rule refl)
+
 end

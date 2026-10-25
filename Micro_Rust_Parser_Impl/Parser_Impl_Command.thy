@@ -34,6 +34,10 @@ Self rules still apply. Body-only generic uses are checked against the final dec
 locale variables and \<open>_\<close> holes follow ordinary HOL type reading, as for \<open>urust_expr\<close>. The
 declared type also supplies every channel: it cannot be combined with the channel options below,
 and scoped channel defaults do not apply to it.
+Generic header structure, including richer bounds and predicates, is retained without resolving
+traits or strengthening the complete type. Default/explicit HOL parameter names bind in the body
+only when those names actually occur in that type, with their authored sorts. Unused legacy scheme
+metadata stays separate from body availability. Local bound lifetimes cannot shadow or escape.
 Without a declared type, the Rust signature is authoritative: parameter and explicit result
 types resolve through \<open>urust_type\<close>, including qualified and generic mappings and structural
 tuples. The shared type grammar permits \<open>\<tau>\<open>HOL type\<close>\<close> anywhere a type occurs.
@@ -1449,7 +1453,48 @@ fun function_parameter_types ctxt function =
 
 (* The source parameters are signature-named HOL variables. Bounds are resolved once, retaining
    their declared Rust identities as well as their minimized HOL sort union. *)
-fun prepare_function_scope lthy overrides function =
+fun check_function_denotation function =
+  let
+    open URust_AST
+    val {parameters, where_clause, ...} = function_generics function
+    fun position layout =
+      (case source_tokens layout of (_, pos) :: _ => pos | [] => source_span layout)
+    fun head_position (Path_Type (Rust_Type_Path_Segment (_, pos, _, _) :: _, _)) = pos
+      | head_position (Tuple_Type (_, layout)) = position layout
+      | head_position (Group_Type (_, layout)) = position layout
+      | head_position (Reference_Type (_, _, _, layout)) = position layout
+      | head_position (Raw_Pointer_Type (_, _, layout)) = position layout
+      | head_position (Slice_Type (_, layout)) = position layout
+      | head_position (Array_Type (_, _, layout)) = position layout
+      | head_position (Const_Array_Type (_, _, layout)) = position layout
+      | head_position (Function_Type (_, _, layout)) = position layout
+      | head_position (Impl_Trait_Type (_, layout)) = position layout
+      | head_position typ = rust_type_position typ
+    fun unsupported pos =
+      error ("urust_fn: where clauses may only bound this function's type parameters" ^
+        Position.here pos)
+    fun predicate (Rust_Type_Predicate
+          (Path_Type ([Rust_Type_Path_Segment (name, pos, NONE, _)], _), _, _)) =
+          if exists (fn Generic_Type (rust, _, _) => rust = name | _ => false) parameters
+          then () else unsupported pos
+      | predicate (Rust_Type_Predicate (head, _, _)) = unsupported (head_position head)
+      | predicate (Rust_Lifetime_Predicate (Rust_Lifetime (_, pos), _, _)) =
+          error ("urust_fn: lifetime where bounds are not supported by authoritative HOL denotation" ^
+            Position.here pos)
+      | predicate (Rust_For_Predicate (_, _, layout)) =
+          error ("urust_fn: higher-ranked where predicates are not supported by authoritative HOL denotation" ^
+            Position.here (position layout))
+    fun parameter (Generic_Const (_, _, Primitive_Type (DPT_Usize, _))) = ()
+      | parameter (Generic_Const (_, _, typ)) =
+          URust_Grammar.datatype_error "const parameters require usize" (rust_type_position typ)
+      | parameter (Generic_Lifetime_Bounds (_, _, layout)) =
+          error ("urust_fn: lifetime bounds are not supported by authoritative HOL denotation" ^
+            Position.here (the_default (source_span layout)
+              (try hd (source_token_positions layout (Delimiter_Token ":")))))
+      | parameter _ = ()
+  in List.app parameter parameters; List.app predicate where_clause end
+
+fun prepare_function_scope authoritative lthy overrides function =
   let
     val descriptors = URust_AST.function_type_parameters function
     val names = URust_Type_Mappings.parameter_names lthy descriptors overrides
@@ -1463,8 +1508,9 @@ fun prepare_function_scope lthy overrides function =
               " is fixed by the ambient context" ^ Position.here pos)
           else ()
         val mapped =
-          map (URust_Trait_Mappings.resolve_bound lthy)
+          if authoritative then map (URust_Trait_Mappings.resolve_bound lthy)
             (the_default [] (AList.lookup (op =) bounds rust))
+          else []
         val minimum =
           (case kind of URust_AST.Type_Parameter => \<^sort>\<open>type\<close>
            | URust_AST.Const_Parameter => \<^sort>\<open>len0\<close>)
@@ -1487,7 +1533,8 @@ fun prepare_function_scope lthy overrides function =
     val prepared = map parameter (descriptors ~~ names)
   in ({parameters = map fst prepared}, fn () => List.app (fn (_, report) => report ()) prepared) end
 
-fun final_function_scope lthy source_only ({parameters}: URust_Type_Mappings.generic_scope) complete_type =
+fun final_function_scope lthy unavailable source_only
+    ({parameters}: URust_Type_Mappings.generic_scope) complete_type =
   let
     val variables = Term.add_tfreesT complete_type []
     fun finalize ({rust, pos, kind, hol = (name, sort), bounds, report_reference}
@@ -1496,7 +1543,7 @@ fun final_function_scope lthy source_only ({parameters}: URust_Type_Mappings.gen
         val final_sort = the_default sort (AList.lookup (op =) variables name)
         val hol = (name, final_sort)
         val _ = Navigation.defer_report lthy pos Markup.tfree
-        val witnessed = not (member (op =) source_only name)
+        val witnessed = not (member (op =) (source_only @ unavailable) name)
         val _ = if witnessed then Navigation.defer_report_text lthy pos Markup.typing
           (rust ^ " = " ^ Syntax.string_of_typ (Config.put show_sorts true lthy) (TFree hol)) else ()
         fun report_final_reference use_pos =
@@ -1509,22 +1556,73 @@ fun final_function_scope lthy source_only ({parameters}: URust_Type_Mappings.gen
         report_reference = report_final_reference}: URust_Type_Mappings.generic_parameter end
   in {parameters = map finalize parameters}: URust_Type_Mappings.generic_scope end
 
-fun function_body_context source_only scope lthy =
-  lthy |> URust_Type_Mappings.with_generic_scope scope
-  |> URust_Type_Mappings.with_source_only_parameters source_only
-  |> fold (Variable.declare_typ o TFree o #hol) (#parameters scope)
+fun function_body_context unavailable source_only scope lthy =
+  let
+    val ctxt = lthy |> URust_Type_Mappings.with_generic_scope scope
+      |> URust_Type_Mappings.with_source_only_parameters source_only
+      |> (case unavailable of NONE => I
+        | SOME names => URust_Type_Mappings.with_declared_body_parameters names)
+  in ctxt |> fold (Variable.declare_typ o TFree o #hol)
+    (filter (URust_Type_Mappings.parameter_available ctxt) (#parameters scope)) end
 
 fun report_where_parameters lthy ({parameters}: URust_Type_Mappings.generic_scope) function =
-  List.app (fn (rust, pos, _) =>
-    (case find_first (fn parameter => #rust parameter = rust) parameters of
+  let
+    open URust_AST
+    fun report (rust, pos) =
+      (case find_first (fn parameter => #rust parameter = rust) parameters of
        SOME (parameter as {hol, report_reference, ...}) =>
          (report_reference pos;
           Navigation.defer_report lthy pos Markup.tfree;
-          if URust_Type_Mappings.parameter_has_witness lthy parameter then
+          if URust_Type_Mappings.parameter_has_witness lthy parameter andalso
+              URust_Type_Mappings.parameter_available lthy parameter then
             Navigation.defer_report_text lthy pos Markup.typing
               (Syntax.string_of_typ (Config.put show_sorts true lthy) (TFree hol)) else ())
-     | NONE => raise Fail "urust_fn: validated where parameter is absent"))
-    (#where_clause (URust_AST.function_generics function))
+       | NONE => ())
+    fun typ (head as Path_Type (segments, _)) =
+          ((case segments of Rust_Type_Path_Segment (rust, pos, NONE, _) :: _ => report (rust, pos)
+            | _ => ());
+           List.app typ (URust_Type_Mappings.rust_type_operands head))
+      | typ head = List.app typ (URust_Type_Mappings.rust_type_operands head)
+    fun predicate (Rust_Type_Predicate (head, _, _)) = typ head
+      | predicate (Rust_For_Predicate (_, nested, _)) = predicate nested
+      | predicate _ = ()
+  in List.app predicate (#where_clause (function_generics function)) end
+
+(* Ignored header operands still have lexical generic identities, independent of body witness
+   availability. Use the original declaration callbacks, without observer events or HOL typing. *)
+fun report_ignored_header_parameters lthy
+    ({parameters}: URust_Type_Mappings.generic_scope) function =
+  let
+    open URust_AST
+    fun reference (rust, pos) =
+      (case find_first (fn parameter => #rust parameter = rust) parameters of
+         SOME {report_reference, ...} =>
+           (report_reference pos; Navigation.defer_report lthy pos Markup.tfree)
+       | NONE => ())
+    fun typ (head as Path_Type (segments, _)) =
+          ((case segments of Rust_Type_Path_Segment (rust, pos, NONE, _) :: _ => reference (rust, pos)
+            | _ => ());
+           List.app typ (URust_Type_Mappings.rust_type_operands head))
+      | typ head = List.app typ (URust_Type_Mappings.rust_type_operands head)
+    fun bound (Rust_Generic_Trait_Bound (head, _)) =
+          List.app typ (URust_Type_Mappings.rust_type_operands head)
+      | bound (Rust_Callable_Bound (_, inputs, output, _)) = List.app typ (inputs @ the_list output)
+      | bound (Rust_Const_Bound (nested, _)) = bound nested
+      | bound (Rust_For_Bound (_, nested, _)) = bound nested
+      | bound _ = ()
+    fun predicate (Rust_Type_Predicate (head, bounds, _)) = (typ head; List.app bound bounds)
+      | predicate (Rust_Lifetime_Predicate (_, bounds, _)) = List.app bound bounds
+      | predicate (Rust_For_Predicate (_, nested, _)) = predicate nested
+    fun parameter (Generic_Type (_, _, bounds)) = List.app bound bounds
+      | parameter (Generic_Lifetime_Bounds (_, bounds, _)) = List.app bound bounds
+      | parameter (Generic_Const (_, _, head)) = typ head
+      | parameter _ = ()
+    val {parameters = declarations, where_clause, ...} = function_generics function
+  in
+    List.app parameter declarations;
+    List.app predicate where_clause;
+    List.app typ (function_parameter_types lthy function @ the_list (function_return_type function))
+  end
 
 (* A declared type is read like a urust_expr declaration type and alone supplies the parameter
    slots: the Rust parameter and return types are never resolved and do not constrain it. Lifetime
@@ -1535,7 +1633,11 @@ fun report_where_parameters lthy ({parameters}: URust_Type_Mappings.generic_scop
    complete type supplies the lexical parameter slots and the sole body-checking pipeline. *)
 fun prepare_function_signature lthy overrides signature_source function =
   let
-    val (initial_scope, report_declarations) = prepare_function_scope lthy overrides function
+    val authoritative = case signature_source of Declared_Signature _ => false | Rust_Signature _ => true
+    val _ = URust_Type_Mappings.check_function_header lthy function
+    val _ = if authoritative then check_function_denotation function else ()
+    val (initial_scope, report_declarations) =
+      prepare_function_scope authoritative lthy overrides function
     val scoped = URust_Type_Mappings.with_generic_scope initial_scope lthy
     val arguments = function_arguments scoped function
     val (complete_type, type_pos, source_uses) =
@@ -1549,17 +1651,9 @@ fun prepare_function_signature lthy overrides signature_source function =
           URust_Type_Mappings.check_lifetimes
             (URust_AST.function_lifetime_parameters function) rust_types
         val _ = URust_Type_Mappings.check_signature_syntax scoped rust_types
-        val (read_type, type_pos) =
+        val (complete_type, type_pos) =
           URust_Report_Transaction.native scoped (fn read_ctxt =>
             read_declared_type read_ctxt Function declared)
-        fun strengthen (TFree (name, sort)) =
-              (case find_first (fn parameter => fst (#hol parameter) = name)
-                  (#parameters initial_scope) of
-                 SOME parameter => TFree (name, Sign.minimize_sort
-                   (Proof_Context.theory_of lthy) (sort @ snd (#hol parameter)))
-               | NONE => TFree (name, sort))
-          | strengthen typ = typ
-        val complete_type = Term.map_atyps strengthen read_type
         val _ = terminal_value_type Function type_pos complete_type
         val _ =
           validate_argument_count Function type_pos arguments (binder_types complete_type)
@@ -1594,9 +1688,13 @@ fun prepare_function_signature lthy overrides signature_source function =
       end)
     val variables = map fst (Term.add_tfreesT complete_type [])
     val source_only = filter_out (member (op =) variables) source_uses
-    val scope = final_function_scope lthy source_only initial_scope complete_type
-    val body_lthy = function_body_context source_only scope scoped
-    val _ = report_where_parameters body_lthy scope function
+    val unavailable = if authoritative then NONE else
+      SOME (filter_out (member (op =) variables) (map (fst o #hol) (#parameters initial_scope)))
+    val scope = final_function_scope lthy (the_default [] unavailable) source_only initial_scope complete_type
+    val body_lthy = function_body_context unavailable source_only scope scoped
+    val _ =
+      if authoritative then report_where_parameters body_lthy scope function
+      else report_ignored_header_parameters body_lthy initial_scope function
   in
     (SOME (complete_type, type_pos), typed_arguments arguments (binder_types complete_type),
      scope, body_lthy, report_declarations,

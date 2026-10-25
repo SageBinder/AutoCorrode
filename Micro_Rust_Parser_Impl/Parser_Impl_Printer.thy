@@ -1594,10 +1594,27 @@ fun function_document options
     fun bound_document (Rust_Trait_Bound (segments, _)) =
       flat (separate (delimiter "::")
         (map (identifier o require_identifier "trait bound" o #1) segments))
+      | bound_document (Rust_Generic_Trait_Bound (typ, _)) = rust_type_document typ
+      | bound_document (Rust_Callable_Bound (segments, inputs, output, _)) =
+          flat (separate (delimiter "::")
+            (map (identifier o require_identifier "callable bound" o #1) segments)) @
+          parenthesized (comma_documents (map rust_type_document inputs)) @
+          (case output of NONE => [] | SOME typ =>
+            space @ delimiter "->" @ space @ rust_type_document typ)
+      | bound_document (Rust_Outlives_Bound lifetime) = lifetime_document "outlives bound" lifetime
+      | bound_document (Rust_Const_Bound (bound, _)) =
+          delimiter "[" @ keyword "const" @ delimiter "]" @ space @ bound_document bound
+      | bound_document (Rust_For_Bound (lifetimes, bound, _)) =
+          binder_document lifetimes @ space @ bound_document bound
+    and binder_document lifetimes =
+      keyword "for" @ delimiter "<" @
+      comma_documents (map (lifetime_document "bound lifetime") lifetimes) @ delimiter ">"
     fun bounds_document bounds =
       flat (separate (space @ operator "+" @ space) (map bound_document bounds))
     fun generic_document (Generic_Lifetime lifetime) =
           lifetime_document "function item" lifetime
+      | generic_document (Generic_Lifetime_Bounds (lifetime, bounds, _)) =
+          lifetime_document "function item" lifetime @ delimiter ":" @ space @ bounds_document bounds
       | generic_document (Generic_Type (name, _, bounds)) =
           identifier (require_identifier "function type parameter" name) @
           (if null bounds then []
@@ -1613,9 +1630,12 @@ fun function_document options
         delimiter "<" @
         block 2 false (comma_documents (map generic_document generic_parameters)) @
         delimiter ">"
-    fun where_document (name, _, bounds) =
-      identifier (require_identifier "where parameter" name) @
-      delimiter ":" @ space @ bounds_document bounds
+    fun where_document (Rust_Type_Predicate (typ, bounds, _)) =
+          rust_type_document typ @ delimiter ":" @ space @ bounds_document bounds
+      | where_document (Rust_Lifetime_Predicate (lifetime, bounds, _)) =
+          lifetime_document "where predicate" lifetime @ delimiter ":" @ space @ bounds_document bounds
+      | where_document (Rust_For_Predicate (lifetimes, predicate, _)) =
+          binder_document lifetimes @ space @ where_document predicate
     fun parameter_document
         (Function_Parameter (mutable_pos, pattern, typ, _)) =
           (case mutable_pos of

@@ -451,8 +451,6 @@ local
        "unsafe fn Unsafe(value: u64) -> u64 { value }"),
      ("rust-function-parser-extern", "syntax error",
        "extern \"C\" fn External(value: u64) -> u64 { value }"),
-     ("rust-function-parser-where", "where clauses may only bound this function's type parameters",
-       "fn Where(value: u64) -> u64 where u64: Copy { value }"),
      ("rust-function-parser-variadic", "unexpected input",
        "fn Variadic(value: u64, ...) -> u64 { value }"),
      ("rust-function-parser-empty-generic", "syntax error",
@@ -491,6 +489,8 @@ local
       (fn (label, expected, text) =>
         reject label expected text)
       syntax_cases
+  val _ = ignore (parse "rust-function-parser-where-retained"
+    "fn Where(value: u64) -> u64 where u64: Copy { value }")
 
   val _ =
     reject "rust-function-parser-datatype"
@@ -4861,20 +4861,14 @@ ML_val\<open>
           "fn Shared(/* \<alpha> */ value: &'static u8) { () }", "&'static u8", 0,
           "shared Rust references")]
 
-    fun parser_failure (label, text, needle, expected) =
-      let
-        val diagnostic = message (Exn.result (fn () => parse ctxt label text) ())
-      in
-        require (label ^ ": reason changed") (String.isSubstring expected diagnostic);
-        require (label ^ ": diagnostic lost the exact token range")
-          (member (op =) (diagnostic_ranges diagnostic)
-            (range_of (nth_position text label needle 0)))
-      end
-    val _ =
-      List.app parser_failure
-        [("lifetime-position-bound",
-          "fn Bound<'a, /* \<alpha> */ 'b: 'a>(value: &'b mut u8) { () }", ":",
-          "lifetime bounds are not supported")]
+    val bound_text = "fn Bound<'a, /* \<alpha> */ 'b: 'a>(value: &'b mut u8) { () }"
+    val bound = parse ctxt "lifetime-position-bound" bound_text
+    val _ = require "retained lifetime bound preserves the original colon token range"
+      (case #parameters (URust_AST.function_generics bound) of
+         [_, URust_AST.Generic_Lifetime_Bounds (_, _, layout)] =>
+           map range_of (URust_AST.source_token_positions layout (URust_AST.Delimiter_Token ":")) =
+             [range_of (nth_position bound_text "lifetime-position-bound" ":" 0)]
+       | _ => false)
   in val _ = () end
 \<close>
 

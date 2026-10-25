@@ -1065,4 +1065,75 @@ lemma generic_combined_twins:
   unfolding generic_combined_identity_def generic_combined_escape_def
     generic_combined_call_def generic_combined_call_twin_def by (rule refl)+
 
+chapter\<open> Complete HOL signatures retain rich headers \<close>
+
+text\<open>
+A complete HOL signature preserves Rust header syntax without resolving its bounds or types.
+The body still uses the authored HOL argument types. Conditional-const headers are preserved
+syntactically here; const eligibility, const evaluation and function modifiers are not implemented.
+\<close>
+
+urust_fn [pp_test] declared_rich_header
+  :: \<open> nat \<Rightarrow> ('s, nat, 'abort, 'i, 'o) function_body \<close>
+\<open>
+  fn DeclaredRichHeader<'a: 'b, 'b,
+      T: outer::Sequence<Item = Unknown> + Fn((), &'a Unknown) -> Unknown + 'a,
+      const N: u64>(value: Unknown) -> Unknown
+    where outer::Head<T>: [const] FnOnce(Unknown) -> Unknown + [const] Marker,
+          'a: 'b,
+  { value }
+\<close>
+
+urust_fn declared_rich_plain
+  :: \<open> nat \<Rightarrow> ('s, nat, 'abort, 'i, 'o) function_body \<close>
+  \<open> fn DeclaredRichPlain(value: Unknown) -> Unknown { value } \<close>
+
+lemma declared_rich_header_twin: \<open> declared_rich_header = declared_rich_plain \<close>
+  unfolding declared_rich_header_def declared_rich_plain_def by (rule refl)
+
+urust_fn [pp_test] declared_higher_rank
+  :: \<open> ('s, unit, 'abort, 'i, 'o) function_body \<close>
+  \<open> fn DeclaredHigherRank<F: for<'a> Fn(&'a Unknown) -> Unknown>() {} \<close>
+
+urust_fn declared_higher_rank_plain
+  :: \<open> ('s, unit, 'abort, 'i, 'o) function_body \<close>
+  \<open> fn DeclaredHigherRankPlain() {} \<close>
+
+lemma declared_higher_rank_twin: \<open> declared_higher_rank = declared_higher_rank_plain \<close>
+  unfolding declared_higher_rank_def declared_higher_rank_plain_def by (rule refl)
+
+urust_fn [pp_test, hol_type_parameters = ["T" \<rightarrow> \<open>'payload::ord\<close>]]
+  declared_weak_sort
+  :: \<open> 'payload \<Rightarrow> ('s, 'payload, 'abort, 'i, 'o) function_body \<close>
+  \<open> fn DeclaredWeakSort<T: Scale + Unknown>(value: Unknown) -> Unknown { value } \<close>
+
+urust_fn declared_weak_sort_plain
+  :: \<open> 'payload \<Rightarrow> ('s, 'payload, 'abort, 'i, 'o) function_body \<close>
+  \<open> fn DeclaredWeakSortPlain(value: Unknown) -> Unknown { value } \<close>
+
+lemma declared_weak_sort_twin: \<open> declared_weak_sort = declared_weak_sort_plain \<close>
+  unfolding declared_weak_sort_def declared_weak_sort_plain_def by (rule refl)
+
+urust_fn declared_body_trait
+  :: \<open> 't::trait_scale \<Rightarrow> ('s, nat, 'abort, 'i, 'o) function_body \<close>
+  \<open> fn DeclaredBodyTrait<T: Unregistered>(marker: Unknown) -> Unknown { T::CEILING } \<close>
+
+urust_fn declared_body_trait_plain
+  :: \<open> 't::trait_scale \<Rightarrow> ('s, nat, 'abort, 'i, 'o) function_body \<close>
+  \<open> fn DeclaredBodyTraitPlain(marker: Unknown) -> Unknown { \<llangle>trait_ceiling TYPE('t)\<rrangle> } \<close>
+
+lemma declared_body_trait_twin: \<open> declared_body_trait = declared_body_trait_plain \<close>
+  unfolding declared_body_trait_def declared_body_trait_plain_def by (rule refl)
+
+urust_fn declared_body_const
+  :: \<open> 'n::len0 \<Rightarrow> ('s, 64 word, 'abort, 'i, 'o) function_body \<close>
+  \<open> fn DeclaredBodyConst<const N: bool>(marker: Unknown) -> Unknown { N } \<close>
+
+urust_fn declared_body_const_plain
+  :: \<open> 'n::len0 \<Rightarrow> ('s, 64 word, 'abort, 'i, 'o) function_body \<close>
+  \<open> fn DeclaredBodyConstPlain(marker: Unknown) -> Unknown { \<llangle>of_nat LENGTH('n) :: 64 word\<rrangle> } \<close>
+
+lemma declared_body_const_twin: \<open> declared_body_const = declared_body_const_plain \<close>
+  unfolding declared_body_const_def declared_body_const_plain_def by (rule refl)
+
 end

@@ -118,6 +118,8 @@ sig
       URust_AST.rust_type list -> URust_AST.rust_type -> typ
   val check_lifetimes: URust_AST.rust_lifetime list -> URust_AST.rust_type list -> unit
   val check_signature_syntax: Proof.context -> URust_AST.rust_type list -> unit
+  val check_function_header: Proof.context -> URust_AST.urust_function -> unit
+  val rust_type_operands: URust_AST.rust_type -> URust_AST.rust_type list
   val resolve_fields:
     Proof.context -> URust_AST.rust_type list ->
       {types: typ list, backend_parameters: (string * sort) list}
@@ -210,6 +212,9 @@ sig
   val replay_generic_argument_events:
     Proof.context -> {source_uses: string list, witness_uses: string list} -> unit
   val with_source_only_parameters: string list -> Proof.context -> Proof.context
+  val with_declared_body_parameters: string list -> Proof.context -> Proof.context
+  val declared_generic_scope: Proof.context -> bool
+  val parameter_available: Proof.context -> generic_parameter -> bool
   val parameter_has_witness: Proof.context -> generic_parameter -> bool
   val generic_reference_requires_witness: unit -> bool
   val parameter_names:
@@ -1255,6 +1260,11 @@ struct
     type T = Position.T list Unsynchronized.ref option
     fun init _ = NONE
   )
+  structure Declared_Body_Parameters = Proof_Data
+  (
+    type T = generic_parameter list option
+    fun init _ = NONE
+  )
 
   fun with_generic_scope (scope as {parameters}: generic_scope) ctxt =
     let
@@ -1264,12 +1274,32 @@ struct
           SOME (_, identity) => identity | NONE => serial ())
     in ctxt |> Generic_Scope.put (SOME scope)
       |> Generic_Identities.put (map identity parameters)
-      |> Source_Only_Parameters.put [] end
+      |> Source_Only_Parameters.put []
+      |> Declared_Body_Parameters.put NONE end
 
   fun with_source_only_parameters names ctxt =
     Source_Only_Parameters.put
       (filter (fn parameter => member (op =) names (fst (#hol parameter)))
         (scope_parameters ctxt)) ctxt
+
+  (* Compatibility schemes retain unused declared slots. This separate state controls actual
+     body binding, including erased source references which need no HOL witness in Rust mode. *)
+  fun with_declared_body_parameters unavailable ctxt =
+    Declared_Body_Parameters.put (SOME
+      (filter (fn parameter => member (op =) unavailable (fst (#hol parameter)))
+        (scope_parameters ctxt))) ctxt
+
+  fun declared_generic_scope ctxt = is_some (Declared_Body_Parameters.get ctxt)
+
+  fun parameter_available ctxt parameter =
+    not (exists (fn installed => same_generic_parameter (parameter, installed))
+      (the_default [] (Declared_Body_Parameters.get ctxt)))
+
+  fun require_parameter_available ctxt (parameter: generic_parameter) pos =
+    if parameter_available ctxt parameter then ()
+    else error ("urust: generic parameter " ^ #rust parameter ^
+      " does not occur in the signature" ^ Position.here pos ^
+      "; parameter declared" ^ Position.here (#pos parameter))
 
   fun parameter_has_witness ctxt parameter =
     not (exists (fn installed => same_generic_parameter (parameter, installed))
@@ -1363,11 +1393,13 @@ struct
     end
 
   fun report_generic_reference ctxt parameter pos =
-    (observe_generic_reference true ctxt parameter;
+    (require_parameter_available ctxt parameter pos;
+     observe_generic_reference true ctxt parameter;
      generic_reference_callback true parameter pos)
 
   fun report_generic_source_reference ctxt parameter pos =
-    (observe_generic_reference false ctxt parameter;
+    (require_parameter_available ctxt parameter pos;
+     observe_generic_reference false ctxt parameter;
      Option.app (fn positions => positions := pos :: !positions) (Source_Only_Positions.get ctxt);
      generic_reference_callback false parameter pos)
 
@@ -2529,6 +2561,197 @@ struct
         if reserved_lifetime name orelse Symtab.defined scope name then ()
         else error ("urust_fn: undeclared lifetime " ^ quote name ^ Position.here pos)
     in List.app check (maps lifetime_uses rust_types) end
+
+  (* Header syntax is independent of HOL denotation. Item lifetimes are collected first; each
+     higher-ranked binder extends only its own bound/predicate and cannot shadow that scope. *)
+  fun check_function_header ctxt function =
+    let
+      fun declare (Rust_Lifetime (name, pos)) scope =
+        if reserved_lifetime name then
+          error ("urust_fn: " ^ quote name ^ " cannot be declared as a lifetime parameter" ^
+            Position.here pos)
+        else
+          (case Symtab.lookup scope name of
+             SOME (first, _) =>
+               error ("urust_fn: duplicate lifetime parameter " ^ quote name ^
+                 Position.here_list [first, pos])
+           | NONE =>
+               let
+                 val identity = serial ()
+                 val _ = Navigation.defer_report ctxt pos
+                   (Position.make_entity_markup {def = true} identity "urust_lifetime" (name, pos))
+               in Symtab.update (name, (pos, identity)) scope end)
+      val scope = fold declare (function_lifetime_parameters function) Symtab.empty
+      val descriptors = function_type_parameters function
+      fun local_kind name =
+        get_first (fn Generic_Parameter (rust, _, kind) =>
+          if rust = name then SOME kind else NONE) descriptors
+      (* Definite type positions retain local generic kinds even when HOL denotation is ignored.
+         Bare path generic arguments remain neutral without source-arity selection. *)
+      fun type_kind (purpose as (type_position, _)) (Path_Type (segments, _)) =
+            let
+              val _ =
+                (case segments of
+                   Rust_Type_Path_Segment (name, pos, _, _) :: _ =>
+                     if local_kind name = SOME Const_Parameter then
+                       error ("urust_fn: const parameters cannot be used as " ^ type_position ^
+                         Position.here pos)
+                     else ()
+                 | _ => ())
+            in generic_kinds purpose segments end
+        | type_kind (purpose as (_, const_position)) (Const_Array_Type (element, length, _)) =
+            (type_kind purpose element;
+             case length of
+               Path_Type ([Rust_Type_Path_Segment (name, pos, NONE, _)], _) =>
+                 if local_kind name = SOME Type_Parameter then
+                   error ("urust_fn: type parameters cannot be used as const " ^ const_position ^
+                     Position.here pos)
+                 else ()
+             | _ => ())
+        | type_kind purpose typ = List.app (type_kind purpose) (rust_type_operands typ)
+      and generic_kinds purpose segments =
+            let
+              fun argument (Rust_Associated_Type_Argument (_, _, typ)) = type_kind purpose typ
+                | argument (Rust_Type_Argument (Path_Type (nested, _))) = generic_kinds purpose nested
+                | argument (Rust_Type_Argument typ) = type_kind purpose typ
+                | argument _ = ()
+              fun segment (Rust_Type_Path_Segment (_, _, arguments, _)) =
+                List.app argument (the_default [] arguments)
+            in List.app segment segments end
+      fun use outlives scope (Rust_Lifetime (name, pos)) =
+        if outlives andalso name = "'_" then
+          error ("urust_fn: placeholder lifetime " ^ quote name ^ " is not allowed in bounds" ^
+            Position.here pos)
+        else if reserved_lifetime name then ()
+        else
+          (case Symtab.lookup scope name of
+             NONE => error ("urust_fn: undeclared lifetime " ^ quote name ^ Position.here pos)
+           | SOME (declaration, identity) =>
+               Navigation.defer_report ctxt pos
+                 (Position.make_entity_markup {def = false} identity "urust_lifetime"
+                   (name, declaration)))
+      fun binder scope lifetimes =
+        let
+          val local_scope = fold declare lifetimes Symtab.empty
+          val _ = List.app (fn (Rust_Lifetime (name, pos)) =>
+            case Symtab.lookup scope name of
+              NONE => ()
+            | SOME (first, _) =>
+                error ("urust_fn: bound lifetime " ^ quote name ^
+                  " shadows an enclosing lifetime" ^ Position.here_list [first, pos])) lifetimes
+        in Symtab.fold Symtab.update local_scope scope end
+      fun typ check_syntax strict scope rust_type =
+        let
+          fun visit _ (Function_Type (inputs, output, _)) =
+                List.app (visit NONE) (inputs @ the_list output)
+            | visit context (Reference_Type (_, lifetime, nested, layout)) =
+                (case (context, lifetime) of
+                   (SOME purpose, NONE) =>
+                     error ("urust_fn: reference lifetime must be explicit in a " ^ purpose ^
+                       Position.here (the_default (source_span layout)
+                         (try hd (source_token_positions layout Operator_Token))))
+                 | (_, SOME lifetime) => (use (is_some context) scope lifetime; visit context nested)
+                 | _ => visit context nested)
+            | visit context (Path_Type (segments, _)) =
+                let
+                  fun argument (Rust_Lifetime_Argument lifetime) = use (is_some context) scope lifetime
+                    | argument (Rust_Type_Argument typ) = visit context typ
+                    | argument (Rust_Associated_Type_Argument (_, _, typ)) = visit context typ
+                    | argument _ = ()
+                  fun segment (Rust_Type_Path_Segment (_, _, arguments, _)) =
+                    List.app argument (the_default [] arguments)
+                in List.app segment segments end
+            | visit context typ = List.app (visit context) (rust_type_operands typ)
+          val _ = if check_syntax then check_signature_syntax ctxt [rust_type] else ()
+        in visit strict rust_type end
+      (* Callable elision uses only source-visible input lifetime occurrences. Function pointers
+         introduce their own binder boundary; external nominal/alias lifetime inference is not
+         performed for ignored header types. *)
+      fun callable_lifetimes (Function_Type _) = []
+        | callable_lifetimes (Reference_Type (_, lifetime, nested, layout)) =
+            (case lifetime of
+               SOME (Rust_Lifetime (_, pos)) => [pos]
+             | NONE => [the_default (source_span layout)
+                 (try hd (source_token_positions layout Operator_Token))]) @
+            callable_lifetimes nested
+        | callable_lifetimes (Path_Type (segments, _)) =
+            let
+              fun argument (Rust_Lifetime_Argument (Rust_Lifetime (_, pos))) = [pos]
+                | argument (Rust_Type_Argument typ) = callable_lifetimes typ
+                | argument (Rust_Associated_Type_Argument (_, _, typ)) = callable_lifetimes typ
+                | argument _ = []
+              fun segment (Rust_Type_Path_Segment (_, _, arguments, _)) =
+                maps argument (the_default [] arguments)
+            in maps segment segments end
+        | callable_lifetimes typ = maps callable_lifetimes (rust_type_operands typ)
+      fun elided_result (Function_Type _) = []
+        | elided_result (Reference_Type (_, NONE, nested, layout)) =
+            the_default (source_span layout)
+              (try hd (source_token_positions layout Operator_Token)) :: elided_result nested
+        | elided_result (Reference_Type (_, SOME (Rust_Lifetime ("'_", pos)), nested, _)) =
+            pos :: elided_result nested
+        | elided_result (Path_Type (segments, _)) =
+            let
+              fun argument (Rust_Lifetime_Argument (Rust_Lifetime ("'_", pos))) = [pos]
+                | argument (Rust_Type_Argument typ) = elided_result typ
+                | argument (Rust_Associated_Type_Argument (_, _, typ)) = elided_result typ
+                | argument _ = []
+              fun segment (Rust_Type_Path_Segment (_, _, arguments, _)) =
+                maps argument (the_default [] arguments)
+            in maps segment segments end
+        | elided_result typ = maps elided_result (rust_type_operands typ)
+      fun callable_result inputs output =
+        (case maps elided_result (the_list output) of
+           pos :: _ =>
+             if length (maps callable_lifetimes inputs) = 1 then ()
+             else error ("urust_fn: callable result lifetime must be explicit when its inputs " ^
+               "do not contain exactly one source lifetime" ^ Position.here pos)
+         | [] => ())
+      fun path scope segments layout =
+        typ true NONE scope (Path_Type (map (fn (name, pos) =>
+          Rust_Type_Path_Segment (name, pos, NONE, make_source_layout pos [])) segments, layout))
+      fun bound scope (Rust_Trait_Bound (segments, layout)) = path scope segments layout
+        | bound scope (Rust_Generic_Trait_Bound (rust_type, _)) =
+            (case rust_type of
+               Path_Type (segments, _) =>
+                 generic_kinds ("generic trait type operands", "generic trait operands") segments
+             | _ => ();
+             typ true (SOME "generic trait bound") scope rust_type)
+        | bound scope (Rust_Callable_Bound (segments, inputs, output, layout)) =
+            (path scope segments layout;
+             List.app (type_kind ("callable type operands", "callable operands"))
+               (inputs @ the_list output);
+             List.app (typ true NONE scope) (inputs @ the_list output);
+             callable_result inputs output)
+        | bound scope (Rust_Outlives_Bound lifetime) = use true scope lifetime
+        | bound scope (Rust_Const_Bound (nested, _)) = bound scope nested
+        | bound scope (Rust_For_Bound (lifetimes, nested, _)) = bound (binder scope lifetimes) nested
+      fun predicate scope (Rust_Type_Predicate (head, bounds, _)) =
+            (type_kind ("type where heads", "where operands") head;
+             typ true (SOME "where predicate") scope head; List.app (bound scope) bounds)
+        | predicate scope (Rust_Lifetime_Predicate (head, bounds, _)) =
+            (use true scope head; List.app (bound scope) bounds)
+        | predicate scope (Rust_For_Predicate (lifetimes, nested, _)) =
+            predicate (binder scope lifetimes) nested
+      fun parameter (Generic_Lifetime_Bounds (_, bounds, _)) = List.app (bound scope) bounds
+        | parameter (Generic_Type (_, _, bounds)) = List.app (bound scope) bounds
+        | parameter (Generic_Const (_, _, rust_type)) =
+            (type_kind ("const declaration types", "const declaration operands") rust_type;
+             typ true NONE scope rust_type)
+        | parameter _ = ()
+      (* Parameter/receiver preparation keeps its established smallest-token diagnostics; common
+         header traversal checks their lifetime scope without preempting that syntax owner. *)
+      fun formal (Function_Parameter (_, _, rust_type, _)) = typ false NONE scope rust_type
+        | formal (Receiver_Parameter (Receiver_Ref {lifetime, ...}, _, _)) =
+            Option.app (use false scope) lifetime
+        | formal _ = ()
+      val {parameters, where_clause, ...} = function_generics function
+    in
+      List.app parameter parameters;
+      List.app (predicate scope) where_clause;
+      List.app formal (function_parameters function);
+      Option.app (typ false NONE scope) (function_return_type function)
+    end
 
   datatype channel_source =
       Authored_Channel of Input.source

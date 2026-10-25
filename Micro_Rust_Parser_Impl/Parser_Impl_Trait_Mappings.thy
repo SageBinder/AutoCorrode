@@ -174,6 +174,26 @@ struct
       val _ = Navigation.defer_report ctxt pos
         (Position.make_entity_markup {def = false} identity traitN (path, #pos entry))
     in entry end
+    | resolve_bound _ bound =
+        let
+          val layout = URust_AST.trait_bound_layout bound
+          fun token role =
+            the_default (URust_AST.source_span layout)
+              (try hd (URust_AST.source_token_positions layout role))
+          val (reason, pos) =
+            (case bound of
+               Rust_Generic_Trait_Bound _ =>
+                 ("generic trait bounds are not supported", token (URust_AST.Delimiter_Token "<"))
+             | Rust_Callable_Bound _ =>
+                 ("Fn trait bounds are not supported", token (URust_AST.Delimiter_Token "("))
+             | Rust_Outlives_Bound (URust_AST.Rust_Lifetime (_, pos)) =>
+                 ("lifetime bounds are not supported", pos)
+             | Rust_Const_Bound _ =>
+                 ("conditional-const trait bounds are not supported", token (URust_AST.Delimiter_Token "["))
+             | Rust_For_Bound _ =>
+                 ("higher-ranked trait bounds are not supported", token (URust_AST.Keyword_Token "for"))
+             | Rust_Trait_Bound _ => raise Fail "urust_trait: plain bound classification")
+        in fail (reason ^ " by authoritative HOL denotation") pos end
 
   fun checked_constant ctxt trait_sort ((name, name_pos), source) =
     let

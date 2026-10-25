@@ -27,7 +27,7 @@ The session separates human-readable tests from ML tests. Most topics have two t
 | `urust_datatype`, simple word enums, cast-target and type aliases, raw pointers, generic datatypes, Rust type mappings | `Parser_Datatype_Examples` | `Parser_Datatype_ML_Tests` |
 | Source-ordered `urust` chunks and Rust `use` imports in chunks and blocks | `Parser_Chunk_Use_Examples` | `Parser_Chunk_Use_ML_Tests` |
 | Inherent `impl` blocks: syntax, member declarations and registrations, `Self`, receivers, path selection, type heads, direct calls and imports | `Parser_Impl_Examples` | `Parser_Impl_ML_Tests` |
-| Trait mappings, generic function syntax/signatures, scoped bodies and generated turbofish | `Parser_Generics_Examples` | `Parser_Generics_ML_Tests` |
+| Trait mappings, generic function syntax/signatures, retained rich bounds and declared HOL schemes, scoped bodies and generated turbofish | `Parser_Generics_Examples` | `Parser_Generics_ML_Tests` |
 | Combined showcase | `Parser_Showcase_Examples` | |
 
 Four theories provide shared support. `Parser_Test_Utils.thy` holds the shared ML support

@@ -824,6 +824,55 @@ fun signature_bound_operator markup name constructor (yypos, text) =
   then tokF (yypos, text, markup, name, constructor)
   else URust_Grammar.lex_error text (fixed_pos yypos)
 
+(* Recognize a binder opener without consuming it. Whitespace/comments keep their normal lexer
+   actions and positions; ordinary identifiers named `for` retain the delivered IDENT path. *)
+fun signature_binder_follows (yypos, yytext) =
+  let
+    val text = Parser_Lex_Util.text_of (!source_layout)
+    val stop = size text
+    fun starts offset token =
+      offset + size token <= stop andalso String.substring (text, offset, size token) = token
+    fun balanced opener closer depth offset =
+      if offset >= stop then stop
+      else if starts offset opener then balanced opener closer (depth + 1) (offset + size opener)
+      else if starts offset closer then
+        if depth = 1 then offset + size closer
+        else balanced opener closer (depth - 1) (offset + size closer)
+      else balanced opener closer depth (offset + 1)
+    fun line offset =
+      if offset >= stop orelse String.sub (text, offset) = #"\n" then offset
+      else line (offset + 1)
+    fun blanks offset =
+      if offset < stop andalso Char.isSpace (String.sub (text, offset))
+      then blanks (offset + 1) else offset
+    fun significant offset =
+      let val next = blanks offset in
+        if starts next "/*" then significant (balanced "/*" "*/" 1 (next + 2))
+        else if starts next "//" then significant (line (next + 2))
+        else if starts next Symbol.comment then
+          let val open_at = blanks (next + size Symbol.comment) in
+            if starts open_at Symbol.open_
+            then significant (balanced Symbol.open_ Symbol.close 1 (open_at + size Symbol.open_))
+            else next
+          end
+        else next
+      end
+    val angle = significant (yypos + size yytext)
+    val first = significant (angle + 1)
+  in starts angle "<" andalso
+    (first >= stop orelse starts first "'" orelse starts first ">") end
+
+fun signature_for args =
+  if !signature_context = Function_Signature andalso
+      !signature_paren_depth = 0 andalso !signature_bracket_depth = 0 andalso
+      ((!signature_angle_depth = 1 andalso not (!function_parameters_started)) orelse
+       (!function_where_started andalso !signature_angle_depth = 0)) andalso
+      List.exists (fn token => token = !last_token)
+        ["TCOLON", "TPLUS", "TWHERE", "COMMA", "TGT", "TRBRACK"] andalso
+      signature_binder_follows args
+  then tokF (#1 args, #2 args, Markup.keyword1, "TFOR", Tokens.TFOR)
+  else impl_header_keyword "a trait impl (`impl Trait for T`)" args
+
 fun signature_equals args =
   if !signature_context = Function_Signature andalso
       not (!function_parameters_started) andalso
@@ -1518,7 +1567,7 @@ lex_rules\<open>
 <FNSIG>"fn"     => (tokF (yypos, yytext, Markup.keyword1, "TFN", Tokens.TFN));
 <FNSIG>"impl"   => (tok_impl (yypos, yytext));
 <FNSIG>"for"    =>
-    (impl_header_keyword "a trait impl (`impl Trait for T`)" (yypos, yytext));
+    (signature_for (yypos, yytext));
 <FNSIG>"where"  => (signature_where (yypos, yytext));
 <FNSIG>"mut"    => (tokF (yypos, yytext, Markup.keyword1, "TMUT", Tokens.TMUT));
 <FNSIG>"const"  => (tokF (yypos, yytext, Markup.keyword1, "TCONST", Tokens.TCONST));
@@ -1951,18 +2000,23 @@ fun rust_type_parameter mutable_pos pattern typ colon_pos =
 
 fun check_function_generics parameters =
   let
+    fun lifetime (Generic_Lifetime lifetime) = SOME lifetime
+      | lifetime (Generic_Lifetime_Bounds (lifetime, _, _)) = SOME lifetime
+      | lifetime _ = NONE
     fun check _ _ [] = ()
-      | check named seen (Generic_Lifetime (Rust_Lifetime (_, pos)) :: rest) =
-          if named then URust_Grammar.function_generic_error
-            "lifetime parameters must be declared prior to type and const parameters" pos
-          else check false seen rest
-      | check _ seen (parameter :: rest) =
+      | check named seen (parameter :: rest) =
+        (case lifetime parameter of
+           SOME (Rust_Lifetime (_, pos)) =>
+             if named then URust_Grammar.function_generic_error
+               "lifetime parameters must be declared prior to type and const parameters" pos
+             else check false seen rest
+         | NONE =>
           let
             val (name, pos) =
               (case parameter of
                  Generic_Type (name, pos, _) => (name, pos)
                | Generic_Const (name, pos, _) => (name, pos)
-               | Generic_Lifetime _ => raise Fail "uRust generic parameter classification")
+               | _ => raise Fail "uRust generic parameter classification")
             val _ =
               (case List.find (fn (earlier, _) => earlier = name) seen of
                  NONE => ()
@@ -1970,7 +2024,7 @@ fun check_function_generics parameters =
                    URust_Grammar.function_generic_error
                      ("duplicate generic parameter " ^ name ^ Position.here pos ^
                        "; first declared") original)
-          in check true ((name, pos) :: seen) rest end
+          in check true ((name, pos) :: seen) rest end)
   in check false [] parameters end
 
 fun function_parameter_markup parameters =
@@ -1982,7 +2036,7 @@ fun function_parameter_markup parameters =
     List.app
       (fn Generic_Type (name, pos, _) => report "type" (name, pos)
         | Generic_Const (name, pos, _) => report "const" (name, pos)
-        | Generic_Lifetime _ => ()) parameters
+        | _ => ()) parameters
   end
 
 fun function_trait_path (name, pos) =
@@ -1994,33 +2048,21 @@ fun append_function_trait_path (Rust_Trait_Bound (segments, layout), name, pos, 
      syntax_layout (source_span layout) pos
        (source_tokens layout @ [(Delimiter_Token "::", separator), (Name_Token, pos)]))
 
-fun function_trait_tokens (Rust_Trait_Bound (_, layout)) = source_tokens layout
+fun function_trait_tokens bound = source_tokens (trait_bound_layout bound)
 
-fun function_const_parameter (name, pos, typ) =
-  (case typ of
-     Primitive_Type (DPT_Usize, _) => Generic_Const (name, pos, typ)
-   | _ => URust_Grammar.datatype_error "const parameters require usize" (rust_type_position typ))
+fun function_const_parameter (name, pos, typ) = Generic_Const (name, pos, typ)
 
-fun function_where_head typ =
+fun function_generic_trait (Rust_Trait_Bound (segments, path_layout), arguments, left, right) =
   let
-    fun layout_position layout =
-      (case source_tokens layout of (_, pos) :: _ => pos | [] => source_span layout)
-    fun head_position (Path_Type (Rust_Type_Path_Segment (_, pos, _, _) :: _, _)) = pos
-      | head_position (Tuple_Type (_, layout)) = layout_position layout
-      | head_position (Group_Type (_, layout)) = layout_position layout
-      | head_position (Reference_Type (_, _, _, layout)) = layout_position layout
-      | head_position (Raw_Pointer_Type (_, _, layout)) = layout_position layout
-      | head_position (Slice_Type (_, layout)) = layout_position layout
-      | head_position (Array_Type (_, _, layout)) = layout_position layout
-      | head_position (Const_Array_Type (_, _, layout)) = layout_position layout
-      | head_position (Function_Type (_, _, layout)) = layout_position layout
-      | head_position (Impl_Trait_Type (_, layout)) = layout_position layout
-      | head_position other = rust_type_position other
+    val layout = syntax_layout (source_span path_layout) right
+      (source_tokens path_layout @ [(Delimiter_Token "<", left), (Delimiter_Token ">", right)])
+    fun path [] = []
+      | path [(name, pos)] =
+          [Rust_Type_Path_Segment (name, pos, SOME arguments, single_token_layout Name_Token pos)]
+      | path ((name, pos) :: rest) =
+          Rust_Type_Path_Segment (name, pos, NONE, single_token_layout Name_Token pos) :: path rest
   in
-    (case typ of
-       Path_Type ([Rust_Type_Path_Segment (name, pos, NONE, _)], _) => (name, pos)
-     | _ => URust_Grammar.function_generic_error
-         "where clauses may only bound this function's type parameters" (head_position typ))
+    Rust_Generic_Trait_Bound (Path_Type (path segments, layout), layout)
   end
 
 fun rust_function_item
@@ -2029,13 +2071,6 @@ fun rust_function_item
      fn_pos, left_paren, right_paren, arrow_pos) =
   let
     val _ = check_function_generics generics
-    val _ =
-      List.app (fn (head, pos, _) =>
-        if List.exists
-            (fn Generic_Type (name, _, _) => name = head | _ => false) generics
-        then ()
-        else URust_Grammar.function_generic_error
-          "where clauses may only bound this function's type parameters" pos) where_clause
     val _ = function_parameter_markup generics
     val generic_tokens = source_tokens generic_layout
     val where_tokens = source_tokens where_layout
@@ -2253,16 +2288,27 @@ yacc_definitions\<open>
            URust_AST.rust_trait_bound list * (URust_AST.source_token * Position.T) list
        | ufn_optional_bounds of
            URust_AST.rust_trait_bound list * (URust_AST.source_token * Position.T) list
-       | ufn_lifetime_bounds of unit
+       | ufn_lifetime_bounds of
+           URust_AST.rust_trait_bound list * (URust_AST.source_token * Position.T) list
+       | ufn_lifetime_parameters of
+           URust_AST.rust_lifetime list * (URust_AST.source_token * Position.T) list
+       | ufn_for_lifetimes of URust_AST.rust_lifetime list * URust_AST.source_layout
        | ufn_trait_bound of URust_AST.rust_trait_bound
+       | ufn_modified_trait of URust_AST.rust_trait_bound
+       | ufn_trait_atom of URust_AST.rust_trait_bound
        | ufn_trait_path of URust_AST.rust_trait_bound
        | ufn_where of
-           (string * Position.T * URust_AST.rust_trait_bound list) list * URust_AST.source_layout
+           URust_AST.function_predicate list * URust_AST.source_layout
        | ufn_where_items of
-           (string * Position.T * URust_AST.rust_trait_bound list) list *
+           URust_AST.function_predicate list *
            (URust_AST.source_token * Position.T) list
        | ufn_where_item of
-           (string * Position.T * URust_AST.rust_trait_bound list) *
+           URust_AST.function_predicate * (URust_AST.source_token * Position.T) list
+       | ufn_where_atom of
+           URust_AST.function_predicate *
+           (URust_AST.source_token * Position.T) list
+       | ufn_where_type_atom of
+           URust_AST.function_predicate *
            (URust_AST.source_token * Position.T) list
        | ufn_parameter_list of URust_AST.function_parameter list
        | ufn_parameters of URust_AST.function_parameter list
@@ -2599,7 +2645,12 @@ yacc_rules\<open>
          (Generic_Lifetime (Rust_Lifetime (TLIFETIME, TLIFETIMEleft)),
           [(Name_Token, TLIFETIMEleft)])
      | TLIFETIME TCOLON ufn_lifetime_bounds
-         (URust_Grammar.lifetime_error "lifetime bounds are not supported" TCOLONleft)
+         (let val lifetime = Rust_Lifetime (TLIFETIME, TLIFETIMEleft)
+              val tokens = [(Name_Token, TLIFETIMEleft), (Delimiter_Token ":", TCOLONleft)] @
+                #2 ufn_lifetime_bounds
+          in (Generic_Lifetime_Bounds (lifetime, #1 ufn_lifetime_bounds,
+                syntax_layout TLIFETIMEleft ufn_lifetime_boundsright tokens), tokens)
+          end)
      | IDENT ufn_optional_bounds
          (Generic_Type (IDENT, IDENTleft, #1 ufn_optional_bounds),
           [(Name_Token, IDENTleft)] @ #2 ufn_optional_bounds)
@@ -2619,28 +2670,70 @@ yacc_rules\<open>
          (#1 ufn_bounds, (Delimiter_Token ":", TCOLONleft) :: #2 ufn_bounds)
    ufn_bounds :
        ufn_trait_bound ([ufn_trait_bound], function_trait_tokens ufn_trait_bound)
+     | ufn_trait_bound TPLUS
+         ([ufn_trait_bound], function_trait_tokens ufn_trait_bound @ [(Operator_Token, TPLUSleft)])
      | ufn_trait_bound TPLUS ufn_bounds
          (ufn_trait_bound :: #1 ufn_bounds,
           function_trait_tokens ufn_trait_bound @ [(Operator_Token, TPLUSleft)] @ #2 ufn_bounds)
    ufn_lifetime_bounds :
-       TLIFETIME (())
-     | TLIFETIME TPLUS ufn_lifetime_bounds (())
+       TLIFETIME
+         ([Rust_Outlives_Bound (Rust_Lifetime (TLIFETIME, TLIFETIMEleft))],
+          [(Name_Token, TLIFETIMEleft)])
+     | TLIFETIME TPLUS
+         ([Rust_Outlives_Bound (Rust_Lifetime (TLIFETIME, TLIFETIMEleft))],
+          [(Name_Token, TLIFETIMEleft), (Operator_Token, TPLUSleft)])
+     | TLIFETIME TPLUS ufn_lifetime_bounds
+         (Rust_Outlives_Bound (Rust_Lifetime (TLIFETIME, TLIFETIMEleft)) :: #1 ufn_lifetime_bounds,
+          [(Name_Token, TLIFETIMEleft), (Operator_Token, TPLUSleft)] @ #2 ufn_lifetime_bounds)
+   ufn_lifetime_parameters :
+       TLIFETIME ([Rust_Lifetime (TLIFETIME, TLIFETIMEleft)], [(Name_Token, TLIFETIMEleft)])
+     | TLIFETIME COMMA
+         ([Rust_Lifetime (TLIFETIME, TLIFETIMEleft)],
+          [(Name_Token, TLIFETIMEleft), (Delimiter_Token ",", COMMAleft)])
+     | TLIFETIME COMMA ufn_lifetime_parameters
+         (Rust_Lifetime (TLIFETIME, TLIFETIMEleft) :: #1 ufn_lifetime_parameters,
+          [(Name_Token, TLIFETIMEleft), (Delimiter_Token ",", COMMAleft)] @ #2 ufn_lifetime_parameters)
+   ufn_for_lifetimes :
+       TFOR TLT TGT
+         ([], syntax_layout TFORleft TGTright
+           [(Keyword_Token "for", TFORleft), (Delimiter_Token "<", TLTleft),
+             (Delimiter_Token ">", TGTleft)])
+     | TFOR TLT ufn_lifetime_parameters TGT
+         (#1 ufn_lifetime_parameters,
+          syntax_layout TFORleft TGTright
+            ([(Keyword_Token "for", TFORleft), (Delimiter_Token "<", TLTleft)] @
+              #2 ufn_lifetime_parameters @ [(Delimiter_Token ">", TGTleft)]))
    ufn_trait_bound :
-       ufn_trait_path (ufn_trait_path)
+       ufn_modified_trait (ufn_modified_trait)
      | TQUESTION ufn_trait_path
          (URust_Grammar.function_generic_error
            "optional trait bounds are not supported" TQUESTIONleft)
      | TLIFETIME
-         (URust_Grammar.lifetime_error "lifetime bounds are not supported" TLIFETIMEleft)
+         (Rust_Outlives_Bound (Rust_Lifetime (TLIFETIME, TLIFETIMEleft)))
+     | ufn_for_lifetimes ufn_modified_trait
+         (Rust_For_Bound (#1 ufn_for_lifetimes, ufn_modified_trait,
+           syntax_layout ufn_for_lifetimesleft ufn_modified_traitright
+             (source_tokens (#2 ufn_for_lifetimes) @ function_trait_tokens ufn_modified_trait)))
+   ufn_modified_trait :
+       ufn_trait_atom (ufn_trait_atom)
+     | TLBRACK TCONST TRBRACK ufn_trait_atom
+         (Rust_Const_Bound (ufn_trait_atom,
+           syntax_layout TLBRACKleft ufn_trait_atomright
+             ([(Delimiter_Token "[", TLBRACKleft), (Keyword_Token "const", TCONSTleft),
+               (Delimiter_Token "]", TRBRACKleft)] @ function_trait_tokens ufn_trait_atom)))
+   ufn_trait_atom :
+       ufn_trait_path (ufn_trait_path)
      | ufn_trait_path TLT urust_generic_arguments TGT
-         (URust_Grammar.function_generic_error
-           "generic trait bounds are not supported" TLTleft)
+         (function_generic_trait (ufn_trait_path, urust_generic_arguments, TLTleft, TGTleft))
      | ufn_trait_path TLT TGT
-         (URust_Grammar.function_generic_error
-           "generic trait bounds are not supported" TLTleft)
+         (function_generic_trait (ufn_trait_path, [], TLTleft, TGTleft))
      | ufn_trait_path LPAR urust_optional_types RPAR ufn_return
-         (URust_Grammar.function_generic_error
-           "Fn trait bounds are not supported" LPARleft)
+         (case ufn_trait_path of Rust_Trait_Bound (segments, layout) =>
+           Rust_Callable_Bound (segments, urust_optional_types, #1 ufn_return,
+             syntax_layout (source_span layout) ufn_returnright
+               (source_tokens layout @ [(Delimiter_Token "(", LPARleft),
+                 (Delimiter_Token ")", RPARleft)] @
+                 (case #2 ufn_return of NONE => [] | SOME pos => [(Delimiter_Token "->", pos)]))))
    ufn_trait_path :
        IDENT (function_trait_path (IDENT, IDENTleft))
      | ufn_trait_path TCOLONCOLON IDENT
@@ -2659,11 +2752,25 @@ yacc_rules\<open>
          (#1 ufn_where_item :: #1 ufn_where_items,
           #2 ufn_where_item @ [(Delimiter_Token ",", COMMAleft)] @ #2 ufn_where_items)
    ufn_where_item :
+       ufn_where_atom (ufn_where_atom)
+     | ufn_for_lifetimes ufn_where_type_atom
+         (Rust_For_Predicate (#1 ufn_for_lifetimes, #1 ufn_where_type_atom,
+            syntax_layout ufn_for_lifetimesleft ufn_where_type_atomright
+              (source_tokens (#2 ufn_for_lifetimes) @ #2 ufn_where_type_atom)),
+          source_tokens (#2 ufn_for_lifetimes) @ #2 ufn_where_type_atom)
+   ufn_where_atom :
+       ufn_where_type_atom (ufn_where_type_atom)
+     | TLIFETIME TCOLON ufn_lifetime_bounds
+         (let val tokens = [(Name_Token, TLIFETIMEleft), (Delimiter_Token ":", TCOLONleft)] @
+                #2 ufn_lifetime_bounds
+          in (Rust_Lifetime_Predicate (Rust_Lifetime (TLIFETIME, TLIFETIMEleft),
+                #1 ufn_lifetime_bounds, syntax_layout TLIFETIMEleft ufn_lifetime_boundsright tokens),
+              tokens) end)
+   ufn_where_type_atom :
        urust_type TCOLON ufn_bounds
-         (let val (head, pos) = function_where_head urust_type in
-            ((head, pos, #1 ufn_bounds),
-             [(Name_Token, pos), (Delimiter_Token ":", TCOLONleft)] @ #2 ufn_bounds)
-          end)
+         (let val tokens = [(Delimiter_Token ":", TCOLONleft)] @ #2 ufn_bounds
+          in (Rust_Type_Predicate (urust_type, #1 ufn_bounds,
+                syntax_layout urust_typeleft ufn_boundsright tokens), tokens) end)
   ufn_return :
       (NONE, NONE)
     | TTHINARROW urust_type

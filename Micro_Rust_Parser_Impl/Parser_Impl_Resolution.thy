@@ -554,6 +554,13 @@ struct
          | Const_Parameter =>
              let
                val length_type = TFree hol
+               val _ =
+                 if URust_Type_Mappings.declared_generic_scope ctxt andalso
+                     not (Sign.of_sort (Proof_Context.theory_of ctxt)
+                       (length_type, \<^sort>\<open>len0\<close>))
+                 then error ("urust: declared HOL const parameter " ^ name ^
+                   " does not satisfy sort len0" ^ Position.here pos)
+                 else ()
                val length = Const (\<^const_name>\<open>len_of\<close>,
                  Term.itselfT length_type --> HOLogic.natT) $ Logic.mk_type length_type
              in T.source_position pos
@@ -1813,8 +1820,11 @@ struct
                     in (entry, Proof_Context.cert_term ctxt applied) end)
                     (URust_Trait_Mappings.associated_constant ctxt entry name)
                   end
-              in select_associated_constant ctxt head (name, pos) true
-                (map_filter candidate (distinct (op =) bounds)) end
+                 val candidates =
+                   if URust_Type_Mappings.declared_generic_scope ctxt
+                   then URust_Trait_Mappings.traits_with_constant ctxt typ name
+                   else map_filter candidate (distinct (op =) bounds)
+               in select_associated_constant ctxt head (name, pos) true candidates end
           | _ => NONE)
      | _ => NONE)
 
