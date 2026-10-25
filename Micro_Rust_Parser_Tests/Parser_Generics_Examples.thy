@@ -1022,4 +1022,47 @@ interpretation erasure_identity_nat_one: erasure_identity_transport \<open>1 :: 
 interpretation erasure_identity_nat_two: erasure_identity_transport \<open>2 :: nat\<close> .
 interpretation erasure_identity_bool: erasure_identity_transport True .
 
+chapter\<open> Combined sparse schemes and implicit roles \<close>
+
+urust_type [implicit = \<open> address = 'addr, global = 'store \<close>,
+  erase = \<open> 'tag, 'capacity \<close>]
+  "GenericCombined<'payload, 'tag, const 'capacity>" =
+    \<open> ('addr, 'store, 'payload) Global_Store.ref \<close>
+urust_type_alias \<open>
+  type GenericCombinedAlias<P, Tag, const N: usize> = GenericCombined<P, Tag, N>;
+\<close>
+
+urust_fn \<open>
+  fn GenericCombinedIdentity<P, Tag, const N: usize>(value: Option<GenericCombinedAlias<P, Tag, N>>)
+      -> Option<GenericCombined<P, Tag, N>> { value }
+\<close>
+urust_fn \<open>
+  fn GenericCombinedEscape(value: \<tau>\<open> ('a, 'g, 'p) Global_Store.ref option \<close>)
+      -> \<tau>\<open> ('a, 'g, 'p) Global_Store.ref option \<close> { value }
+\<close>
+urust_fn \<open>
+  fn GenericCombinedForward<P, Tag, const N: usize>(value: Option<GenericCombined<P, Tag, N>>)
+      -> Option<GenericCombined<P, Tag, N>> {
+    GenericCombinedIdentity::<P, Tag, N>(value)
+  }
+\<close>
+urust_fn \<open>
+  fn GenericCombinedCall(value: Option<GenericCombined<u8, foreign::Policy<0>, 0>>)
+      -> Option<GenericCombined<u8, foreign::Policy<0>, 0>> {
+    GenericCombinedIdentity::<u8, foreign::Policy<0>, 0>(value)
+  }
+\<close>
+urust_fn \<open>
+  fn GenericCombinedCallTwin(value: \<tau>\<open> ('a, 'g, 8 word) Global_Store.ref option \<close>)
+      -> \<tau>\<open> ('a, 'g, 8 word) Global_Store.ref option \<close> {
+    GenericCombinedEscape(value)
+  }
+\<close>
+
+lemma generic_combined_twins:
+  shows \<open> generic_combined_identity = generic_combined_escape \<close>
+    and \<open> generic_combined_call = generic_combined_call_twin \<close>
+  unfolding generic_combined_identity_def generic_combined_escape_def
+    generic_combined_call_def generic_combined_call_twin_def by (rule refl)+
+
 end

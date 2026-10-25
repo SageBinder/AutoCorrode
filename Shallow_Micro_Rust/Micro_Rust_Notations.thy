@@ -19,6 +19,19 @@ theory Micro_Rust_Notations
     "print_micro_rust_notations" :: diag
 begin
 
+text\<open>
+The legacy \<open>associated_owner = {self_type, identity}\<close> record and
+\<open>reserve_associated_function\<close>/\<open>associated_functions\<close> APIs remain unchanged.
+\<open>reserve_associated_source_function\<close> and \<open>associated_source_functions\<close>
+add an optional canonical source identity beside the morphism-transformed HOL Self type.
+The old view remains available; source-aware selection compares both identities where erased
+arguments matter. A method receiver carrying only a HOL type cannot recover an erased tag or
+capacity, so an identity-dependent member requires an explicit associated/alias/Self path.
+Native full-type filtering, freshening, maximal candidates, deduplication, ambiguity and explicit
+notation precedence remain authoritative for sparse generated calls. Only a selected candidate
+commits its source observations, callbacks and reports.
+\<close>
+
 (* ===================================================================== *)
 (* uRust-name -> HOL-term registry, consulted by the dispatch term_check  *)
 (* phase on identifier resolution.  Three contexts (literal/field/        *)

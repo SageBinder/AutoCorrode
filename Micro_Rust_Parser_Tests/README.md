@@ -264,18 +264,20 @@ intentionally describe the declaration's own positioned header.
 
 Type/const parameters follow lifetimes, with empty lists and trailing commas supported. Type names
 default to lower-case HOL variables; const `usize` parameters use `len0`, strengthened to `len` by
-arrays or mapped const slots. Inline and own-parameter `where` bounds combine registered trait
+arrays or retained mapped const slots. Inline and own-parameter `where` bounds combine registered trait
 sorts. `hol_type_parameters` selects distinct declaration-local names/sorts, in functions and member
 annotations only. Type and const roles are checked through grouped, tuple, pointer, reference,
 array and mapped positions; kind-neutral checked HOL escapes retain native type behavior. Explicit
 HOL declaration types bypass resolution of retained Rust signature types while preserving header,
 bound, override, lifetime and `Self` checks.
 
-Entirely unused parameters are accepted. An actual authored body use must occur in the complete
-final HOL signature, including channels, even when a mapped type or callee erases it. The header
-reports `urust: generic parameter T does not occur in the signature` otherwise. Lexical values keep
-precedence; an unshadowed type parameter is not a value. Const values and repeats use the finalized
-length witness. The direct audits distinguish real reads from inference seeds, native checked HOL
+Entirely unused parameters keep their legacy witnessed schemes. Parameters used only in erased
+signature positions can have no HOL witness; source-only body forwarding remains valid. Operations
+demanding an absent witness retain the header rejection
+`urust: generic parameter T does not occur in the signature`. Retained occurrences, including
+channels, keep their sorts and witness. Lexical values keep precedence; an unshadowed type parameter
+is not a value. Const values and repeats require the finalized length witness. The direct audits
+distinguish source occurrence from witness demand, real reads from inference seeds, native checked HOL
 sources, foreign/replaced records and copied callbacks; nested captures, failures and actual
 interrupts preserve original scopes/callbacks and clean subsequent captures.
 
@@ -292,7 +294,11 @@ methods and `Self` calls. Wrong counts, kinds and sorts retain list/argument spa
 navigation even under overloads. Calls without turbofish retain inference; explicit-only notations
 retain leading value payloads. Eligible generated-generic/explicit mixed keys reject turbofish,
 including explicitly covered automatic entries. Genuine method/impl filters, ordinary dispatch,
-maximal schemes, deduplication and ambiguity remain authoritative.
+maximal schemes, deduplication and ambiguity remain authoritative. Sparse schemes retain every
+source slot but substitute only available witnesses; erased arguments add no TYPE or value
+argument. Erased inference needs uniquely available source metadata, and HOL-only locals cannot
+recover source tags. Candidate reports, source/witness events and callbacks replay only after
+native selection, including initially compatible competitors rejected after instantiation.
 
 Coverage includes native definitions and `[abbrev]` declarations with equivalent expanded bodies
 and distinct unused headers, disabled registration, current source-serial schemes, locale/replay/
@@ -463,6 +469,33 @@ item name. Chains and ordinary generic parameters capture their dependencies and
 The same registry resolves aliases in casts, function signatures, and datatype fields. Primitive
 cast aliases lower to the identical existing checked term, retaining signedness and mutability.
 Identical registrations are idempotent; conflicts report both declaration positions.
+
+Manual `urust_type` declarations support positioned `implicit` and `erase` cartouches. Named
+address/global roles account for checked template variables independently of ordered source
+slots. Erasure names key placeholders absent from the template; retained slots preserve their
+original indexes. The Datatype pair checks the exact partition, alpha/option-order idempotence,
+conflicts, merge order and rollback, with single-role and pointer sharing. The Function pair
+compares complete principal types, including sorts and all variable/channel sharing, alongside
+kernel escape twins. The Generics pair checks source-only bodies and sparse calls. The Impl pair
+checks distinct tag/capacity owners with equal HOL Self types, explicit associated/alias/Self
+selection, and the positioned HOL-only receiver limitation.
+
+Erased source shapes accept nominal/qualified paths, supported nested arguments, grouping,
+primitives, unsigned unsuffixed integers including zero and supported scoped const parameters.
+Scope and formal hooks precede imports/opaque fallback. Known arity/kinds and rigid existing bound
+evidence are checked without allocating a nested implicit backend. References, pointers, arrays,
+slices, callable types, impl Trait, macros, HOL escapes, lifetimes, associated bindings and general
+const expressions remain rejected inside erased arguments, including nested occurrences. This is
+source-shape validation, not full Rust item resolution, trait solving or const evaluation.
+
+Combined fixtures in each existing owner and the standalone Showcase compose retained payloads,
+erased policy/capacity, aliases and shared backend roles across nested signatures, generated field
+schemes, explicit generated calls and concrete impls. Generated datatype source parameters remain
+witnessed phantoms where appropriate; manual erasure changes no generated datatype policy.
+Impl members reuse checked Self role bindings for aliases, pointers and mutable references,
+including ignored arguments; incompatible demands on fixed Self or ambient types reject.
+Source uses retain genuine navigation without fabricated HOL typing. No new cast privilege or
+model specialization follows from equal HOL representations.
 
 Raw pointers share one implicit address/global pair across a complete signature or datatype field
 batch. Bodies constrain signature backend variables; pointer datatypes expose implicit HOL

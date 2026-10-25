@@ -5912,7 +5912,8 @@ local
       (constant_type native = constant_type escaped))
     [("function_address_native", "function_address_escape"),
      ("function_global_native", "function_global_escape"),
-     ("function_pair_native", "function_pair_escape")]
+     ("function_pair_native", "function_pair_escape"),
+     ("function_combined_native", "function_combined_escape")]
 
   fun cartouche text = Symbol.open_ ^ " " ^ text ^ " " ^ Symbol.close
   fun run base label text =

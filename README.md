@@ -134,7 +134,7 @@ The implementation session provides the production `urust_expr`, `urust_fn`, `ur
 ```isabelle
 urust_expr [OPTIONS] NAME [:: TYPE] [(ARG|_, ...)] ‹ body ›
 urust_fn [OPTIONS] [HOL_NAME|_] [:: TYPE] ‹ fn RustName[<'LIFETIME, T: TRAIT, const N: usize, ...>](PARAMETER: RUST_TYPE, ...) [-> RUST_TYPE] [where T: TRAIT, ...] { body } ›
-urust_type "RUST_TYPE['PARAMETER, ...]" = ‹HOL_TYPE›
+urust_type [implicit = ‹address = 'addr, global = 'store›, erase = ‹'tag, ...›] "RUST_TYPE['PARAMETER, ...]" = ‹HOL_TYPE›
 urust_type_alias ["QUALIFIED_PATH"] ‹ type RustName<T, ...> = RUST_TYPE; ›
 urust_datatype [OPTIONS] [HOL_NAME] ‹ struct-or-enum ›
 urust_trait "PATH" = ‹SORT› [urust_consts "NAME" = ‹TERM› and ...]
@@ -214,7 +214,7 @@ are not supported in datatype fields, aliases or casts.
 Function items declare type and const parameters in any order after their lifetimes. An empty
 `<>` and a trailing comma are accepted. A type parameter resolves before type mappings, aliases,
 imports and the parameter hook. `T` defaults to HOL `'t`; `const N: usize` defaults to `'n::len0`,
-strengthened to `len` by fixed arrays or mapped const slots. Const names are accepted only in const
+strengthened to `len` by fixed arrays or retained mapped const slots. Const names are accepted only in const
 slots and array lengths; type names occupy type slots. Checked `τ‹…›` escapes remain kind-neutral.
 The same finalized variables are shared by signature/body escapes and channel options.
 
@@ -226,14 +226,15 @@ strengthened further during signature inference; names cannot
 capture ambient fixed type variables. It is allowed on a function or concrete impl member,
 including in a chunk annotation, but not as an impl default.
 
-Entirely unused parameters are allowed and retained in the ordered callable scheme, including
-abbreviations and declarations with registration disabled. An authored body use must occur in the
-complete final HOL signature, including its channels, even if a mapped type or callee erases the
-witness. Otherwise the parameter's header reports `urust: generic parameter T does not occur in the
-signature`. Value locals keep precedence over generic names; using an unshadowed type parameter as
-a value is an error. A const value `N` denotes `of_nat LENGTH('n) :: 64 word`, also in array repeats.
-Parameter declarations and uses have Rust-name-labelled tooltips with final sorts; uses navigate to
-the header. Bounds navigate to their trait mapping.
+Entirely unused parameters are allowed and keep their ordered callable witnesses, including
+abbreviations and declarations with registration disabled. A parameter used only in explicitly
+erased signature arguments may have no HOL witness. Its source references and source-only body
+forwarding remain valid; an operation demanding a missing type or length witness reports
+`urust: generic parameter T does not occur in the signature` at the header. A retained occurrence
+anywhere in the complete type, including channels, keeps its witness and sorts. Value locals keep
+precedence over generic names; an unshadowed type parameter is not a value. A witnessed const value
+`N` denotes `of_nat LENGTH('n) :: 64 word`, also in array repeats. Source uses navigate to the
+header; witness uses carry final HOL typing, and bounds navigate to their trait mapping.
 
 `urust_trait` maps a Rust path to a native HOL sort, or a sort intersection. `Copy`, `Clone`,
 `PartialEq`, `Eq`, `Hash` and `Debug` map to `type`; `PartialOrd` and `Ord` map to `ord`.
@@ -261,13 +262,18 @@ keeps ordinary lookup errors; multiple candidates report the conflicting traits.
 to ordinary values and repeat lengths.
 
 Generated generic functions accept `::<TYPE, CONST, ...>` in source parameter order, including
-unused parameters, with lifetimes omitted. Type arguments are Rust types or checked HOL types;
-const arguments are unsuffixed integers, scoped const names or HOL length types. Wrong counts,
+unused parameters, with lifetimes omitted. Retained type arguments are Rust types or checked HOL
+types; retained const arguments are unsuffixed integers, scoped const names or HOL length types.
+Erased arguments use the supported source subset described below. Wrong counts,
 kinds and bounds report at the list or offending argument. Native typed dispatch still selects
 overloads and reports ambiguity. An eligible key mixing generated generic and explicit call
 notations rejects turbofish, including explicitly covered generated registrations; keys with only
 explicit call notations keep their leading value payload. Generated monomorphic functions retain
-their generic-argument rejection. Calls without turbofish keep ordinary inference.
+their generic-argument rejection. All source slots remain in the ordered scheme, including erased
+ones; only retained witnesses instantiate the HOL backend, with no extra TYPE or value arguments.
+Calls without turbofish keep ordinary inference for old schemes. An erased instantiation requires
+uniquely available source metadata; otherwise supply explicit arguments. HOL type equality cannot
+recover an erased tag or capacity.
 
 Function parameter defaults, const types other than `usize`, generic trait arguments, `?Sized`,
 lifetime bounds, parenthesized `Fn` bounds and bounds on const parameters remain unsupported.
@@ -345,7 +351,13 @@ urust ‹
   alias, or an imported head with generic arguments; a plain imported generic head
   (`use Pair as P; P::f()`) is ambiguous, as in Rust. Type alias and imported heads denote their
   target, with its generic arguments, in every path role, unless the written key has an exact
-  registration.
+  registration. Impl members reuse checked Self backend roles, so mapped aliases, pointers and
+  mutable references share those roles even when their values are unrelated in the body.
+  Incompatible demands on fixed Self or ambient types reject; no scoped backend default is inferred.
+- **Erased source identities.** Distinct tags or capacities can share a HOL Self type while
+  selecting different impl owners. Alias, expanded and `Self` paths preserve the source identity.
+  A local receiver carrying only its HOL type cannot select an identity-dependent member, even
+  with one compatible owner; use `Handle::<u8, Policy, 0>::member(value)` or a concrete type alias.
 - **Not supported.** `impl<…>` generics, trait impls, impl-header `where`, `unsafe impl`, associated
   `const`/`type` items, `pub`, `&self` (until the shared-reference model is chosen), autoref and
   autoderef at method calls, and order-independent member visibility (members and items are seen
@@ -353,10 +365,53 @@ urust ‹
   name.
 
 `urust_type` is the sole nominal Rust-to-HOL type translation mechanism. Its context-local keys may
-be qualified and generic; ordered mapping placeholders must correspond exactly to the free type
-variables of the checked HOL template. The initial `u8`, `u16`, `u32`, `u64`, `usize`, `i32`,
+be qualified and generic. Without options, ordered mapping placeholders must correspond exactly to
+the free type variables of the checked HOL template. The initial `u8`, `u16`, `u32`, `u64`, `usize`, `i32`,
 `i64`, `bool`, and `()` spellings are ordinary registry declarations, not resolver cases, as are
 the prelude types `Option<T>` and `Result<T, E>`. `Micro_Rust_Std_Lib` adds `NonZeroU64`.
+
+Manual mappings can separate retained source placeholders, explicitly erased source placeholders
+and named implicit backend roles:
+
+```isabelle
+urust_type [implicit = ‹ address = 'addr, global = 'store ›,
+  erase = ‹ 'policy, 'capacity ›]
+  "Handle<'value, 'policy, const 'capacity>" = ‹ ('addr, 'store, 'value) Global_Store.ref ›
+urust_type_alias ‹ type HandleAlias<T, Policy, const N: usize> = Handle<T, Policy, N>; ›
+urust_fn ‹
+  fn HandleIdentity<T, Policy, const N: usize>(value: HandleAlias<T, Policy, N>)
+      -> Handle<T, Policy, N> { value }
+›
+```
+
+`implicit` binds zero, one or both existing roles, `address` and `global`, to checked free template
+variables. Roles are distinct from Rust argument slots and computation channels. A whole signature
+or field batch allocates each requested role once, lazily, sharing it with pointers, mutable
+references, aliases and generated mappings. A single role adds no unused backend parameter.
+Concrete impl targets finalize these declared roles while rejecting unrelated inference holes;
+member `Self`, mapped aliases and pointers/references reuse that checked role environment.
+`erase` is a duplicate-free list of key placeholders absent from the template; every omitted
+placeholder must be listed. The checked template contains exactly retained placeholders and
+declared implicit variables. Roles cannot overlap source placeholders. Alpha-renaming and option
+ordering preserve identity; changing the erased indexes or role assignments conflicts. Failed
+declarations install no mapping or semantic reports. Automatic generated mappings cannot be
+overwritten.
+
+Erased arguments still check complete source arity, type/const kind and scope. Type arguments accept
+nominal paths with supported nested arguments, qualified segments, grouping and primitives;
+unmapped tags need no HOL declaration when no bound requires denotation. Const arguments accept
+complete unsigned unsuffixed integers, including zero, and supported declared const parameters;
+discarded numbers create no length type. Scope and formal parameters resolve before imports or
+opaque fallback. Known schemes check their arity, kinds and existing bound evidence without
+strengthening a discarded implicit role.
+
+This is source-shape validation, not complete Rust item resolution. References, pointers, slices,
+arrays, callable types, `impl Trait`, macros, HOL escapes, lifetimes, associated bindings and
+general const expressions remain rejected inside erased arguments, including nested occurrences.
+Retained arguments keep their existing support. Erasure adds no trait solver, const evaluator,
+model specialization or cast privilege. Different source tags/capacities retain distinct identities
+through aliases and locale transport even when their HOL types agree. Source-only alias parameters
+count as used; generated datatypes still retain every declared phantom witness.
 
 `urust_datatype` is the recommended command for non-recursive Rust structs and enums. The HOL type name is
 optional and otherwise inferred with acronym-aware ASCII snake case (`HTTPServer` becomes

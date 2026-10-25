@@ -2135,7 +2135,31 @@ urust_fn [verbosity = 0, pretty = false] \<open>
 fn FunctionErasedBackendTwin(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { value }
 \<close>
 lemma function_erased_backend_twin:
-  \<open>function_erased_backend = function_erased_backend_twin\<close>
+  \<open> function_erased_backend = function_erased_backend_twin \<close>
   unfolding function_erased_backend_def function_erased_backend_twin_def by (rule refl)
+
+section\<open> Combined mappings in complete signatures \<close>
+
+urust_type [implicit = \<open> address = 'addr, global = 'store \<close>,
+  erase = \<open> 'tag, 'capacity \<close>]
+  "FunctionCombined<'payload, 'tag, const 'capacity>" =
+    \<open> ('addr, 'store, 'payload) Global_Store.ref \<close>
+urust_type_alias \<open>
+  type FunctionCombinedAlias<P, Tag, const N: usize> = FunctionCombined<P, Tag, N>;
+\<close>
+
+urust_fn [register_notation = false] function_combined_native \<open>
+  fn FunctionCombinedNative(value: Option<FunctionCombinedAlias<u8, foreign::Policy<0>, 0>>,
+      pointer: *const u8) -> Option<FunctionCombined<u8, foreign::Policy<0>, 0>> { value }
+\<close>
+urust_fn [register_notation = false] function_combined_escape \<open>
+  fn FunctionCombinedEscape(value: \<tau>\<open> ('a, 'g, 8 word) Global_Store.ref option \<close>,
+      pointer: \<tau>\<open> ('a, 'g, 8 word) Global_Store.ref \<close>)
+      -> \<tau>\<open> ('a, 'g, 8 word) Global_Store.ref option \<close> { value }
+\<close>
+
+lemma function_combined_twin:
+  \<open> function_combined_native = function_combined_escape \<close>
+  unfolding function_combined_native_def function_combined_escape_def by (rule refl)
 
 end

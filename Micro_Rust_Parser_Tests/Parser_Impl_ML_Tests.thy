@@ -3182,4 +3182,64 @@ local
 in end
 \<close>
 
+section\<open> Combined source owners and backend types \<close>
+
+ML_val\<open>
+  local
+    open Impl_Declaration_Test
+    val ctxt = \<^context>
+    val owners = Micro_Rust_Names.associated_source_functions ctxt "ImplCombined::combined_identity"
+    val _ = require "combined erased tags collapse owners with the same complete HOL Self type"
+      (length owners = 2 andalso #self_type (hd owners) = #self_type (List.last owners) andalso
+        #source_identity (hd owners) <> #source_identity (List.last owners))
+    fun principal name =
+      let
+        val typ = Sign.the_const_type \<^theory> (Proof_Context.intern_const ctxt name)
+        val substitutions = Term.add_tvarsT typ [] |> rev
+          |> map_index (fn (index, variable as (_, sort)) =>
+            (variable, TVar (("combined_owner_type", index), sort))) |> TVars.make
+      in Term_Subst.instantiateT substitutions typ end
+    val _ = require "combined alias/expanded selection changes principal sorts or backend/channel sharing"
+      (principal "impl_combined_via_alias" = principal "impl_combined_via_expanded")
+    val _ = require "ordinary implicit-only impl changes its complete principal type versus escape twin"
+      (principal "impl_backend_only_backend_share" = principal "impl_backend_share_escape")
+    fun constant_type name = Sign.the_const_type \<^theory> (Proof_Context.intern_const ctxt name)
+    fun shared name =
+      let val typ = constant_type name
+          val [self, alias, pointer, borrowed] = binder_types typ
+          val Type (_, [_, result, _, _, _]) = body_type typ
+      in require (name ^ ": Self, alias, pointer and reference have independent roles")
+        (self = alias andalso self = pointer andalso self = borrowed andalso result = self) end
+    val _ = List.app shared ["impl_backend_only_backend_share", "impl_combined_combined_share"]
+    val global_type = constant_type "impl_global_backend_global_share"
+    val [global_self, global_alias, Type (_, [Type (_, [address, global]), global', _])] =
+      binder_types global_type
+    val _ = require "singleton global impl lost index one or introduced an independent pointer global"
+      (global_self = Type (\<^type_name>\<open>option\<close>, [global]) andalso global_alias = global_self andalso
+        global' = global andalso address <> global)
+    structure M = URust_Type_Mappings
+    fun parsed current label text = URust_Parser.parse_type_source current (source label text)
+    val ambient = TFree ("'urust_address", \<^sort>\<open>ord\<close>)
+    val fixed = ctxt |> Variable.declare_typ ambient
+      |> Variable.declare_typ (TFree ("'urust_global", \<^sort>\<open>type\<close>))
+    val authored_target = "ImplCombined<\<tau>\<open>'urust_address\<close>, Alpha, 0>"
+    val (self, identity) = M.resolve_impl_target_identity fixed
+      (parsed fixed "combined-rigid-target" authored_target)
+    val source = M.with_impl_self_identity (self, identity) fixed
+    val [same, alias, pointer] = M.resolve_signature source
+      (map (parsed source "combined-rigid-member") ["Self", authored_target,
+        "*const \<tau>\<open>'urust_address\<close>"])
+    val _ = require "impl role finalization captured or strengthened an ambient/authored variable"
+      (same = alias andalso alias = pointer andalso
+        member (op =) (Term.add_tfreesT same []) ("'urust_address", \<^sort>\<open>ord\<close>) andalso
+        length (Term.add_tfreesT same []) = 3)
+    val _ = List.app (fn (argument, expected) => ignore (expect_failure "combined-target-hole"
+      [expected] (fn () =>
+        M.resolve_impl_target_identity ctxt
+          (parsed ctxt "combined-target-hole" ("ImplCombined<" ^ argument ^ ", Alpha, 0>")))))
+      [("\<tau>\<open>_\<close>", "urust: an impl target must not contain inference holes"),
+       ("\<tau>\<open>?'hole\<close>", "Illegal schematic type variable")]
+  in val _ = () end
+\<close>
+
 end

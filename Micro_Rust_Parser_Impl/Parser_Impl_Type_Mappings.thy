@@ -37,6 +37,12 @@ canonical registry key and HOL Self type form the context of the impl's members,
 type resolution reads \<open>Self\<close> as that type. Source-sensitive owners additionally retain
 expanded structural argument identity, transported alongside their HOL Self type. Outside such a
 context \<open>Self\<close> is rejected.
+Concrete impl targets finalize only their explicitly allocated backend roles; unrelated authored
+or source inference holes remain rejected. Member signatures reuse checked Self role bindings
+obtained by matching declared canonical scheme metadata, so Self, mapped aliases, pointers and
+mutable references share roles even when the body does not relate their values. Role names are
+fresh with respect to authored/ambient variables; no ambient default is inferred.
+Incompatible demands on fixed Self or ambient types reject.
 
 The per-function Proof_Data generic scope resolves after Self and before the parameter hook or
 registry. Type and const roles are checked recursively through tuples, references, pointers and
@@ -62,6 +68,22 @@ use unknown. Only actual witnesses are transported with the backend and native i
 The old exact generic records and registration APIs remain adapters; their witness view is absent
 for a sparse scheme. Sparse instantiation requires exactly the recorded availability mask.
 The entry getters retain full source arities, kinds, sorts and ordered erasure indexes.
+\<open>entry_backend_roles\<close> orders roles address then global, preserving canonical global
+index 1 even for a singleton. \<open>resolve_declaration_roles\<close>,
+\<open>preflight_declaration_role_scheme\<close> and \<open>register_declaration_role_scheme\<close>
+carry named roles through datatype resolution and registration. The old exact positional
+registration records remain adapters for an empty role list or the established address/global
+pair; a singleton needs the role-aware API.
+
+\<open>generic_source_parameter\<close> exposes the exact optional witness field \<open>hol\<close>
+alongside Rust name/kind, sort, bounds and optional observed source use. \<open>NONE\<close> source use
+means unknown legacy metadata; it does not mean erased. \<open>register_generic_source_scheme\<close>
+and \<open>instantiate_generic_source_scheme_for_source\<close> preserve all source slots and the
+exact witness availability mask. \<open>resolve_source_arguments\<close> validates every slot and
+returns optional HOL arguments plus independent source identities. The old
+\<open>generic_scheme_parameter = {rust, kind, hol}\<close> record remains unchanged; old witness
+getters return no scheme for sparse registrations. Re-registration through the old API keeps
+authoritative usage/bounds only for a unique matching existing source scheme with agreeing slots.
 
 \<open>capture_generic_use_events\<close> separates source occurrence from witness demand, excluding
 inference seeds and foreign scopes. The compatible \<open>capture_generic_uses\<close> observes witness
@@ -69,6 +91,11 @@ demand. \<open>report_generic_reference\<close> checks
 the current full parameter identity and forwards the original reference callback exactly once.
 Scope records and callbacks remain unchanged. Nested captures retain actual same-scope observations
 and deactivate on every exit; no observer or captured context is installed in declarations.
+Source-only body references are valid, while a request for an unavailable HOL witness rejects.
+Unmapped erased tags require no HOL declaration when no bound demands denotation. This structural
+subset excludes references, pointers, arrays, slices, callable types, impl Trait, macros, HOL
+escapes, lifetimes, associated bindings and general const expressions, recursively. Known bounds
+require rigid existing evidence, without strengthening a discarded implicit role.
 \<close>
 
 ML\<open>
@@ -1162,9 +1189,26 @@ struct
     fun init _ = NONE
   )
 
-  fun with_impl_self self = Impl_Self.put (SOME self) #> Impl_Source_Identity.put NONE
+  (* Match declared canonical role slots against the checked Self type. Neither variable names
+     nor sort coincidence identify a role, and source placeholders remain separate. *)
+  fun impl_backend_parameters ctxt ({canonical_path, self_type, ...}: impl_self) =
+    (case lookup ctxt canonical_path of
+       NONE => []
+     | SOME entry =>
+         if null (#backend_roles entry) then []
+         else
+           let
+             val substitution = Sign.typ_match (Proof_Context.theory_of ctxt)
+               (#template entry, self_type) Vartab.empty
+           in map2 (fn role => fn sort =>
+             (role, Envir.subst_type substitution (canonical_backend_parameter (role_index role) sort)))
+             (#backend_roles entry) (#backend_parameter_sorts entry) end)
+
+  fun with_impl_self self ctxt =
+    ctxt |> fold (Variable.declare_typ o snd) (impl_backend_parameters ctxt self)
+      |> Impl_Self.put (SOME self) |> Impl_Source_Identity.put NONE
   fun with_impl_self_identity (self, identity) =
-    Impl_Self.put (SOME self) #> Impl_Source_Identity.put identity
+    with_impl_self self #> Impl_Source_Identity.put identity
   val impl_self = Impl_Self.get
   val impl_source_identity = Impl_Source_Identity.get
 
@@ -1780,7 +1824,8 @@ struct
           (Vartab.empty,
            fold Term.maxidx_typ initial_types (Variable.maxidx_of ctxt))
       val backend_slots: (backend_role * typ) list Unsynchronized.ref =
-        Unsynchronized.ref []
+        Unsynchronized.ref
+          (case impl_self ctxt of NONE => [] | SOME self => impl_backend_parameters ctxt self)
 
       fun fresh sort =
         let
@@ -2249,12 +2294,13 @@ struct
           ["'urust_address", "'urust_global"]
       fun parameter (typ as TVar (_, sort)) =
             (typ, sort)
+        | parameter (typ as TFree (_, sort)) = (typ, sort)
         | parameter _ =
             raise Fail
               "uRust type registry: backend parameter became a concrete type"
       val normalized = map (apsnd (parameter o normalize)) slots
-      val parameters = map (fn (role, (_, sort)) =>
-        (role, (nth names (role_index role), sort))) normalized
+      val parameters = map (fn (role, (TFree parameter, _)) => (role, parameter)
+        | (role, (_, sort)) => (role, (nth names (role_index role), sort))) normalized
       val substitutions =
         map2 (fn (_, (typ, _)) => fn (_, parameter) => (typ, TFree parameter))
           normalized parameters
@@ -2540,7 +2586,7 @@ struct
 
       (* Keep sort inference shared across the whole signature. Only fresh
          signature variables are flexible; ambient variables remain rigid. *)
-      val {fresh, normalize, check_sort, backend, ...} =
+      val {fresh, normalize, check_sort, backend, backend_slots} =
         inference_state kind ctxt checked_all
       val named_parameters: typ Symtab.table Unsynchronized.ref =
         Unsynchronized.ref (Symtab.make (map2
@@ -2576,7 +2622,7 @@ struct
              raise Fail
                "uRust type registry: signature HOL escape is absent")
 
-      fun finish types =
+      fun finish_authored types =
         let
           fun named (name, parameter) =
             (case normalize parameter of
@@ -2598,6 +2644,20 @@ struct
               Term.map_atyps inference_parameter #>
               Proof_Context.cert_typ ctxt)
             types
+        end
+
+      (* Only an impl target fixes its explicitly allocated semantic roles. Its ordinary
+         source/escape holes remain schematic and are rejected by the target's existing guard.
+         One naming context serves both the Self type and every actual meaning leaf. *)
+      fun finish types =
+        let val finished = finish_authored types in
+          if kind = Impl_Target then
+            let
+              val named_context = fold (fn (name, slot) =>
+                Variable.declare_typ (TFree (name, Type.sort_of_atyp slot)))
+                (Symtab.dest (!named_parameters)) ctxt
+            in #types (finish_backend named_context normalize (backend_slots ()) finished) end
+          else finished
         end
 
       fun scoped_normalize typ =

@@ -5363,4 +5363,44 @@ local
 in end
 \<close>
 
+section\<open> Combined sparse call schemes \<close>
+
+ML_val\<open>
+  local
+    open Parser_Trait_Test
+    structure M = URust_Type_Mappings
+    val ctxt = \<^context>
+    val entry = the_single (Parser_Test_Calls.entries ctxt "GenericCombinedIdentity")
+    val slots = the (M.generic_source_scheme_for_source ctxt (#serial entry))
+    val _ = require "combined source scheme preserves payload, tag, const and witness availability"
+      (map #rust slots = ["P", "Tag", "N"] andalso
+        map #kind slots = [URust_AST.Type_Parameter, URust_AST.Type_Parameter, URust_AST.Const_Parameter]
+        andalso map (is_some o #hol) slots = [true, false, false])
+    fun argument text =
+      URust_Parser.parse_generic_argument_source ctxt (source "combined-call-argument" text)
+    val resolved = M.resolve_source_arguments ctxt slots
+      (map argument ["u8", "foreign::Policy<0>", "0"])
+    val _ = require "combined explicit call manufactures an erased witness"
+      (map fst (#arguments resolved) = [SOME \<^typ>\<open>8 word\<close>, NONE, NONE])
+    val instantiated = the (M.instantiate_generic_source_scheme_for_source ctxt
+      (#serial entry) (#hol_term entry) (#arguments resolved))
+    val _ = require "sparse instantiation adds a semantic argument or changes the complete function arity"
+      (length (binder_types (fastype_of instantiated)) = 1 andalso
+        #2 (Term.strip_comb instantiated) = [])
+    fun principal name =
+      let
+        val typ = Sign.the_const_type \<^theory> (Proof_Context.intern_const ctxt name)
+        val substitutions = Term.add_tvarsT typ [] |> rev
+          |> map_index (fn (index, variable as (_, sort)) =>
+            (variable, TVar (("combined_type", index), sort))) |> TVars.make
+      in Term_Subst.instantiateT substitutions typ end
+    val _ = List.app (fn (native, escaped) =>
+      require (native ^ ": complete principal type/sorts/sharing/channels differ")
+        (principal native = principal escaped))
+      [("generic_combined_identity", "generic_combined_escape"),
+       ("generic_combined_call", "generic_combined_call_twin")]
+    val _ = Generic_Signature_Test.require_scope_closed "combined declarations" ctxt
+  in val _ = () end
+\<close>
+
 end

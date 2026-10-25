@@ -155,6 +155,80 @@ urust_expr showoff_word_conversion \<open>
   WireState::to_u8(WireState::<u8>::WireBusy)
 \<close>
 
+subsection\<open> Mapped handles with source-only parameters \<close>
+
+text\<open>
+The payload supplies a HOL witness. The policy tag and capacity remain source arguments while
+the address and global roles come from the signature or field batch. No tag mapping or length
+type is needed for the opaque policy and zero capacity. Explicit source arguments let a generic
+call forward this information without adding a TYPE or value argument.
+\<close>
+
+urust_type [implicit = \<open> address = 'addr, global = 'store \<close>,
+  erase = \<open> 'policy, 'capacity \<close>]
+  "ShowcaseHandle<'value, 'policy, const 'capacity>" =
+    \<open> ('addr, 'store, 'value) Global_Store.ref \<close>
+urust_type_alias \<open>
+  type ShowcaseHandleAlias<Value, Policy, const N: usize> = ShowcaseHandle<Value, Policy, N>;
+\<close>
+urust_datatype \<open>
+  struct ShowcaseHolder {
+    handle: ShowcaseHandleAlias<u8, foreign::Policy<0>, 0>,
+    next: *const u8,
+  }
+\<close>
+
+urust_fn \<open>
+  fn ShowoffHandleIdentity<Value, Policy, const N: usize>(handle: ShowcaseHandleAlias<Value, Policy, N>)
+      -> ShowcaseHandle<Value, Policy, N> { handle }
+\<close>
+urust_fn \<open>
+  fn ShowoffHandleEscape(handle: \<tau>\<open> ('a, 'g, 'v) Global_Store.ref \<close>)
+      -> \<tau>\<open> ('a, 'g, 'v) Global_Store.ref \<close> { handle }
+\<close>
+urust_fn \<open>
+  fn ShowoffHandleCall(handle: ShowcaseHandle<u8, foreign::Policy<0>, 0>)
+      -> ShowcaseHandle<u8, foreign::Policy<0>, 0> {
+    ShowoffHandleIdentity::<u8, foreign::Policy<0>, 0>(handle)
+  }
+\<close>
+urust_fn \<open>
+  fn ShowoffHandleCallEscape(handle: \<tau>\<open> ('a, 'g, 8 word) Global_Store.ref \<close>)
+      -> \<tau>\<open> ('a, 'g, 8 word) Global_Store.ref \<close> {
+    ShowoffHandleEscape(handle)
+  }
+\<close>
+
+lemma showoff_handle_twins:
+  shows \<open> showoff_handle_identity = showoff_handle_escape \<close>
+    and \<open> showoff_handle_call = showoff_handle_call_escape \<close>
+  unfolding showoff_handle_identity_def showoff_handle_escape_def
+    showoff_handle_call_def showoff_handle_call_escape_def by (rule refl)+
+
+text\<open>
+The model shares a HOL representation across different policies; source-sensitive selection
+still distinguishes their identities. A HOL-only receiver cannot infer an erased policy, so
+use an explicit associated path when selecting an identity-dependent impl member.
+\<close>
+
+ML_val\<open>
+  let
+    val ctxt = \<^context>
+    fun principal name =
+      let
+        val typ = Sign.the_const_type \<^theory> (Proof_Context.intern_const ctxt name)
+        val variables = Term.add_tvarsT typ [] |> rev
+        val substitutions = variables |> map_index (fn (index, variable as (_, sort)) =>
+          (variable, TVar (("showcase_type", index), sort))) |> TVars.make
+      in Term_Subst.instantiateT substitutions typ end
+    val _ = List.app (fn (native, escaped) =>
+      if principal native = principal escaped then ()
+      else error ("Showcase combined principal type/sorts/sharing/channels differ: " ^ native))
+      [("showoff_handle_identity", "showoff_handle_escape"),
+       ("showoff_handle_call", "showoff_handle_call_escape")]
+  in () end
+\<close>
+
 subsection\<open> Rust-shaped function items \<close>
 
 text\<open>

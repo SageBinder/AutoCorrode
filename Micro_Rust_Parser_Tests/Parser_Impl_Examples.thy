@@ -1185,4 +1185,64 @@ urust \<open>
   }
 \<close>
 
+chapter\<open> Combined mapping owners \<close>
+
+urust_type [erase = \<open> 'tag, 'capacity \<close>,
+  implicit = \<open> global = 'store, address = 'addr \<close>]
+  "ImplCombined<'payload, 'tag, const 'capacity>" =
+    \<open> ('addr, 'store, 'payload) Global_Store.ref \<close>
+urust_type_alias \<open> type ImplCombinedAlias = ImplCombined<u8, Alpha, 0>; \<close>
+
+urust \<open>
+  impl ImplCombined<u8, Alpha, 0> {
+    \<omega>\<open>name = "impl_combined_alpha"\<close>
+    fn combined_identity(self) -> Self { self }
+    fn combined_self(self) -> Self { Self::combined_identity(self) }
+    fn combined_share(self, other: ImplCombinedAlias, pointer: *const u8,
+        borrowed: &mut u8) -> Self { self }
+  }
+  impl ImplCombined<u8, Beta, 0> {
+    \<omega>\<open>name = "impl_combined_beta"\<close>
+    fn combined_identity(self) -> Self { self }
+  }
+  fn ImplCombinedViaAlias(value: ImplCombinedAlias) -> ImplCombinedAlias {
+    ImplCombinedAlias::combined_identity(value)
+  }
+  fn ImplCombinedViaExpanded(value: ImplCombined<u8, Alpha, 0>) -> ImplCombined<u8, Alpha, 0> {
+    ImplCombined::<u8, Alpha, 0>::combined_identity(value)
+  }
+\<close>
+
+lemma impl_combined_alias_twin:
+  \<open> impl_combined_via_alias = impl_combined_via_expanded \<close>
+  unfolding impl_combined_via_alias_def impl_combined_via_expanded_def by (rule refl)
+
+urust_type [implicit = \<open> address = 'a, global = 'g \<close>]
+  "ImplBackendOnly" = \<open> ('a, 'g, 8 word) Global_Store.ref \<close>
+urust_type_alias \<open> type ImplBackendOnlyAlias = ImplBackendOnly; \<close>
+urust_type [implicit = \<open> global = 'g \<close>]
+  "ImplGlobalBackend" = \<open> 'g option \<close>
+urust_type_alias \<open> type ImplGlobalBackendAlias = ImplGlobalBackend; \<close>
+
+urust \<open>
+  impl ImplBackendOnly {
+    fn backend_share(self, other: ImplBackendOnlyAlias, pointer: *const u8,
+        borrowed: &mut u8) -> Self { self }
+  }
+  impl ImplGlobalBackend {
+    fn global_share(self, other: ImplGlobalBackendAlias, pointer: *const u8) -> Self { self }
+  }
+\<close>
+urust_fn [register_notation = false] impl_backend_share_escape \<open>
+  fn ImplBackendShareEscape(self: \<tau>\<open> ('a, 'g, 8 word) Global_Store.ref \<close>,
+      other: \<tau>\<open> ('a, 'g, 8 word) Global_Store.ref \<close>,
+      pointer: \<tau>\<open> ('a, 'g, 8 word) Global_Store.ref \<close>,
+      borrowed: \<tau>\<open> ('a, 'g, 8 word) Global_Store.ref \<close>)
+      -> \<tau>\<open> ('a, 'g, 8 word) Global_Store.ref \<close> { self }
+\<close>
+
+lemma impl_backend_share_twin:
+  \<open> impl_backend_only_backend_share = impl_backend_share_escape \<close>
+  unfolding impl_backend_only_backend_share_def impl_backend_share_escape_def by (rule refl)
+
 end

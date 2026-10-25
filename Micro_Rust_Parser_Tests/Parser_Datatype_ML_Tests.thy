@@ -7803,4 +7803,37 @@ local
 in end
 \<close>
 
+section\<open> Combined mapping field schemes \<close>
+
+ML_val\<open>
+  local
+    structure M = URust_Type_Mappings
+    val ctxt = \<^context>
+    fun require label ok = if ok then () else error ("combined field scheme: " ^ label)
+    fun entry name = the (M.lookup ctxt name)
+    val combined = entry "DatatypeCombined"
+    val alias = entry "DatatypeCombinedAlias"
+    val generated = entry "DatatypeCombinedFields"
+    val kinds = [URust_AST.Type_Parameter, URust_AST.Type_Parameter, URust_AST.Const_Parameter]
+    val _ = require "manual and alias partitions retain complete source order and named roles"
+      (forall (fn e => M.entry_arities e = [3] andalso M.entry_parameter_kinds e = kinds andalso
+        M.entry_erased_parameters e = [1, 2] andalso
+        M.entry_backend_roles e = [M.Address, M.Global]) [combined, alias])
+    val _ = require "generated fields preserve declared phantom witnesses and backend roles"
+      (M.entry_arities generated = [3] andalso M.entry_parameter_kinds generated = kinds andalso
+        null (M.entry_erased_parameters generated) andalso
+        M.entry_backend_roles generated = [M.Address, M.Global] andalso
+        length (Term.add_tvarsT (M.entry_template generated) []) = 5)
+    fun parsed text = URust_Parser.parse_type_source ctxt
+      (Parser_Lex_Util.positioned_content_source text (Position.make0 1 1 0 "" "combined-fields" ""))
+    val batch = Micro_Rust_Semantic_Navigation.capture (fn () => M.resolve_fields ctxt
+      (map parsed ["Option<DatatypeCombined<u8, foreign::Policy<0>, 0>>", "*const u8",
+        "DatatypeCombinedAlias<u8, foreign::Policy<0>, 0>"])) |> fst
+    val [wrapped, pointer, aliased] = #types batch
+    val _ = require "nested combined alias and pointer do not share the exact backend pair"
+      (wrapped = Type (\<^type_name>\<open>option\<close>, [pointer]) andalso aliased = pointer andalso
+        map fst (#backend_parameters batch) = ["'urust_address", "'urust_global"])
+  in val _ = () end
+\<close>
+
 end

@@ -1275,4 +1275,22 @@ urust_datatype \<open>
   }
 \<close>
 
+section\<open> Combined source erasure and backend roles \<close>
+
+urust_type [implicit = \<open> global = 'store, address = 'addr \<close>,
+  erase = \<open> 'tag, 'capacity \<close>]
+  "DatatypeCombined<'payload, 'tag, const 'capacity>" =
+    \<open> ('addr, 'store, 'payload) Global_Store.ref \<close>
+
+urust_type_alias \<open>
+  type DatatypeCombinedAlias<P, Tag, const N: usize> = DatatypeCombined<P, Tag, N>;
+\<close>
+
+urust_datatype \<open>
+  struct DatatypeCombinedFields<P, Tag, const N: usize> {
+    value: Option<DatatypeCombinedAlias<P, Tag, N>>,
+    pointer: *const P,
+  }
+\<close>
+
 end
