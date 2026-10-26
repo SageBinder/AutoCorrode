@@ -2176,4 +2176,81 @@ lemma function_outlives_carry_erased:
   \<open> function_outlives_carry = function_outlives_carry_plain \<close>
   unfolding function_outlives_carry_def function_outlives_carry_plain_def by (rule refl)
 
+
+section\<open> Authoritative callable templates \<close>
+
+text\<open>
+Callable bounds use the same curried shallow function-body representation as explicit HOL
+callbacks. All four computation channels are shared with the enclosing function. The call-kind
+spelling records a Rust requirement; this representation abstracts capture ownership, consumption
+counts and receiver mutability.
+\<close>
+
+context
+begin
+
+declare [[urust_state = "'state", urust_abort = "'abort", urust_input = "'input", urust_output = "'output"]]
+
+urust_fn [pp_test, verbosity = 0] callable_apply \<open>
+  fn CallableApply<F: Fn(bool) -> bool>(callback: F, value: bool) -> bool { callback(value) }
+\<close>
+urust_fn [pp_test, verbosity = 0] callable_apply_escape \<open>
+  fn CallableApplyEscape(
+    callback: \<tau>\<open>bool \<Rightarrow> ('state, bool, 'abort, 'input, 'output) function_body\<close>,
+    value: bool) -> bool { callback(value) }
+\<close>
+lemma callable_apply_escape_twin: \<open> callable_apply = callable_apply_escape \<close>
+  unfolding callable_apply_def callable_apply_escape_def by (rule refl)
+
+urust_fn [pp_test, verbosity = 0] callable_zero \<open>
+  fn CallableZero<F: core::ops::FnOnce()>(callback: F) { callback() }
+\<close>
+urust_fn [pp_test, verbosity = 0] callable_zero_escape \<open>
+  fn CallableZeroEscape(callback: \<tau>\<open>('state, unit, 'abort, 'input, 'output) function_body\<close>)
+  { callback() }
+\<close>
+lemma callable_zero_escape_twin: \<open> callable_zero = callable_zero_escape \<close>
+  unfolding callable_zero_def callable_zero_escape_def by (rule refl)
+
+urust_fn [pp_test, verbosity = 0] callable_many \<open>
+  fn CallableMany<F>(callback: F, left: bool, right: bool) -> bool
+  where F: std::ops::FnMut(bool, bool) -> bool { callback(left, right) }
+\<close>
+urust_fn [pp_test, verbosity = 0] callable_many_escape \<open>
+  fn CallableManyEscape(
+    callback: \<tau>\<open>bool \<Rightarrow> bool \<Rightarrow> ('state, bool, 'abort, 'input, 'output) function_body\<close>,
+    left: bool, right: bool) -> bool { callback(left, right) }
+\<close>
+lemma callable_many_escape_twin: \<open> callable_many = callable_many_escape \<close>
+  unfolding callable_many_def callable_many_escape_def by (rule refl)
+
+urust_fn [pp_test, verbosity = 0] callable_nested_closure \<open>
+  fn CallableNestedClosure<F: Fn(bool) -> bool>(callback: F, value: bool) -> bool {
+    let forward = |item| callback(item);
+    forward(value)
+  }
+\<close>
+lemma callable_nested_closure_twin: \<open> callable_nested_closure = callable_apply \<close>
+  unfolding callable_nested_closure_def callable_apply_def by (rule refl)
+
+urust_fn [pp_test, verbosity = 0] callable_array \<open>
+  fn CallableArray<T, const N: usize, F: Fn([T; N]) -> T>(callback: F, values: [T; N]) -> T
+  { callback(values) }
+\<close>
+urust_fn [pp_test, verbosity = 0] callable_array_escape \<open>
+  fn CallableArrayEscape(
+    callback: \<tau>\<open>('t, 'n::len) array \<Rightarrow> ('state, 't, 'abort, 'input, 'output) function_body\<close>,
+    values: \<tau>\<open>('t, 'n::len) array\<close>) -> \<tau>\<open>'t\<close>
+  { callback(values) }
+\<close>
+lemma callable_array_escape_twin: \<open> callable_array = callable_array_escape \<close>
+  unfolding callable_array_def callable_array_escape_def by (rule refl)
+
+urust_fn [pp_test, verbosity = 0] callable_mutable_input \<open>
+  fn CallableMutableInput<'a, F: Fn(&'a mut bool) -> bool>(callback: F, value: &'a mut bool) -> bool
+  { callback(value) }
+\<close>
+
+end
+
 end

@@ -307,8 +307,19 @@ Calls without turbofish keep ordinary inference for old schemes. An erased insta
 uniquely available source metadata; otherwise supply explicit arguments. HOL type equality cannot
 recover an erased tag or capacity.
 
-Function parameter defaults, const types other than `usize`, generic trait arguments, `?Sized`,
-lifetime bounds, parenthesized `Fn` bounds and bounds on const parameters remain unsupported.
+Plain lifetime and type outlives bounds are checked in their combined source scope and erased;
+compound pure-outlives heads do not require a HOL denotation. Parenthesized `Fn`, `FnMut` and
+`FnOnce` bounds, inline or in `where`, resolve to curried HOL callbacks sharing the enclosing
+function's state, abort, input and output channels. Their registered spellings are the bare names
+and their `core::ops` and `std::ops` aliases. Zero inputs give the terminal `function_body` type;
+an omitted result is unit. Callable parameters retain one Rust generic slot, including in
+turbofish, and their default or explicitly selected HOL names denote the whole template.
+
+These three call kinds share the shallow representation. It does not check Rust capture ownership,
+consumption counts or receiver mutability. Function parameter defaults, const types other than
+`usize`, generic trait arguments and projections, `?Sized`, bounds on const parameters,
+conditional-const and higher-ranked denotation remain unsupported. Shared-reference operands
+still require a complete HOL signature or an explicit model escape.
 Generic declarations use the same HOL lowering as their explicit escape twins. Their ordered Rust
 generic schemes and generic verbosity clause intentionally reflect their own source headers.
 
@@ -408,8 +419,9 @@ urust ‹
   `const`/`type` items, `pub`, `&self` (until the shared-reference model is chosen), autoref and
   autoderef at method calls, and order-independent member visibility (members and items are seen
   in source order). Method calls can still reach free functions and explicit notations of the same
-  name. Lifetime/outlives bounds, callable bounds and richer generic trait bounds remain unsupported
-  by authoritative impl denotation.
+  name. Authoritative impls accept plain lifetime/outlives bounds in the combined impl/member
+  scope and callable bounds with the same checked template and channel relation across members.
+  Richer generic trait bounds and associated-type projections remain unsupported.
 
 `urust_type` is the sole nominal Rust-to-HOL type translation mechanism. Its context-local keys may
 be qualified and generic. Without options, ordered mapping placeholders must correspond exactly to

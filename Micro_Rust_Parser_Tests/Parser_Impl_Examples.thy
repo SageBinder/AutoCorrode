@@ -1697,4 +1697,70 @@ lemma outlives_locale_ambient_erased:
   \<open> outlives_locale_ambient = outlives_locale_ambient_plain \<close>
   unfolding outlives_locale_ambient_def outlives_locale_ambient_plain_def by (rule refl)
 
+
+section\<open> Checked callable relations in generic impls \<close>
+
+text\<open>
+The target's retained F parameter carries its checked callable relation into each member.
+A literal Self annotation anchors that inherited declaration without adding generic navigation
+at Self. Member-local G has a separate source slot and shares all four computation channels.
+\<close>
+
+urust \<open>
+  struct CallableHolder<T, F> { callback: F, value: T }
+  impl<'a, T: 'a, F: Fn(T) -> T> CallableHolder<T, F> where Self: 'static {
+    fn run(self: Self) -> T {
+      let callback = self.callback;
+      callback(self.value)
+    }
+    fn relay<'b: 'a, G: core::ops::FnMut(T) -> T + 'b>(self: Self, callback: G) -> T
+    where T: 'b { callback(self.value) }
+    fn carry(self: Self) -> Self { self }
+  }
+  \<omega>\<open>register_notation = false\<close>
+  fn CallableHolderRunPlain<T, F: Fn(T) -> T>(owner: CallableHolder<T, F>) -> T {
+    let callback = owner.callback;
+    callback(owner.value)
+  }
+  \<omega>\<open>register_notation = false\<close>
+  fn CallableHolderRelayPlain<T, F: Fn(T) -> T, G: FnMut(T) -> T>(
+      owner: CallableHolder<T, F>, callback: G) -> T { callback(owner.value) }
+  \<omega>\<open>register_notation = false\<close>
+  fn CallableHolderCarryPlain<T, F: Fn(T) -> T>(owner: CallableHolder<T, F>) -> CallableHolder<T, F>
+    { owner }
+  fn CallableHolderSelected<T, F: Fn(T) -> T>(owner: CallableHolder<T, F>) -> T {
+    CallableHolder::<T, F>::run(owner)
+  }
+  fn CallableHolderMethod<T, F: Fn(T) -> T>(owner: CallableHolder<T, F>) -> T { owner.run() }
+  fn CallableHolderCallPlain<T, F: Fn(T) -> T>(owner: CallableHolder<T, F>) -> T {
+    \<epsilon>\<open>callable_holder_run\<close>(owner)
+  }
+  fn CallableHolderLocalSelected<T, F: Fn(T) -> T, G: Fn(T) -> T>(
+      owner: CallableHolder<T, F>, callback: G) -> T {
+    CallableHolder::<T, F>::relay::<G>(owner, callback)
+  }
+  fn CallableHolderLocalPlain<T, F: Fn(T) -> T, G: Fn(T) -> T>(
+      owner: CallableHolder<T, F>, callback: G) -> T {
+    \<epsilon>\<open>callable_holder_relay\<close>(owner, callback)
+  }
+  fn CallableHolderLocalInferred<T, F: Fn(T) -> T, G: Fn(T) -> T>(
+      owner: CallableHolder<T, F>, callback: G) -> T { owner.relay(callback) }
+\<close>
+
+lemma callable_holder_run_twin: \<open> callable_holder_run = callable_holder_run_plain \<close>
+  unfolding callable_holder_run_def callable_holder_run_plain_def by (rule refl)
+lemma callable_holder_relay_twin: \<open> callable_holder_relay = callable_holder_relay_plain \<close>
+  unfolding callable_holder_relay_def callable_holder_relay_plain_def by (rule refl)
+lemma callable_holder_carry_twin: \<open> callable_holder_carry = callable_holder_carry_plain \<close>
+  unfolding callable_holder_carry_def callable_holder_carry_plain_def by (rule refl)
+lemma callable_holder_selected_twin: \<open> callable_holder_selected = callable_holder_call_plain \<close>
+  unfolding callable_holder_selected_def callable_holder_call_plain_def by (rule refl)
+lemma callable_holder_method_twin: \<open> callable_holder_method = callable_holder_call_plain \<close>
+  unfolding callable_holder_method_def callable_holder_call_plain_def by (rule refl)
+lemma callable_holder_local_twin: \<open> callable_holder_local_selected = callable_holder_local_plain \<close>
+  unfolding callable_holder_local_selected_def callable_holder_local_plain_def by (rule refl)
+lemma callable_holder_local_inferred_twin:
+  \<open> callable_holder_local_inferred = callable_holder_local_plain \<close>
+  unfolding callable_holder_local_inferred_def callable_holder_local_plain_def by (rule refl)
+
 end

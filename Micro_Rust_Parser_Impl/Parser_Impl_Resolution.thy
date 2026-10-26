@@ -529,19 +529,24 @@ struct
   fun resolve_identifier ctxt kind name pos =
     resolve_identifier_at_positions ctxt kind name pos []
 
-  fun scope_parameter ctxt name =
-    (case URust_Type_Mappings.generic_scope ctxt of
-       NONE => NONE
-     | SOME {parameters} =>
-         find_first (fn ({rust, ...}: URust_Type_Mappings.generic_parameter) =>
-           rust = name) parameters)
-
+  fun scope_binding ctxt name = find_first
+    (fn binding => #rust (#parameter (URust_Type_Mappings.binding_spec binding)) = name)
+    (maps URust_Type_Mappings.scope_bindings (the_list (URust_Type_Mappings.binding_scope ctxt)))
+  fun scope_parameter ctxt name = Option.map (#parameter o URust_Type_Mappings.binding_spec)
+    (scope_binding ctxt name)
+  fun scope_parameter_type ctxt ({rust, hol, ...}: URust_Type_Mappings.generic_parameter) =
+    case scope_binding ctxt rust of SOME binding => the (URust_Type_Mappings.binding_template binding)
+    | NONE => TFree hol
   fun report_scope_parameter ctxt pos
       (parameter as {rust, hol, ...}: URust_Type_Mappings.generic_parameter) =
     (Micro_Rust_Semantic_Navigation.defer_report ctxt pos Markup.tfree;
-     Micro_Rust_Semantic_Navigation.defer_report_text ctxt pos Markup.typing
-       (rust ^ " = " ^ Syntax.string_of_typ (Config.put show_sorts true ctxt) (TFree hol));
-     URust_Type_Mappings.report_generic_reference ctxt parameter pos)
+     case scope_binding ctxt rust of
+       SOME binding => if null (#callables (URust_Type_Mappings.binding_spec binding)) then
+         (Micro_Rust_Semantic_Navigation.defer_report_text ctxt pos Markup.typing
+           (rust ^ " = " ^ Syntax.string_of_typ (Config.put show_sorts true ctxt) (TFree hol));
+          URust_Type_Mappings.report_generic_reference ctxt parameter pos)
+         else URust_Type_Mappings.report_binding_reference ctxt binding {witness = true, pos = pos}
+     | NONE => URust_Type_Mappings.report_generic_reference ctxt parameter pos)
 
   fun scope_value ctxt (name, pos) =
     Option.map
@@ -553,7 +558,7 @@ struct
                Position.here pos)
          | Const_Parameter =>
              let
-               val length_type = TFree hol
+               val length_type = scope_parameter_type ctxt parameter
                val _ =
                  if URust_Type_Mappings.declared_generic_scope ctxt andalso
                      not (Sign.of_sort (Proof_Context.theory_of ctxt)
@@ -975,7 +980,9 @@ struct
     URust_Type_Mappings.generic_scheme_for_source ctxt serial
 
   fun source_slots ctxt ({serial, ...}: Micro_Rust_Names.entry) =
-    URust_Type_Mappings.generic_source_scheme_for_source ctxt serial
+    Option.mapPartial (fn scheme => case URust_Type_Mappings.binding_scoped_parameters scheme of
+      [] => NONE | parameters => SOME parameters)
+      (URust_Type_Mappings.binding_generic_scheme_for_source ctxt serial)
 
   fun generated_generic_entries ctxt filters name =
     Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NFunction name
@@ -1132,7 +1139,8 @@ struct
                       (map (parse_antiquotation ctxt environment) (generic_sources generic_arguments))
                   end
               | generated =>
-                  if exists (fn entry => exists (is_none o #hol) (the (source_slots ctxt entry))) generated
+                  if exists (fn entry => exists (fn slot => is_none (#witness slot) orelse
+                    not (null (#callable_origins slot))) (the (source_slots ctxt entry))) generated
                   then sparse_generated_arguments ctxt name filters generated generic_arguments function
                   else generated_generic_arguments ctxt name filters generated generic_arguments function)
          | NONE =>
@@ -1271,7 +1279,7 @@ struct
   val _ = Theory.setup (Micro_Rust_Dispatch.register_generic_candidate_transform
     \<^binding>\<open>urust_generated_function\<close> generic_candidate_transform)
 
-  fun sparse_candidate_transform ctxt
+  fun legacy_sparse_candidate_transform ctxt
       ({instances, pos, pending}: Micro_Rust_Dispatch.sparse_generic_arguments) occurrence_type
       ({name, eligible = genuine, maximal = entries}: Micro_Rust_Dispatch.generic_candidate_sources) =
     let
@@ -1280,8 +1288,17 @@ struct
         is_some (Micro_Rust_Dispatch.unify_and_instantiate ctxt occurrence_type
           (Micro_Rust_Dispatch.fresh_backend ctxt hol_term))
       val eligible = filter (fn entry => selected entry andalso native_eligible entry) entries
-      fun parameter_key ({kind, sort, hol, ...}: URust_Type_Mappings.generic_source_parameter) =
-        (kind, sort, is_some hol)
+      fun parameter_key ({kind, sort, witness, declaration, callable_origins, callable_relation, ...}
+          : URust_Type_Mappings.binding_scheme_parameter) =
+        let
+          fun origin ({path, identity, declaration_pos, bound_pos}: URust_Type_Mappings.callable_origin) =
+            (path, identity, Position.properties_of declaration_pos, Position.properties_of bound_pos)
+          fun relation ({inputs, result, channels}: URust_Type_Mappings.callable_relation) =
+            let fun leaf (typ, source) = (typ, URust_Type_Mappings.source_identity_name source)
+            in (map leaf inputs, leaf result,
+              (#state channels, #abort channels, #input channels, #output channels)) end
+        in (kind, sort, witness, declaration, map origin callable_origins,
+          Option.map relation callable_relation) end
       val cache = Unsynchronized.ref []
       fun prepare parameters sources =
         let
@@ -1294,14 +1311,14 @@ struct
                    val _ = if length parameters = length sources then ()
                      else generic_count_error name (length sources) pos
                    val ((resolved, events), reports) = URust_Report_Transaction.capture_isolated
-                     (fn () => URust_Type_Mappings.capture_generic_argument_events ctxt
+                     (fn () => URust_Type_Mappings.capture_binding_argument_events ctxt
                        (fn observed =>
                          let val parsed = map (fn (text, position) =>
                            URust_Parser.parse_generic_argument_source observed
                              (Parser_Lex_Util.positioned_content_source text position)) sources
-                         in URust_Type_Mappings.resolve_source_arguments observed parameters parsed end))
+                         in URust_Type_Mappings.resolve_binding_source_arguments observed parameters parsed end))
                    fun commit () =
-                     (URust_Type_Mappings.replay_generic_argument_events ctxt events;
+                     (URust_Type_Mappings.replay_binding_argument_events ctxt events;
                       URust_Report_Transaction.replay ctxt reports)
                  in (#arguments resolved, commit) end) ()
                val _ = (case result of Exn.Exn exn =>
@@ -1340,13 +1357,71 @@ struct
       (case find_first (fn ({serial = source, ...}, _) => source = serial) successful of
          NONE => NONE
        | SOME (_, (arguments, commit)) => Option.map (fn term => (term, commit))
-           (URust_Type_Mappings.instantiate_generic_source_scheme_for_source ctxt serial candidate arguments))
+           (if is_some (URust_Type_Mappings.generic_source_scheme_for_source ctxt serial) then
+             URust_Type_Mappings.instantiate_generic_source_scheme_for_source ctxt serial candidate arguments
+           else URust_Type_Mappings.instantiate_binding_generic_scheme_for_source ctxt serial candidate
+             {target = NONE, arguments = SOME arguments}))
     end
+
+  fun callable_source_entry ctxt ({serial, ...}: Micro_Rust_Names.entry) =
+    case URust_Type_Mappings.binding_generic_scheme_for_source ctxt serial of NONE => false
+    | SOME scheme => exists (not o null o #callable_origins)
+        (URust_Type_Mappings.binding_scoped_parameters scheme @
+          maps #parameters (the_list (URust_Type_Mappings.binding_scoped_owner scheme)))
+
+  fun binding_candidate_effects ctxt action =
+    let
+      val ((result, events), reports) = URust_Report_Transaction.capture_isolated
+        (fn () => URust_Type_Mappings.capture_binding_argument_events ctxt action)
+      fun commit () = (URust_Type_Mappings.replay_binding_argument_events ctxt events;
+        URust_Report_Transaction.replay ctxt reports)
+    in Option.map (fn term => (term, commit)) result end
+
+  (* The dispatcher supplies the real fresh candidate. Completed constraints and effects are
+     never cached across two native candidates or their distinct channel tuples. *)
+  fun sparse_candidate_transform ctxt
+      (arguments as {instances, pos, pending}: Micro_Rust_Dispatch.sparse_generic_arguments)
+      occurrence_type (sources as {name, eligible, maximal}: Micro_Rust_Dispatch.generic_candidate_sources) =
+    if not (exists (callable_source_entry ctxt) maximal) then
+      legacy_sparse_candidate_transform ctxt arguments occurrence_type sources
+    else
+      let
+        val ordinary = filter_out (callable_source_entry ctxt) maximal
+        val legacy = if null ordinary then (fn _ => fn _ => NONE) else
+          legacy_sparse_candidate_transform ctxt arguments occurrence_type
+            {name = name, eligible = filter_out (callable_source_entry ctxt) eligible, maximal = ordinary}
+        val remaining = Unsynchronized.ref (map #serial maximal)
+        val errors = Unsynchronized.ref ([]: exn list)
+        val successful = Unsynchronized.ref false
+        fun apply (entry as {serial, ...}: Micro_Rust_Names.entry) candidate =
+          let
+            val result = Exn.capture0 (fn () =>
+              if not (callable_source_entry ctxt entry) then legacy entry candidate
+              else if not (exists (fn {source, ...} => source = serial) instances) then NONE else
+                binding_candidate_effects ctxt (fn observed =>
+                  let
+                    val parameters = the (source_slots observed entry)
+                    val parsed = case pending of SOME sources =>
+                        let val _ = if length sources = length parameters then () else
+                              generic_count_error name (length sources) pos
+                        in SOME (map (fn (text, position) => URust_Parser.parse_generic_argument_source observed
+                          (Parser_Lex_Util.positioned_content_source text position)) sources) end
+                      | NONE => error ("urust: callable generic source arguments require owned source syntax" ^ Position.here pos)
+                  in URust_Type_Mappings.instantiate_binding_source_arguments_for_source observed serial
+                    candidate occurrence_type {target = NONE, arguments = parsed} end)) ()
+            val _ = remaining := remove (op =) serial (!remaining)
+            val _ = case result of Exn.Res (SOME _) => successful := true
+              | Exn.Exn exn => if Exn.is_interrupt exn then Exn.reraise exn else errors := exn :: !errors
+              | _ => ()
+            val _ = if null (!remaining) andalso not (!successful) andalso null ordinary then
+                (case rev (!errors) of exn :: _ => Exn.reraise exn | [] => ()) else ()
+          in case result of Exn.Res result => result | Exn.Exn _ => NONE end
+      in apply end
 
   val _ = Theory.setup (Micro_Rust_Dispatch.register_sparse_generic_candidate_transform
     sparse_candidate_transform)
 
-  fun scoped_sparse_candidate_transform ctxt
+  fun legacy_scoped_sparse_candidate_transform ctxt
       ({instances, pos, pending}: Micro_Rust_Dispatch.scoped_sparse_arguments) occurrence_type
       ({name, eligible = genuine, maximal = entries}: Micro_Rust_Dispatch.generic_candidate_sources) =
     let
@@ -1359,13 +1434,13 @@ struct
       fun prepare (entry as {serial, ...}: Micro_Rust_Names.entry) = Exn.capture0 (fn () =>
         let
           val {target, arguments, ...} = the (instance entry)
-          val scheme = URust_Type_Mappings.scoped_generic_scheme_for_source ctxt serial
+          val scheme = URust_Type_Mappings.binding_generic_scheme_for_source ctxt serial
           val parameters = case scheme of NONE => []
-            | SOME scheme => URust_Type_Mappings.scoped_parameters scheme
+            | SOME scheme => URust_Type_Mappings.binding_scoped_parameters scheme
           val ((prepared, events), reports) = URust_Report_Transaction.capture_isolated
-            (fn () => URust_Type_Mappings.capture_generic_argument_events ctxt (fn observed =>
+            (fn () => URust_Type_Mappings.capture_binding_argument_events ctxt (fn observed =>
               let
-                val target = Option.map (URust_Type_Mappings.prepare_scoped_target_selection
+                val target = Option.map (URust_Type_Mappings.prepare_binding_target_selection
                   observed serial) target
                 val arguments = case pending of NONE => arguments
                   | SOME sources =>
@@ -1375,13 +1450,13 @@ struct
                         val parsed = map (fn (text, position) =>
                           URust_Parser.parse_generic_argument_source observed
                             (Parser_Lex_Util.positioned_content_source text position)) sources
-                      in SOME (#arguments (URust_Type_Mappings.resolve_source_arguments
+                      in SOME (#arguments (URust_Type_Mappings.resolve_binding_source_arguments
                         observed parameters parsed)) end
-                val _ = if is_none arguments andalso exists (is_none o #hol) parameters then
+                val _ = if is_none arguments andalso exists (is_none o #witness) parameters then
                     error ("urust: erased generic arguments require explicit source arguments" ^ Position.here pos)
                   else ()
               in {target = target, arguments = arguments} end))
-          fun commit () = (URust_Type_Mappings.replay_generic_argument_events ctxt events;
+          fun commit () = (URust_Type_Mappings.replay_binding_argument_events ctxt events;
             URust_Report_Transaction.replay ctxt reports)
         in (prepared, commit) end) ()
       val results = map (fn entry => (entry, prepare entry)) eligible
@@ -1393,15 +1468,55 @@ struct
       (case find_first (fn ({serial = source, ...}, _) => source = serial) successful of
          NONE => NONE
        | SOME (_, (prepared, commit)) => Option.map (fn term => (term, commit))
-           (URust_Type_Mappings.instantiate_scoped_generic_scheme_for_source ctxt serial candidate prepared))
+           (URust_Type_Mappings.instantiate_binding_generic_scheme_for_source ctxt serial candidate prepared))
     end
+
+  fun scoped_sparse_candidate_transform ctxt
+      (arguments as {instances, pos, pending}: Micro_Rust_Dispatch.scoped_sparse_arguments)
+      occurrence_type (sources as {name, eligible, maximal}: Micro_Rust_Dispatch.generic_candidate_sources) =
+    if not (exists (callable_source_entry ctxt) maximal) then
+      legacy_scoped_sparse_candidate_transform ctxt arguments occurrence_type sources
+    else
+      let
+        val ordinary = filter_out (callable_source_entry ctxt) maximal
+        val legacy = if null ordinary then (fn _ => fn _ => NONE) else
+          legacy_scoped_sparse_candidate_transform ctxt arguments occurrence_type
+            {name = name, eligible = filter_out (callable_source_entry ctxt) eligible, maximal = ordinary}
+        val remaining = Unsynchronized.ref (map #serial maximal)
+        val errors = Unsynchronized.ref ([]: exn list)
+        val successful = Unsynchronized.ref false
+        fun apply (entry as {serial, ...}: Micro_Rust_Names.entry) candidate =
+          let
+            val result = Exn.capture0 (fn () =>
+              if not (callable_source_entry ctxt entry) then legacy entry candidate else
+                case find_first (fn {source, ...} => source = serial) instances of NONE => NONE
+                | SOME {target, arguments, ...} => binding_candidate_effects ctxt (fn observed =>
+                    let
+                      val parameters = the_default [] (source_slots observed entry)
+                      val parsed = case pending of SOME sources =>
+                          let val _ = if length parameters = length sources then () else
+                                generic_count_error name (length sources) pos
+                          in SOME (map (fn (text, position) => URust_Parser.parse_generic_argument_source observed
+                            (Parser_Lex_Util.positioned_content_source text position)) sources) end
+                        | NONE => if is_none arguments orelse null (the arguments) then NONE else
+                            error ("urust: callable generic source arguments require owned source syntax" ^ Position.here pos)
+                    in URust_Type_Mappings.instantiate_binding_source_arguments_for_source observed serial
+                      candidate occurrence_type {target = target, arguments = parsed} end)) ()
+            val _ = remaining := remove (op =) serial (!remaining)
+            val _ = case result of Exn.Res (SOME _) => successful := true
+              | Exn.Exn exn => if Exn.is_interrupt exn then Exn.reraise exn else errors := exn :: !errors
+              | _ => ()
+            val _ = if null (!remaining) andalso not (!successful) andalso null ordinary then
+                (case rev (!errors) of exn :: _ => Exn.reraise exn | [] => ()) else ()
+          in case result of Exn.Res result => result | Exn.Exn _ => NONE end
+      in apply end
 
   val _ = Theory.setup (Micro_Rust_Dispatch.register_scoped_sparse_candidate_transform
     scoped_sparse_candidate_transform)
 
   fun check_source_inference ctxt entries pos =
     if exists (fn entry => case source_slots ctxt entry of
-        SOME slots => exists (is_none o #hol) slots | NONE => false) entries then
+        SOME slots => exists (is_none o #witness) slots | NONE => false) entries then
       error ("urust: erased generic arguments require explicit source arguments" ^ Position.here pos)
     else ()
 
@@ -1571,14 +1686,15 @@ struct
         (URust_Type_Mappings.source_target_template ctxt
           {self_type = self_type, source = identity, declarations = [], witnesses = []})) identity
         |> Option.mapPartial I
-      val parameters = maps #parameters (the_list (URust_Type_Mappings.generic_scope ctxt))
-      val identities = the_default [] (URust_Type_Mappings.generic_scope_identities ctxt)
+      val bindings = maps URust_Type_Mappings.scope_bindings
+        (the_list (URust_Type_Mappings.binding_scope ctxt))
+      val identities = map (#declaration o URust_Type_Mappings.binding_spec) bindings
       fun evidence path (Micro_Rust_Names.Source_Rigid (identity, _)) =
             (case find_index (fn current => current = identity) identities of ~1 => []
-             | index => let val parameter = nth parameters index
-               in if URust_Type_Mappings.parameter_has_witness ctxt parameter andalso
-                   URust_Type_Mappings.parameter_available ctxt parameter
-                 then [(path, TFree (#hol parameter))] else [] end)
+             | index => let val binding = nth bindings index
+               in if URust_Type_Mappings.binding_has_witness ctxt binding andalso
+                   URust_Type_Mappings.binding_available ctxt binding
+                 then [(path, the (URust_Type_Mappings.binding_template binding))] else [] end)
         | evidence path (Micro_Rust_Names.Source_Node (_, children)) =
             maps (fn (index, child) => evidence (path @ [index]) child) (map_index I children)
         | evidence _ _ = []
@@ -1891,7 +2007,7 @@ struct
                       error ("urust: generic parameter " ^ head ^ " takes no generic arguments" ^
                         Position.here arguments_pos)
                 val _ = report_scope_parameter ctxt head_pos parameter
-                val typ = TFree hol
+                val typ = scope_parameter_type ctxt parameter
                 fun candidate key =
                   let
                     val entry = the (URust_Trait_Mappings.lookup ctxt key)
@@ -2257,8 +2373,8 @@ struct
            val entries = Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NFunction (render_path base)
              |> Micro_Rust_Names.eligible_entries ctxt filters
            fun has_impl_parameters ({serial, ...}: Micro_Rust_Names.entry) =
-             (case Option.mapPartial URust_Type_Mappings.scoped_owner
-                 (URust_Type_Mappings.scoped_generic_scheme_for_source ctxt serial) of
+             (case Option.mapPartial URust_Type_Mappings.binding_scoped_owner
+                 (URust_Type_Mappings.binding_generic_scheme_for_source ctxt serial) of
                 SOME {parameters, ...} => not (null parameters) | NONE => false)
            fun local_call registered =
              (reject_generated_function_generics ctxt stripped;

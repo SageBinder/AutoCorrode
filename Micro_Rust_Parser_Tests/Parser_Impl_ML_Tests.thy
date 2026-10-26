@@ -3259,7 +3259,7 @@ local
   val prior_registry = registry_snapshot ctxt
   val rows =
     [("generic", "T: Sequence<Item = u8>", "", "generic trait bounds are not supported"),
-     ("callable", "F: FnOnce(u8) -> u8", "", "Fn trait bounds are not supported"),
+     ("callable-wrapper", "F: [const] FnOnce(u8) -> u8", "", "conditional-const trait bounds are not supported"),
      ("higher-ranked", "F: for<'a> Fn(&'a u8)", "", "higher-ranked trait bounds are not supported"),
      ("conditional-const", "T: [const] Marker", "", "conditional-const trait bounds are not supported"),
      ("const-type", "const N: bool", "", "const parameters require usize"),

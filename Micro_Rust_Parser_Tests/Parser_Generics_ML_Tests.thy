@@ -1078,8 +1078,8 @@ local
      ("optional-where", "optional trait bounds are not supported", "fn Bad<T>() where T: ?Sized {}", "?", 0),
      ("lifetime-parameter-bound", "lifetime bounds are not supported", "fn Bad<'a: 'b>() {}", ":", 0),
      ("lifetime-parameter-plus-bounds", "lifetime bounds are not supported", "fn Bad<'a: 'b + 'c>() {}", ":", 0),
-     ("fn-inline-bound", "Fn trait bounds are not supported", "fn Bad<T: Fn(u8) -> u8>() {}", "(", 0),
-     ("fn-where-bound", "Fn trait bounds are not supported", "fn Bad<T>() where T: Fn(u8) -> u8 {}", "(", 1),
+     ("fn-inline-bound", "generic trait bounds are not supported", "fn Bad<T: Fn<u8>>() {}", "<", 1),
+     ("fn-where-bound", "generic trait bounds are not supported", "fn Bad<T>() where T: Fn<u8> {}", "<", 1),
      ("generic-inline-bound", "generic trait bounds are not supported", "fn Bad<T: Trait<u8>>() {}", "<", 1),
      ("generic-empty-bound", "generic trait bounds are not supported", "fn Bad<T: Trait<>>() {}", "<", 1),
      ("generic-associated-bound", "generic trait bounds are not supported", "fn Bad<T>() where T: outer::Trait<Item = u8> {}", "<", 1),
@@ -6057,7 +6057,7 @@ local
   val _ = List.app (fn (label, expected, rust) =>
     ignore (failure label expected (fn () => run thy label (command false rust))))
     [("mixed-concrete-trait", "where clauses may only bound", "fn Bad<'a>(value: u8) -> u8 where Unknown: 'a + Marker { value }"),
-     ("mixed-callable", "Fn trait bounds are not supported", "fn Bad<'a, T: 'a + Fn(u8) -> u8>(value: u8) -> u8 { value }"),
+     ("mixed-callable-wrapper", "conditional-const trait bounds are not supported", "fn Bad<'a, T: 'a + [const] Fn(u8) -> u8>(value: u8) -> u8 { value }"),
      ("mixed-conditional-const", "conditional-const trait bounds are not supported", "fn Bad<'a, T: 'a + [const] Marker>(value: u8) -> u8 { value }"),
      ("mixed-higher-ranked", "higher-ranked trait bounds are not supported", "fn Bad<'a, T: 'a + for<'b> Fn(&'b u8)>(value: u8) -> u8 { value }"),
      ("mixed-generic-trait", "generic trait bounds are not supported", "fn Bad<'a, T: 'a + Unknown<u8>>(value: u8) -> u8 { value }"),
@@ -6092,5 +6092,298 @@ local
 in end
 \<close>
 
+
+
+chapter\<open> Canonical callable binding audits \<close>
+
+ML\<open>
+structure Callable_Signature_Test =
+struct
+  open Generic_Signature_Test
+  structure Types = URust_Type_Mappings
+  structure Traits = URust_Trait_Mappings
+  fun scheme_entry ctxt name =
+    Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NFunction name
+    |> filter (fn entry => is_some (Types.binding_generic_scheme_for_source ctxt (#serial entry)))
+    |> the_single
+  fun scheme ctxt name =
+    let val entry = scheme_entry ctxt name
+    in (#serial entry, the (Types.binding_generic_scheme_for_source ctxt (#serial entry))) end
+  fun callable_bound ctxt label path =
+    let val function = parse ctxt label
+          ("fn Probe<F: " ^ path ^ "(bool) -> bool>(callback: F, value: bool) -> bool { callback(value) }")
+    in case #parameters (URust_AST.function_generics function) of
+        [URust_AST.Generic_Type (_, _, [bound])] => (function, bound)
+      | _ => error "callable audit: malformed probe header" end
+  fun recipe ctxt bound = case Traits.classify_bound ctxt bound of
+      Traits.Callable_Bound recipe => recipe
+    | _ => error "callable audit: bound lost registered classification"
+  fun parameters function = map (fn URust_AST.Function_Parameter (_, _, typ, _) => typ
+      | _ => error "callable audit: expected explicit formal type")
+    (URust_AST.function_parameters function)
+  fun scopes_closed label ctxt =
+    require (label ^ ": canonical binding scope escaped") (is_none (Types.binding_scope ctxt))
+end
+\<close>
+
+ML_val\<open>
+local
+  open Callable_Signature_Test
+  val ctxt = \<^context>
+  val variants = ["Fn", "FnMut", "FnOnce"]
+  fun aliases variant = [variant, "core::ops::" ^ variant, "std::ops::" ^ variant]
+  fun origins variant = map (fn path =>
+    let val (_, bound) = callable_bound ctxt ("callable-identity-" ^ path) path
+        val {origin, ...} = recipe ctxt bound
+        val _ = require "callable alias lost its exact entry path" (#path origin = path)
+        val _ = require "callable entity has no declaration provenance"
+          (not (null (Position.properties_of (#declaration_pos origin))))
+    in #identity origin end) (aliases variant)
+  val identities = map origins variants
+  val _ = require "each standard variant must share one canonical alias identity"
+    (forall (fn ids => length (distinct (op =) ids) = 1) identities)
+  val _ = require "three callable variants collapsed their registered identities"
+    (length (distinct (op =) (map hd identities)) = 3)
+  val _ = require "arbitrary suffix was registered as a standard callable"
+    (is_none (Traits.lookup ctxt "custom::Fn") andalso is_none (Traits.lookup ctxt "other::ops::Fn"))
+  val _ = List.app (fn path => ignore (failure ("callable-conflict-" ^ path)
+    "conflicting mappings" (fn () => run \<^theory> "callable-classification-conflict"
+      ("urust_trait " ^ quote path ^ " = " ^ cartouche "type")))) (maps aliases variants)
+  val ordinary = run \<^theory> "callable-custom-ordinary"
+    ("urust_trait \"custom::Fn\" = " ^ cartouche "type") |> Toplevel.context_of
+  val (_, custom) = callable_bound ordinary "callable-custom-parenthesized" "custom::Fn"
+  val _ = ignore (failure "callable-custom-classification" "no standard callable classification"
+    (fn () => Traits.classify_bound ordinary custom))
+  val _ = writeln "S4 nine trait keys / three real canonical entities, exact paths and classification conflicts PASS"
+in end
+\<close>
+
+ML_val\<open>
+local
+  open Callable_Signature_Test
+  val ctxt = \<^context>
+  val (function, bound) = callable_bound ctxt "callable-owned-frame" "Fn"
+  val reference_count = Unsynchronized.ref 0
+  fun reference _ = reference_count := !reference_count + 1
+  val [URust_AST.Generic_Type (_, pos, _)] = #parameters (URust_AST.function_generics function)
+  val declaration = Types.fresh_generic_declaration_identity ()
+  val parameter: Types.generic_parameter =
+    {rust = "F", kind = URust_AST.Type_Parameter, pos = pos, hol = ("'f", \<^sort>\<open>type\<close>),
+     bounds = [], report_reference = reference}
+  val specification: Types.binding_spec =
+    {parameter = parameter, declaration = declaration, callables = [recipe ctxt bound]}
+  val pending = Types.prepare_binding_scope [specification] ctxt
+  val _ = ignore (failure "callable-pending-receipts" "finalized Rust signature"
+    (fn () => Types.binding_signature_events pending))
+  val resolved = Types.resolve_function_signature_with_bindings (Types.with_binding_scope pending ctxt)
+    {state = NONE, abort = NONE, input = NONE, output = NONE} [] (parameters function)
+    (the (URust_AST.function_return_type function))
+  val scope = #scope resolved
+  val [binding] = Types.scope_bindings scope
+  val owned = Types.with_binding_scope scope ctxt
+  val relation = the (Types.binding_callable_relation binding)
+  val template = the (Types.binding_template binding)
+  val {state, abort, input, output} = #channels relation
+  val _ = require "callable template lost the checked input/result/four-channel relation"
+    (template = (map #1 (#inputs relation) ---> Type (\<^type_name>\<open>function_body\<close>,
+      [state, #1 (#result relation), abort, input, output])))
+  val _ = require "callable produced a fictitious independent F type variable"
+    (not (member (op =) (map fst (Term.add_tfreesT template [])) "'f"))
+  val _ = require "legacy generic getter lied about a structured scope"
+    (is_none (Types.generic_scope owned))
+  val final_events = Types.binding_event_declarations (Types.binding_signature_events scope)
+  val _ = require "final signature scope lost its actual callable occurrence"
+    (#source_uses final_events = [declaration] andalso #witness_uses final_events = [declaration])
+  val (_, observed) = Types.capture_binding_events owned (fn outer =>
+    let val (_, inner) = Types.capture_binding_events outer (fn inner =>
+          Types.report_binding_reference inner binding {witness = true, pos = pos})
+        val _ = require "nested canonical capture lost the installed record"
+          (#witness_uses (Types.binding_event_declarations inner) = [declaration])
+    in () end)
+  val _ = require "canonical outer capture was gated by the partial legacy getter"
+    (#witness_uses (Types.binding_event_declarations observed) = [declaration])
+  val foreign_count = Unsynchronized.ref 0
+  fun foreign_reference _ = foreign_count := !foreign_count + 1
+  val foreign_parameter: Types.generic_parameter =
+    {rust = "F", kind = URust_AST.Type_Parameter, pos = pos, hol = #hol parameter,
+     bounds = [], report_reference = foreign_reference}
+  val foreign_scope = Types.prepare_binding_scope
+    [{parameter = foreign_parameter, declaration = declaration, callables = [recipe ctxt bound]}] ctxt
+  val foreign = hd (Types.scope_bindings foreign_scope)
+  val before = !reference_count
+  val (_, rejected) = Types.capture_binding_events owned (fn observed =>
+    (Types.report_binding_reference observed foreign {witness = true, pos = pos};
+     Types.report_generic_reference observed foreign_parameter pos;
+     Types.report_generic_source_reference observed foreign_parameter pos))
+  val _ = require "foreign callback/unfinished record passed canonical membership"
+    (!reference_count = before andalso !foreign_count = 0 andalso
+      #source_uses (Types.binding_event_declarations rejected) = [])
+  val source_only = Types.with_binding_availability
+    {unavailable = [], source_only = [declaration], declared_body = false} owned
+  val (_, source_events) = Types.capture_binding_events source_only (fn observed =>
+    Types.report_binding_reference observed binding {witness = false, pos = pos})
+  val masks = Types.binding_event_declarations source_events
+  val _ = require "source-only callable demand manufactured a witness"
+    (#source_uses masks = [declaration] andalso null (#witness_uses masks) andalso
+      not (Types.binding_has_witness source_only binding))
+  val _ = ignore (failure "callable-source-only-witness" "no available HOL witness" (fn () =>
+    Types.report_binding_reference source_only binding {witness = true, pos = pos}))
+  val (escaped, inactive) = Types.capture_binding_events owned I
+  val _ = Types.report_binding_reference escaped binding {witness = true, pos = pos}
+  val _ = require "completed canonical capture remained mutable through an escaped context"
+    (null (#source_uses (Types.binding_event_declarations inactive)))
+  val failed_observer = Unsynchronized.ref NONE
+  val _ = ignore (failure "callable-capture-failure" "expected callable capture failure" (fn () =>
+    Types.capture_binding_events owned (fn observed =>
+      (failed_observer := SOME observed; error "expected callable capture failure"))))
+  val _ = Types.report_binding_reference (the (!failed_observer)) binding {witness = true, pos = pos}
+  val (_, recovered) = Types.capture_binding_events owned (fn observed =>
+    Types.report_binding_reference observed binding {witness = false, pos = pos})
+  val _ = require "failed canonical capture poisoned the next operation"
+    (#source_uses (Types.binding_event_declarations recovered) = [declaration] andalso
+      null (#witness_uses (Types.binding_event_declarations recovered)))
+  val _ = writeln "S4 finalized whole binding/relation, strict callback identity, nested capture, masks and failure deactivation PASS"
+in end
+\<close>
+
+ML_val\<open>
+local
+  open Callable_Signature_Test
+  val thy = \<^theory>
+  val ctxt = \<^context>
+  val names_before = snapshot ctxt
+  val schemes_before = scheme_snapshot ctxt
+  val paths = ["Fn", "core::ops::Fn", "std::ops::Fn", "FnMut", "core::ops::FnMut",
+    "std::ops::FnMut", "FnOnce", "core::ops::FnOnce", "std::ops::FnOnce"]
+  fun accepted (index, path) =
+    let val name = "CallableAccepted" ^ string_of_int index
+        val text = "urust_fn " ^ cartouche
+          ("fn " ^ name ^ "<T, F: " ^ path ^ "(T) -> T>(callback: F, value: T) -> T { callback(value) }")
+        val completed = run thy name text |> Toplevel.context_of
+        val (source, scheme) = scheme completed name
+        val slots = Types.binding_scoped_parameters scheme
+        val _ = require "ordered ordinary/callable source slots changed"
+          (map #rust slots = ["T", "F"] andalso
+            map #kind slots = [URust_AST.Type_Parameter, URust_AST.Type_Parameter])
+        val _ = require "whole callable witness was shortened to an atomic slot"
+          (is_some (#callable_relation (nth slots 1)) andalso
+            (case #witness (nth slots 1) of SOME (Type ("fun", _)) => true | _ => false))
+        val _ = require "old scheme getter silently dropped or fabricated F"
+          (is_none (Types.generic_scheme_for_source completed source) andalso
+            is_none (Types.generic_source_scheme_for_source completed source) andalso
+            is_none (Types.scoped_generic_scheme_for_source completed source))
+    in scopes_closed name completed end
+  val _ = List.app accepted (map_index I paths)
+  val accepted_rows =
+    [("compatible-bounds", "fn CallableCompatible<T, F: Fn(T) -> T + FnMut(T) -> T + FnOnce(T) -> T>(callback: F, value: T) -> T { callback(value) }"),
+     ("nested-dependencies", "fn CallableDependencies<T, G: Fn(T) -> T, F: Fn(G, T) -> T>(outer: F, inner: G, value: T) -> T { outer(inner, value) }"),
+     ("zero-terminal", "fn CallableTerminal<F: FnOnce()>(callback: F) { callback() }"),
+     ("call-count-abstraction", "fn CallableRepeated<F: FnOnce(bool) -> bool>(callback: F, value: bool) -> bool { callback(value); callback(value) }"),
+     ("mutable-reference-input", "fn CallableReference<'a, F: Fn(&'a mut bool) -> bool>(callback: F, value: &'a mut bool) -> bool { callback(value) }")]
+  val _ = List.app (fn (label, rust) => scopes_closed label
+    (run thy label ("urust_fn " ^ cartouche rust) |> Toplevel.context_of)) accepted_rows
+  val rejected_rows =
+    [("rigid-declarations", "incompatible callable bounds", "fn CallableRigid<T, U, F: Fn(T) -> T + Fn(U) -> U>(callback: F, value: T) -> T { callback(value) }"),
+     ("different-results", "incompatible callable bounds", "fn CallableResults<F: Fn(bool) -> bool + Fn(bool) -> u8>(callback: F) -> bool { false }"),
+     ("self-cycle", "recursive callable dependency", "fn CallableRecursive<F: Fn(F) -> bool>(callback: F) -> bool { false }"),
+     ("mutual-cycle", "recursive callable dependency", "fn CallableMutual<F: Fn(G) -> bool, G: Fn(F) -> bool>(callback: F) -> bool { false }"),
+     ("body-only", "does not occur in the signature", "fn CallableBodyOnly<F: Fn(bool) -> bool>() { let value: F = " ^ "\<epsilon>" ^ cartouche "undefined" ^ "; () }"),
+     ("recipe-only-ordinary", "does not occur in the signature", "fn CallableRecipeOnly<T, F: Fn(T) -> T>(callback: F) { let value: T = " ^ "\<epsilon>" ^ cartouche "undefined" ^ "; () }"),
+     ("whole-sort", "does not satisfy", "fn CallableSort<F: Fn(bool) -> bool>(callback: " ^ "\<tau>" ^ cartouche "'f::len0" ^ ") -> bool { callback(false) }"),
+     ("shared-reference-limit", "shared", "fn CallableShared<F: Fn(&bool) -> bool>(callback: F) -> bool { false }"),
+     ("custom-suffix", "unregistered callable trait", "fn CallableCustom<F: custom::Fn(bool) -> bool>(callback: F) -> bool { false }"),
+     ("higher-ranked-limit", "higher-ranked trait bounds", "fn CallableHigher<F: for<'a> Fn(&'a bool) -> bool>(callback: F) -> bool { false }"),
+     ("conditional-const-limit", "conditional-const trait bounds", "fn CallableConst<F: [const] Fn(bool) -> bool>(callback: F) -> bool { false }")]
+  val _ = List.app (fn (label, expected, rust) =>
+    let val callbacks = saved_callbacks ()
+        val reporter = !Private_Output.report_fn
+        val (result, events) = capture (fn () => failure label expected
+          (fn () => run thy label ("urust_fn " ^ cartouche rust)))
+        val _ = Exn.release result
+        val _ = require "failed callable header/body leaked declarations or ordinary output"
+          (null (declaration_reports events) andalso null (ordinary events))
+        val _ = require "failed callable operation changed registries or callback ownership"
+          (snapshot ctxt = names_before andalso scheme_snapshot ctxt = schemes_before andalso
+            same_callbacks callbacks andalso PolyML.pointerEq (reporter, !Private_Output.report_fn))
+    in scopes_closed label (run thy (label ^ "-recovery") ("urust_fn " ^ cartouche
+      "fn CallableRecovery(value: bool) -> bool { value }") |> Toplevel.context_of) end) rejected_rows
+  val _ = writeln "S4 callable aliases, zero/multiple inputs, rigid dependencies/cycles, body availability, sort limits and atomic recovery PASS"
+in end
+\<close>
+
+
+section\<open> Candidate-owned erased callable evidence \<close>
+
+ML_val\<open>
+local
+  open Callable_Signature_Test
+  val thy = \<^theory>
+  val options = "[state = " ^ cartouche "nat" ^ ", abort = " ^ cartouche "unit" ^
+    ", input = " ^ cartouche "unit" ^ ", output = " ^ cartouche "unit" ^ "] "
+  fun function rust = "urust_fn " ^ options ^ cartouche rust ^ "\n"
+  val prefix =
+    "urust_type [erase = " ^ cartouche "'callback" ^ "] \"CallableErased<'callback>\" = " ^ cartouche "unit" ^ "\n" ^
+    "urust_type [erase = " ^ cartouche "'element, 'callback" ^ "] \"CallableErasedPair<'element, 'callback>\" = " ^ cartouche "unit" ^ "\n" ^
+    "urust_type [erase = " ^ cartouche "'element, 'capacity, 'callback" ^
+      "] \"CallableErasedArray<'element, const 'capacity, 'callback>\" = " ^ cartouche "unit" ^ "\n" ^
+    "urust_type \"BoolStateCallable\" = " ^ cartouche "bool => (bool, bool, unit, unit, unit) function_body" ^ "\n" ^
+    "urust_type \"NatStateCallable\" = " ^ cartouche "bool => (nat, bool, unit, unit, unit) function_body" ^ "\n" ^
+    "urust_type \"NatArrayThreeCallable\" = " ^
+      cartouche "(bool, 3) array => (nat, bool, unit, unit, unit) function_body" ^ "\n" ^
+    "urust_type [implicit = " ^ cartouche "address = 'address" ^ "] \"UnfixedCallableState\" = " ^
+      cartouche "bool => ('address, bool, unit, unit, unit) function_body" ^ "\n" ^
+    function "fn ErasedCallable<F: Fn(bool) -> bool>(tag: CallableErased<F>) -> bool { false }" ^
+    function "fn ErasedCallablePair<T, F: Fn(T) -> T>(tag: CallableErasedPair<T, F>) -> bool { false }" ^
+    function "fn ErasedCallableArray<T, const N: usize, F: Fn([T; N]) -> T>(tag: CallableErasedArray<T, N, F>) -> bool { false }" ^
+    function "fn UnrelatedErasedTag<Tag, F: Fn(bool) -> bool>(tag: CallableErased<Tag>, callback: F) -> bool { callback(false) }"
+  val initialized = run thy "callable-erased-evidence-prefix" prefix
+  val model = Toplevel.context_of initialized
+  val (_, erased_scheme) = scheme model "ErasedCallable"
+  val [erased_slot] = Types.binding_scoped_parameters erased_scheme
+  val _ = require "erased callable registration changed its execution availability"
+    (is_none (#witness erased_slot) andalso is_some (#callable_relation erased_slot) andalso
+      #source_used erased_slot = SOME true)
+  fun client label expected rust =
+    let
+      val result = Exn.capture0 (fn () => Parser_Trait_Test.run_from initialized label (function rust)) ()
+      val _ = case expected of NONE => scopes_closed label (Exn.release result |> Toplevel.context_of)
+        | SOME message => ignore (failure label message (fn () => Exn.release result))
+      val (_, scheme_after) = scheme model "ErasedCallable"
+    in require "candidate comparison manufactured an erased witness or mutated its entry"
+      (map #witness (Types.binding_scoped_parameters scheme_after) = [NONE]) end
+  val _ = List.app (fn (label, expected, rust) => client label expected rust)
+    [("erased-nat-state-accept", NONE,
+       "fn ErasedNatClient(tag: CallableErased<NatStateCallable>) -> bool { ErasedCallable::<NatStateCallable>(tag) }"),
+     ("erased-bool-state-reject", SOME "no backend matches",
+       "fn ErasedBoolClient(tag: CallableErased<BoolStateCallable>) -> bool { ErasedCallable::<BoolStateCallable>(tag) }"),
+     ("erased-shared-ordinary-accept", NONE,
+       "fn ErasedPairClient(tag: CallableErasedPair<bool, NatStateCallable>) -> bool { ErasedCallablePair::<bool, NatStateCallable>(tag) }"),
+     ("erased-shared-ordinary-reject", SOME "no backend matches",
+       "fn ErasedPairMismatch(tag: CallableErasedPair<u8, NatStateCallable>) -> bool { ErasedCallablePair::<u8, NatStateCallable>(tag) }"),
+     ("erased-length-accept", NONE,
+       "fn ErasedArrayClient(tag: CallableErasedArray<bool, 3, NatArrayThreeCallable>) -> bool { ErasedCallableArray::<bool, 3, NatArrayThreeCallable>(tag) }"),
+     ("erased-length-reject", SOME "no backend matches",
+       "fn ErasedArrayMismatch(tag: CallableErasedArray<bool, 4, NatArrayThreeCallable>) -> bool { ErasedCallableArray::<bool, 4, NatArrayThreeCallable>(tag) }"),
+     ("erased-ordinary-opaque-reject", SOME "no checked denotation",
+       "fn ErasedOpaqueOrdinary(tag: CallableErasedPair<unmapped::Tag, NatStateCallable>) -> bool { ErasedCallablePair::<unmapped::Tag, NatStateCallable>(tag) }"),
+     ("erased-callable-opaque-reject", SOME "no checked denotation",
+       "fn ErasedOpaqueCallable(tag: CallableErased<unmapped::Tag>) -> bool { ErasedCallable::<unmapped::Tag>(tag) }"),
+     ("erased-role-evidence-rigid", SOME "unavailable implicit backend role",
+       "fn ErasedRigidRole(tag: CallableErased<UnfixedCallableState>) -> bool { ErasedCallable::<UnfixedCallableState>(tag) }"),
+     ("unrelated-erased-opaque-accept", NONE,
+       "fn ErasedUnrelated<F: Fn(bool) -> bool>(tag: CallableErased<unmapped::Tag>, callback: F) -> bool { UnrelatedErasedTag::<unmapped::Tag, F>(tag, callback) }"),
+     ("erased-inference-reject", SOME "erased generic arguments require explicit",
+       "fn ErasedUnspecified(tag: CallableErased<NatStateCallable>) -> bool { ErasedCallable(tag) }")]
+  val _ = scopes_closed "standalone callable inference" (run thy "callable-free-inferred"
+    (function "fn CallableInferenceBase<F: Fn(bool) -> bool>(callback: F, value: bool) -> bool { callback(value) }" ^
+     function "fn CallableInferenceClient<F: Fn(bool) -> bool>(callback: F, value: bool) -> bool { CallableInferenceBase(callback, value) }")
+    |> Toplevel.context_of)
+  val holes = "urust_fn [state = " ^ cartouche "_" ^ ", abort = " ^ cartouche "unit" ^
+      ", input = " ^ cartouche "unit" ^ ", output = " ^ cartouche "unit" ^ "] " ^ cartouche
+      "fn CallableAuthoredHole<F: Fn(bool) -> bool>(callback: F, value: bool) -> bool { callback(value) }"
+  val _ = scopes_closed "authored channel hole" (run thy "callable-genuine-authored-hole" holes |> Toplevel.context_of)
+  val _ = writeln "S4 one native candidate environment, erased source templates/kinds/lengths, opaque and role boundaries, masks and ordinary inference PASS"
+in end
+\<close>
 
 end

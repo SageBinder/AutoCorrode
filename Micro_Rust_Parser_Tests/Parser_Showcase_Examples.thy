@@ -1664,4 +1664,47 @@ lemma showcase_outlives_selected_twin:
   \<open> showcase_outlives_selected = showcase_outlives_call_twin \<close>
   unfolding showcase_outlives_selected_def showcase_outlives_call_twin_def by (rule refl)
 
+
+subsection\<open> Generic signature fidelity in one callable pipeline \<close>
+
+text\<open>
+The generic inherent impl retains its element and const-capacity source slots. Outlives bounds
+validate the impl and member scope, then erase. A member-local callable consumes the actual
+array type and shares its enclosing computation channels. These authoritative declarations need
+no HOL type escapes. The retained-header control above separately keeps complete HOL signatures
+unchanged even when their Rust callable syntax lies outside the authoritative denotation.
+\<close>
+
+urust \<open>
+  struct ShowcaseCallableStorage<T, const N: usize> { slots: [T; N] }
+  impl<'a, T: 'a, const N: usize> ShowcaseCallableStorage<T, N> where Self: 'static {
+    fn apply<'b: 'a, F: std::ops::FnOnce([T; N]) -> T + 'b>(self: Self, callback: F) -> T
+    where T: 'b { callback(self.slots) }
+    fn capacity(self: Self) -> usize { N }
+  }
+  \<omega>\<open>register_notation = false\<close>
+  fn ShowcaseCallableStoragePlain<T, const N: usize, F: Fn([T; N]) -> T>(
+      owner: ShowcaseCallableStorage<T, N>, callback: F) -> T { callback(owner.slots) }
+  fn ShowcaseCallableSelected<F: Fn([bool; 3]) -> bool>(
+      owner: ShowcaseCallableStorage<bool, 3>, callback: F) -> bool {
+    ShowcaseCallableStorage::<bool, 3>::apply::<F>(owner, callback)
+  }
+  fn ShowcaseCallableMethod<F: Fn([bool; 3]) -> bool>(
+      owner: ShowcaseCallableStorage<bool, 3>, callback: F) -> bool { owner.apply::<F>(callback) }
+  fn ShowcaseCallableCallTwin<F: Fn([bool; 3]) -> bool>(
+      owner: ShowcaseCallableStorage<bool, 3>, callback: F) -> bool {
+    \<epsilon>\<open>showcase_callable_storage_apply\<close>(owner, callback)
+  }
+\<close>
+
+lemma showcase_callable_storage_twin:
+  \<open> showcase_callable_storage_apply = showcase_callable_storage_plain \<close>
+  unfolding showcase_callable_storage_apply_def showcase_callable_storage_plain_def by (rule refl)
+lemma showcase_callable_selected_twin:
+  \<open> showcase_callable_selected = showcase_callable_call_twin \<close>
+  unfolding showcase_callable_selected_def showcase_callable_call_twin_def by (rule refl)
+lemma showcase_callable_method_twin:
+  \<open> showcase_callable_method = showcase_callable_call_twin \<close>
+  unfolding showcase_callable_method_def showcase_callable_call_twin_def by (rule refl)
+
 end

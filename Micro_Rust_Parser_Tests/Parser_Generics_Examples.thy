@@ -1216,4 +1216,81 @@ lemma outlives_function_bool_twin:
   \<open> outlives_function_bool = outlives_function_bool_twin \<close>
   unfolding outlives_function_bool_def outlives_function_bool_twin_def by (rule refl)
 
+
+section\<open> Callable bindings and ordered source slots \<close>
+
+urust_fn [pp_test, verbosity = 0] callable_generic \<open>
+  fn CallableGeneric<'a, T: Scale + 'a, F: Fn(T) -> T + Marker>(callback: F, value: T) -> T
+  where F: core::ops::FnMut(T) -> T, T: 'static { callback(value) }
+\<close>
+urust_fn [pp_test, verbosity = 0] callable_generic_inferred \<open>
+  fn CallableGenericInferred<T: Scale, F: Fn(T) -> T>(callback: F, value: T) -> T
+  { CallableGeneric(callback, value) }
+\<close>
+urust_fn [pp_test, verbosity = 0] callable_generic_explicit \<open>
+  fn CallableGenericExplicit<T: Scale, F: Fn(T) -> T>(callback: F, value: T) -> T
+  { CallableGeneric::<T, F>(callback, value) }
+\<close>
+lemma callable_generic_call_twins:
+  \<open> callable_generic_inferred = callable_generic_explicit \<close>
+  unfolding callable_generic_inferred_def callable_generic_explicit_def by (rule refl)
+
+urust_fn [pp_test, verbosity = 0] callable_default_hol_name \<open>
+  fn CallableDefaultHolName<F: std::ops::Fn(bool) -> bool>(
+    callback: \<tau>\<open>'f\<close>, value: bool) -> bool { callback(value) }
+\<close>
+urust_fn [pp_test, verbosity = 0, hol_type_parameters = ["F" \<rightarrow> \<open>'callback::type\<close>]]
+  callable_explicit_hol_name \<open>
+  fn CallableExplicitHolName<F: FnOnce(bool) -> bool>(
+    callback: \<tau>\<open>'callback\<close>, value: bool) -> bool { callback(value) }
+\<close>
+lemma callable_hol_name_twins:
+  \<open> callable_default_hol_name = callable_explicit_hol_name \<close>
+  unfolding callable_default_hol_name_def callable_explicit_hol_name_def by (rule refl)
+
+urust_fn [pp_test, verbosity = 0] callable_nested_dependencies \<open>
+  fn CallableNestedDependencies<T, G: Fn(T) -> T, F: Fn(G, T) -> T>(
+    outer: F, inner: G, value: T) -> T { outer(inner, value) }
+\<close>
+
+text\<open>
+A complete HOL declaration type remains authoritative. The following Rust header preserves a
+zero-input, shared-reference callable requirement while the selected HOL API deliberately takes
+a unit argument. No callable template, alias or channel restriction is inferred from that header.
+\<close>
+
+urust_fn [pp_test, verbosity = 0, hol_type_parameters = ["F" \<rightarrow> \<open>'ignored::len0\<close>]]
+  callable_declared_override
+  :: \<open>(unit \<Rightarrow> ('state, bool, 'abort, 'input, 'output) function_body) \<Rightarrow>
+      ('state, bool, 'abort, 'input, 'output) function_body\<close>
+  \<open> fn CallableDeclaredOverride<F: Fn() + for<'a> FnOnce(&'a Unknown)>(callback: F) -> Unknown
+    { callback(()) } \<close>
+urust_fn [pp_test, verbosity = 0] callable_declared_override_plain
+  :: \<open>(unit \<Rightarrow> ('state, bool, 'abort, 'input, 'output) function_body) \<Rightarrow>
+      ('state, bool, 'abort, 'input, 'output) function_body\<close>
+  \<open> fn CallableDeclaredOverridePlain(callback: Unknown) -> Unknown { callback(()) } \<close>
+lemma callable_declared_override_twin:
+  \<open> callable_declared_override = callable_declared_override_plain \<close>
+  unfolding callable_declared_override_def callable_declared_override_plain_def by (rule refl)
+
+locale callable_function_locale = fixes callable_function_seed :: 'ambient
+begin
+
+declare [[urust_state = "'ambient"]]
+
+urust_fn [pp_test, verbosity = 0] callable_locale_function \<open>
+  fn CallableLocaleFunction<T, F: Fn(T) -> T>(callback: F, value: T) -> T
+  { let retained = callable_function_seed; callback(value) }
+\<close>
+
+end
+
+interpretation callable_function_nat: callable_function_locale "0 :: nat" .
+interpretation callable_function_bool: callable_function_locale False .
+
+urust_fn [pp_test, verbosity = 0, state = "nat"] callable_locale_client \<open>
+  fn CallableLocaleClient<F: Fn(bool) -> bool>(callback: F, value: bool) -> bool
+  { CallableLocaleFunction::<bool, F>(callback, value) }
+\<close>
+
 end

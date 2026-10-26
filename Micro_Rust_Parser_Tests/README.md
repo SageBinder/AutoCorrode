@@ -136,7 +136,8 @@ does not establish Rust type-name validity or make a body witness available. Kno
 projections, associated-type binding arguments, `impl Trait` and visible `_` holes remain outside
 the authoritative subset. A predicate containing an ordinary trait keeps the existing visible
 generic-head restriction and mapped-trait sort lookup. Rich higher-ranked, conditional-const,
-generic-trait and callable bounds remain unsupported authoritatively.
+generic-trait bounds remain unsupported authoritatively. The registered plain Fn/FnMut/FnOnce
+subset is supported with whole callable templates and shared channels.
 
 The Function, Generics and Impl pairs contain outlives kernel/type twins, native declaration/use
 identities and exact source ranges, unchanged sparse witness masks and zero-event pure-head checks,
@@ -336,9 +337,16 @@ merge transport, final labelled header/use sorts and separate declaration/bound/
 Complete output/report atomicity retains the exact earlier sources and wrapper controls, including
 successful generic prefixes followed by genuine later failures, namespace snapshots and recovery.
 
-Parameter defaults, const types other than `usize`, `?Sized`, lifetime and generic
-trait bounds, parenthesized `Fn` bounds, const bounds and non-parameter `where` heads remain
-unsupported. Shared references still require declared HOL signature types or explicit escapes;
+Plain outlives bounds are checked for source scope and erased, including supported compound
+pure-outlives heads. Parenthesized `Fn`, `FnMut` and `FnOnce` bounds use whole callable templates
+and the enclosing four-channel tuple; their bare, `core::ops` and `std::ops` spellings retain
+three canonical trait identities. Their shallow representation abstracts Rust capture ownership,
+consumption counts and receiver mutability.
+
+Parameter defaults, const types other than `usize`, `?Sized`, generic trait arguments and
+projections, const bounds, conditional-const and higher-ranked denotation, and non-parameter
+ordinary-trait `where` heads remain unsupported. Shared references still require declared HOL
+signature types or explicit escapes;
 automatic reads are outside this feature.
 
 ## Rust use imports

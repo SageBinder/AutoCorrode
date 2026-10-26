@@ -40,6 +40,13 @@ sig
     {path: string * Position.T, sort: Input.source,
      constants: ((string * Position.T) * Input.source) list} ->
     local_theory -> local_theory
+  datatype classified_bound =
+      Sort_Bound of trait_entry
+    | Callable_Bound of
+        {origin: {path: string, identity: serial, declaration_pos: Position.T, bound_pos: Position.T},
+         inputs: URust_AST.rust_type list, output: URust_AST.rust_type option}
+  val classify_bound: Proof.context -> URust_AST.rust_trait_bound -> classified_bound
+
 end
 
 structure URust_Trait_Mappings :> URUST_TRAIT_MAPPINGS =
@@ -51,7 +58,14 @@ struct
   type trait_entry =
     {path: string, pos: Position.T, sort: sort,
      constants: (string * {term: term, pos: Position.T}) list}
-  type registered = {entry: trait_entry, identity: serial}
+  datatype classification = Ordinary | Callable of string
+  type registered =
+    {entry: trait_entry, identity: serial, classification: classification, canonical_path: string}
+  datatype classified_bound =
+      Sort_Bound of trait_entry
+    | Callable_Bound of
+        {origin: {path: string, identity: serial, declaration_pos: Position.T, bound_pos: Position.T},
+         inputs: URust_AST.rust_type list, output: URust_AST.rust_type option}
 
   val traitN = "urust_trait"
 
@@ -102,17 +116,31 @@ struct
     if #identity left <= #identity right then (left, right) else (right, left)
 
   fun join path (left: registered, right: registered) =
-    if same_entry (#entry left, #entry right) then #1 (ordered (left, right))
+    if #classification left = #classification right andalso
+        #canonical_path left = #canonical_path right andalso same_entry (#entry left, #entry right)
+    then #1 (ordered (left, right))
     else
       let val (first, second) = ordered (left, right) in
         error ("urust_trait: conflicting mappings for " ^ quote path ^
           Position.here_list [#pos (#entry first), #pos (#entry second)])
       end
 
+  (* Three real entities, with three path aliases for each entity. *)
+  val callable_declaration_pos = Position.thread_data ()
+  fun builtin variant =
+    let val identity = serial ()
+        val paths = [variant, "core::ops::" ^ variant, "std::ops::" ^ variant]
+        val _ = Navigation.defer_report @{context} callable_declaration_pos
+          (Position.make_entity_markup {def = true} identity traitN (variant, callable_declaration_pos))
+    in map (fn path => (path,
+      {entry = {path = path, pos = callable_declaration_pos, sort = \<^sort>\<open>type\<close>, constants = []},
+       identity = identity, classification = Callable variant, canonical_path = variant}: registered)) paths end
+  val callable_entries = Symtab.make (maps builtin ["Fn", "FnMut", "FnOnce"])
+
   structure Data = Generic_Data
   (
     type T = registered Symtab.table
-    val empty = Symtab.empty
+    val empty = callable_entries
     fun merge tables = Symtab.join join tables
   )
 
@@ -124,11 +152,11 @@ struct
        NONE => Symtab.update (path, candidate) entries
      | SOME active => Symtab.update (path, join path (active, candidate)) entries))
 
-  fun morph phi ({entry = {path, pos, sort, constants}, identity}: registered) =
+  fun morph phi ({entry = {path, pos, sort, constants}, identity, classification, canonical_path}: registered) =
     {entry = {path = path, pos = pos, sort = sort,
       constants = map (apsnd (fn {term, pos} =>
         {term = Morphism.term phi term |> normalize_template, pos = pos})) constants},
-     identity = identity}: registered
+     identity = identity, classification = classification, canonical_path = canonical_path}: registered
 
   fun associated_constant _ (entry: trait_entry) name =
     AList.lookup (op =) (#constants entry) name
@@ -165,14 +193,16 @@ struct
     let
       val path = space_implode "::" (map fst segments)
       val pos = (case rev segments of (_, pos) :: _ => pos | [] => URust_AST.source_span layout)
-      val {entry, identity} =
+      val {entry, identity, classification, canonical_path} =
         (case Symtab.lookup (table ctxt) path of
            SOME registered => registered
          | NONE => fail ("unregistered Rust trait " ^ quote path) pos)
+      val _ = case classification of Ordinary => () | Callable _ =>
+        fail "standard callable traits require parenthesized input/result syntax" pos
       val _ = List.app (fn (_, position) =>
         Navigation.defer_report_text ctxt position Markup.typing (tooltip ctxt entry)) segments
       val _ = Navigation.defer_report ctxt pos
-        (Position.make_entity_markup {def = false} identity traitN (path, #pos entry))
+        (Position.make_entity_markup {def = false} identity traitN (canonical_path, #pos entry))
     in entry end
     | resolve_bound _ bound =
         let
@@ -194,6 +224,24 @@ struct
                  ("higher-ranked trait bounds are not supported", token (URust_AST.Keyword_Token "for"))
              | Rust_Trait_Bound _ => raise Fail "urust_trait: plain bound classification")
         in fail (reason ^ " by authoritative HOL denotation") pos end
+
+  fun classify_bound ctxt (Rust_Callable_Bound (segments, inputs, output, layout)) =
+        let
+          val path = space_implode "::" (map fst segments)
+          val pos = case rev segments of (_, position) :: _ => position
+            | [] => URust_AST.source_span layout
+          val registered = case Symtab.lookup (table ctxt) path of
+              SOME entry => entry | NONE => fail ("unregistered callable trait " ^ quote path) pos
+          val {entry, identity, classification, canonical_path} = registered
+          val variant = case classification of Callable variant => variant
+            | Ordinary => fail ("trait " ^ quote path ^ " has no standard callable classification") pos
+          val _ = List.app (fn (_, position) => Navigation.defer_report_text ctxt position Markup.typing
+            (path ^ " = " ^ variant ^ " callable template")) segments
+          val _ = Navigation.defer_report ctxt pos
+            (Position.make_entity_markup {def = false} identity traitN (canonical_path, #pos entry))
+        in Callable_Bound {origin = {path = path, identity = identity,
+          declaration_pos = #pos entry, bound_pos = pos}, inputs = inputs, output = output} end
+    | classify_bound ctxt bound = Sort_Bound (resolve_bound ctxt bound)
 
   fun checked_constant ctxt trait_sort ((name, name_pos), source) =
     let
@@ -252,14 +300,14 @@ struct
       val checked = map (checked_constant ctxt sort) constants
     in
       {entry = {path = name, pos = pos, sort = sort, constants = checked},
-       identity = serial ()}: registered
+       identity = serial (), classification = Ordinary, canonical_path = name}: registered
     end
 
   fun declare payload lthy =
     let
       val (completed, reports) = Reports.capture (fn () =>
         let
-          val candidate as {entry, identity} = prepare payload lthy
+          val candidate as {entry, identity, ...} = prepare payload lthy
           val path = #path entry
           val active = Symtab.lookup (table lthy) path
           val _ = Option.app (fn existing => ignore (join path (existing, candidate))) active
