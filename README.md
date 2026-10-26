@@ -208,8 +208,8 @@ type registry. Lifetimes are accepted in function signatures and erased: `fn F<'
 declares `'a`, `'static` and `'_` need no declaration, and undeclared or duplicate lifetimes are
 rejected. Lifetime bounds and lifetime generic arguments are not interpreted by inferred signatures;
 a declared HOL signature retains literal Rust types under the rules above. Shared
-references `&T` and slices still require an explicit HOL escape to supply semantics, and references
-are not supported in datatype fields, aliases or casts.
+references `&T` use the explicit policies below. Slices require an explicit HOL escape, and
+references remain unsupported in datatype fields, aliases or casts.
 
 Representation parameters may instead be bound explicitly in the surrounding context:
 
@@ -247,6 +247,45 @@ already fixed HOL type variable. It preserves the variable and its existing sort
 a hidden witness argument or generalize the variable. Ordinary `hol_type_parameters` remains the
 option for fresh generic names. A representation binding cannot capture such a fresh generic
 merely because its HOL variable has the same spelling.
+
+Shared-reference signatures require an explicit representation:
+
+```isabelle
+urust_type [shared = ‹value›] "ModelFlag" = ‹bool›
+urust_type [shared = ‹reference›] "StoredFlag" = ‹bool›
+urust_type [shared = ‹readonly›] "ReadonlyFlag" = ‹bool›
+urust_fn ‹ fn Keep(value: &ModelFlag) -> &ModelFlag { value } ›
+urust_fn [shared_references = ["arg:0" → ‹value›, "result" → ‹value›]]
+  ‹ fn ModelView(value: &StoredFlag) -> &StoredFlag { value } ›
+urust_fn [shared_references = ["type:T" → ‹value›]]
+  ‹ fn Apply<T, F: Fn(&T) -> &T>(callback: F, value: &T) -> &T { callback(value) } ›
+```
+
+`value` denotes the checked target model type. `reference` and `readonly` denote the existing
+`Global_Store.ref` and `Global_Store.ro_ref` carriers, using the same scoped address/global
+roles as pointers and mutable references. No body inference chooses a policy. A signature-slot
+override wins over a source-generic policy, which wins over the expanded nominal policy.
+`arg:N` is a zero-based Rust parameter index, including an impl receiver; `result` names the
+whole result subtree. These overrides affect lexical borrows in their slot, including nested
+tuples and arrays, and do not change a callable generic's template. `type:T` refers to the
+visible Rust declaration identity, including its occurrences inside callable bound operands.
+An impl annotation accepts `type:NAME` selections for its header, including `Fn(&T)` operands.
+Every member inherits the checked header selections and overlays only the generic IDs it names.
+Argument/result selections are member-local; impl annotations reject those slot keys.
+Inherited callable relations fixed by `Self` remain authoritative, so conflicting member bounds reject.
+The checked impl frame also retains roles established inside callback operands and nested target
+arguments. Members share those roles even with weak body inference, and a conflicting
+`model_parameters` override rejects at its authored position.
+Aliases observe their expanded target's current policy. An identical mapping may acquire a policy
+through `urust_type`, including generated and primitive mappings, while keeping its registration
+identity and scheme. Conflicting policies fail at both authored positions.
+
+The AST, printer, lifetimes and body lowering retain the borrowing syntax. `&self` uses the same
+checked policy selection as an explicit receiver type. Existing modeled storage borrowing still
+uses `ro_ref_from_ref`; the policies add no borrow checker, immutable-access enforcement, aliasing
+laws, automatic reads or dereferences. Complete HOL signatures ignore denotation policies and
+their payloads while retaining structural/lifetime checks. Shared-reference fields, aliases
+containing references, slices and higher-ranked callable denotation remain unsupported.
 
 Function items declare type and const parameters in any order after their lifetimes. An empty
 `<>` and a trailing comma are accepted. A type parameter resolves before type mappings, aliases,
@@ -356,7 +395,8 @@ These three call kinds share the shallow representation. It does not check Rust 
 consumption counts or receiver mutability. Function parameter defaults, const types other than
 `usize`, generic trait arguments and projections, `?Sized`, bounds on const parameters,
 conditional-const and higher-ranked denotation remain unsupported. Shared-reference operands
-still require a complete HOL signature or an explicit model escape.
+use an explicit nominal policy or a `shared_references` override, including `type:T` for a
+source generic appearing in a callable bound.
 Generic declarations use the same HOL lowering as their explicit escape twins. Their ordered Rust
 generic schemes and generic verbosity clause intentionally reflect their own source headers.
 
@@ -453,7 +493,7 @@ urust ‹
   A local receiver carrying only its HOL type cannot select an identity-dependent member, even
   with one compatible owner; use `Handle::<u8, Policy, 0>::member(value)` or a concrete type alias.
 - **Not supported.** Trait impls, `unsafe impl`, associated
-  `const`/`type` items, `pub`, `&self` (until the shared-reference model is chosen), autoref and
+  `const`/`type` items, `pub`, autoref and
   autoderef at method calls, and order-independent member visibility (members and items are seen
   in source order). Method calls can still reach free functions and explicit notations of the same
   name. Authoritative impls accept plain lifetime/outlives bounds in the combined impl/member

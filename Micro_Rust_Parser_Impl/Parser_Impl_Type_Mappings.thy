@@ -30,8 +30,10 @@ Function signatures additionally resolve mutable references \<open>&mut T\<close
 lifetime, to the same \<open>Global_Store.ref\<close> model as raw pointers, sharing the signature's
 address/global backend roles. Manual mappings request zero, one or both roles from the same lazy
 environment, and generated datatype schemes preserve those roles explicitly. Lifetimes are checked against the function's declared lifetime
-parameters and then erased; they never change the resolved type. Shared references \<open>&T\<close>, and
-references in datatype fields, aliases and cast targets, remain rejected. A function with a
+parameters and then erased; they never change the resolved type. Shared signature references
+\<open>&T\<close> require an explicit nominal or item policy selecting value, reference, or readonly.
+The latter two use the same backend environment and the existing ref/ro_ref carriers.
+References in datatype fields, aliases and cast targets remain rejected. A function with a
 declared HOL type resolves no signature type while retaining these lifetime scope rules and the
 lexical restrictions on Self and self in Rust type paths.
 
@@ -115,6 +117,19 @@ ML\<open>
 signature URUST_TYPE_MAPPINGS =
 sig
   type entry
+  datatype shared_policy = Shared_Value | Shared_Reference | Shared_Readonly
+  val entry_shared_policy: entry -> (shared_policy * Position.T) option
+  val with_shared_references:
+    URust_Model_Parameters.rename list -> URust_AST.rust_type list ->
+      URust_AST.rust_type -> Proof.context -> Proof.context
+  val configure_shared_references:
+    URust_Model_Parameters.rename list -> Proof.context -> Proof.context
+  val prepare_shared_references:
+    URust_AST.rust_type list -> URust_AST.rust_type -> Proof.context -> Proof.context
+  val prepare_impl_shared_references: Proof.context -> Proof.context
+  val inherit_shared_references: Proof.context -> Proof.context -> Proof.context
+  val activate_shared_references: Proof.context -> Proof.context
+  val without_shared_references: Proof.context -> Proof.context
   datatype backend_role = datatype URust_Model_Parameters.role
   val model_parameter_requirements: Proof.context -> (backend_role * sort) list
   val with_model_parameters:
@@ -124,6 +139,10 @@ sig
       (Context.generic -> Context.generic) Morphism.entity
   val inherit_model_parameters: Proof.context -> Proof.context -> Proof.context
   val without_model_parameters: Proof.context -> Proof.context
+  val capture_impl_model_parameters:
+    Proof.context -> (Proof.context -> 'a) -> 'a * (backend_role * typ) list
+  val with_impl_model_parameters: (backend_role * typ) list -> Proof.context -> Proof.context
+  val inherit_impl_model_parameters: Proof.context -> Proof.context -> Proof.context
   val with_ambient_type_parameters:
     URust_AST.generic_parameter list -> URust_Model_Parameters.rename list ->
       Proof.context -> Proof.context
@@ -481,6 +500,25 @@ struct
      parameters: string list,
      parameter_positions: Position.T list}
 
+  datatype shared_policy = Shared_Value | Shared_Reference | Shared_Readonly
+
+  fun shared_policy_name Shared_Value = "value"
+    | shared_policy_name Shared_Reference = "reference"
+    | shared_policy_name Shared_Readonly = "readonly"
+
+  fun read_shared_policy ctxt source =
+    let
+      val pos = Input.pos_of source
+      val policy =
+        (case Symbol.trim_blanks (Input.string_of source) of
+           "value" => Shared_Value
+         | "reference" => Shared_Reference
+         | "readonly" => Shared_Readonly
+         | _ => error ("urust: shared representation expects value, reference, or readonly" ^
+             Position.here pos))
+      val _ = Navigation.defer_report ctxt pos Markup.keyword2
+    in (policy, pos) end
+
   type entry =
     {segment_arities: int list,
      template: typ,
@@ -491,6 +529,7 @@ struct
      backend_parameter_sorts: sort list,
      meaning: meaning,
      dependencies: string list,
+      shared_policy: (shared_policy * Position.T) option,
      declaration_pos: Position.T,
      origin: origin,
      identity: serial}
@@ -508,6 +547,7 @@ struct
   fun entry_declaration_position ({declaration_pos, ...}: entry) =
     declaration_pos
   fun entry_identity ({identity, ...}: entry) = identity
+  fun entry_shared_policy ({shared_policy, ...}: entry) = shared_policy
 
   fun origin_text Manual = "urust_type declaration"
     | origin_text (Generated hol_type_name) =
@@ -519,7 +559,7 @@ struct
 
   fun entry_origin ({origin, ...}: entry) = origin_text origin
 
-  fun same_entry
+  fun same_entry_schema
       (left as {segment_arities = left_arities,
         template = left_template,
         parameter_sorts = left_sorts,
@@ -557,9 +597,34 @@ struct
           Position.here (#declaration_pos second))
     end
 
+  fun replace_shared_policy shared_policy
+      ({segment_arities, template, parameter_kinds, parameter_sorts, erased_parameters,
+        backend_roles, backend_parameter_sorts, meaning, dependencies,
+        declaration_pos, origin, identity, ...}: entry) =
+    {segment_arities = segment_arities, template = template,
+     parameter_kinds = parameter_kinds, parameter_sorts = parameter_sorts,
+     erased_parameters = erased_parameters, backend_roles = backend_roles,
+     backend_parameter_sorts = backend_parameter_sorts, meaning = meaning,
+     dependencies = dependencies, shared_policy = shared_policy,
+     declaration_pos = declaration_pos, origin = origin, identity = identity}: entry
+
+  fun join_shared_policy base (NONE, selected) = selected
+    | join_shared_policy _ (selected, NONE) = selected
+    | join_shared_policy base (SOME (left, left_pos), SOME (right, right_pos)) =
+        if left = right then
+          SOME (left,
+            if list_ord (prod_ord fast_string_ord fast_string_ord)
+                (Position.properties_of left_pos, Position.properties_of right_pos) <> GREATER
+            then left_pos else right_pos)
+        else error ("urust_type: conflicting shared representations for " ^ quote base ^
+          "\n  " ^ shared_policy_name left ^ Position.here left_pos ^
+          "\n  " ^ shared_policy_name right ^ Position.here right_pos)
+
   fun join_entry base (left: entry, right: entry) =
-    if same_entry (left, right)
-    then #1 (ordered_entries (left, right))
+    if same_entry_schema (left, right)
+    then replace_shared_policy
+      (join_shared_policy base (#shared_policy left, #shared_policy right))
+      (#1 (ordered_entries (left, right)))
     else if alias_origin (#origin left) <> alias_origin (#origin right)
     then conflict base "alias and direct/generated mapping collide" (left, right)
     else if #segment_arities left <> #segment_arities right orelse
@@ -1171,6 +1236,7 @@ struct
      backend_parameter_sorts = map snd role_sorts,
      meaning = meaning,
      dependencies = dependencies,
+      shared_policy = NONE,
      declaration_pos = declaration_pos,
      origin = origin,
      identity = serial ()}: entry
@@ -1178,7 +1244,7 @@ struct
   fun morph_entry phi
       ({segment_arities, template, parameter_kinds, parameter_sorts, erased_parameters,
         backend_roles, backend_parameter_sorts,
-        meaning, dependencies, declaration_pos, origin, identity}: entry) =
+        meaning, dependencies, shared_policy, declaration_pos, origin, identity}: entry) =
     let
       val (template', parameter_sorts', role_sorts') =
         morph_scheme phi template parameter_sorts erased_parameters (backend_roles ~~ backend_parameter_sorts)
@@ -1192,6 +1258,7 @@ struct
        backend_parameter_sorts = map snd role_sorts',
        meaning = morph_meaning phi meaning,
        dependencies = dependencies,
+       shared_policy = shared_policy,
        declaration_pos = declaration_pos,
        origin = origin,
        identity = identity}: entry
@@ -1199,18 +1266,21 @@ struct
 
   datatype preflight =
       Existing of entry
+    | Refined of entry
     | Fresh of entry
 
   fun preflight ctxt base (candidate: entry) =
     (case lookup ctxt base of
        NONE => Fresh candidate
      | SOME active =>
-         if same_entry (active, candidate)
-         then Existing active
-         else
-           (ignore (join_entry base (active, candidate));
-            raise Fail
-              "uRust type registry: conflicting join unexpectedly returned"))
+          let val joined = join_entry base (active, candidate)
+          in
+            (* Sequential repetition retains the first author's position; independent theory
+               merges still choose their deterministic joined position. *)
+            if Option.map #1 (#shared_policy active) = Option.map #1 (#shared_policy joined)
+            then Existing active
+            else Refined joined
+          end)
 
   fun report_declaration ctxt base pos identity =
     (Navigation.defer_report ctxt pos
@@ -1234,6 +1304,11 @@ struct
   fun install_prepared base candidate lthy =
     (case preflight lthy base candidate of
        Existing _ => lthy
+     | Refined entry =>
+         Local_Theory.declaration
+           {pervasive = false, syntax = true,
+            pos = #2 (the (#shared_policy entry))}
+           (fn phi => add_entry base (morph_entry phi entry)) lthy
      | Fresh entry => install_new base entry lthy)
 
   fun report_parameters ctxt
@@ -1243,7 +1318,7 @@ struct
         Navigation.defer_report ctxt pos Markup.tfree)
       (parameters ~~ parameter_positions)
 
-  fun declare_mapping origin roles erased_names (key_source, source)
+  fun declare_mapping origin roles erased_names shared_policy (key_source, source)
       lthy =
     let
       val key as {base, segment_arities, parameter_kinds, ...} =
@@ -1263,6 +1338,7 @@ struct
         make_entry origin key_pos segment_arities template
           parameter_kinds parameter_sorts erased role_sorts
           (mapped_meaning base template parameter_sorts erased role_sorts) []
+        |> replace_shared_policy shared_policy
     in install_prepared base candidate lthy end
 
   fun generated_candidate
@@ -1443,20 +1519,57 @@ struct
     fun init _ = NONE
   )
 
+  (* An impl header's complete inference frame can establish roles inside retained generic
+     arguments or callable recipes, beyond the nominal owner's own scheme. Capture those checked
+     slots through the finalizer; never recover them from the resulting HOL type's spellings. *)
+  structure Impl_Model_Parameters = Proof_Data
+  (
+    type T = (backend_role * typ) list
+    fun init _ = []
+  )
+  structure Impl_Model_Parameter_Trace = Proof_Data
+  (
+    type T = (backend_role * typ) list option Unsynchronized.ref option
+    fun init _ = NONE
+  )
+  fun capture_impl_model_parameters ctxt action =
+    let
+      val trace = Unsynchronized.ref NONE
+      val result = action (Impl_Model_Parameter_Trace.put (SOME trace) ctxt)
+      val roles = case !trace of SOME roles => roles
+        | NONE => raise Fail "uRust impl model capture: target frame was not finalized"
+    in (result, roles) end
+  fun with_impl_model_parameters roles ctxt =
+    ctxt |> fold (Variable.declare_typ o snd) roles |> Impl_Model_Parameters.put roles
+  fun inherit_impl_model_parameters header =
+    with_impl_model_parameters (Impl_Model_Parameters.get header)
+  fun record_impl_model_parameters kind ctxt finish slots =
+    if kind = Impl_Target then Option.app (fn trace =>
+      trace := SOME (map fst slots ~~ finish (map snd slots)))
+      (Impl_Model_Parameter_Trace.get ctxt)
+    else ()
+
   (* Match declared canonical role slots against the checked Self type. Neither variable names
      nor sort coincidence identify a role, and source placeholders remain separate. *)
   fun impl_backend_parameters ctxt ({canonical_path, self_type, ...}: impl_self) =
-    (case lookup ctxt canonical_path of
-       NONE => []
-     | SOME entry =>
-         if null (#backend_roles entry) then []
-         else
-           let
-             val substitution = Sign.typ_match (Proof_Context.theory_of ctxt)
-               (#template entry, self_type) Vartab.empty
-           in map2 (fn role => fn sort =>
-             (role, Envir.subst_type substitution (canonical_backend_parameter role sort)))
-             (#backend_roles entry) (#backend_parameter_sorts entry) end)
+    let
+      val declared = (case lookup ctxt canonical_path of
+         NONE => []
+       | SOME entry =>
+           if null (#backend_roles entry) then []
+           else
+             let
+               val substitution = Sign.typ_match (Proof_Context.theory_of ctxt)
+                 (#template entry, self_type) Vartab.empty
+             in map2 (fn role => fn sort =>
+               (role, Envir.subst_type substitution (canonical_backend_parameter role sort)))
+               (#backend_roles entry) (#backend_parameter_sorts entry) end)
+      fun add (role, typ) roles =
+        case AList.lookup (op =) roles role of
+          NONE => (role, typ) :: roles
+        | SOME previous => if previous = typ then roles
+            else raise Fail "uRust impl model capture: nominal and frame roles disagree"
+    in fold add declared (Impl_Model_Parameters.get ctxt) end
 
   fun with_impl_self self ctxt =
     ctxt |> fold (Variable.declare_typ o snd) (impl_backend_parameters ctxt self)
@@ -1637,6 +1750,56 @@ struct
   fun scoped_meaning ctxt parameter =
     let val binding = the (current_binding ctxt parameter)
     in Meaning_Scoped_Parameter (binding_identity binding, #kind parameter) end
+
+  type shared_selection = shared_policy * Position.T
+  structure Shared_References = Proof_Data
+  (
+    type T =
+      {positions: (Position.T * shared_selection) list,
+       generic_names: ((string * Position.T) * shared_selection) list,
+       generics: (serial * shared_selection) list}
+    fun init _ = {positions = [], generic_names = [], generics = []}
+  )
+  structure Shared_Reference_Overrides = Proof_Data
+  (
+    type T = Models.rename list
+    fun init _ = []
+  )
+  val without_shared_references = Shared_References.put
+    {positions = [], generic_names = [], generics = []} #>
+      Shared_Reference_Overrides.put []
+  fun configure_shared_references renames ctxt =
+    let val {generics, ...} = Shared_References.get ctxt
+    in ctxt |> Shared_References.put
+      {positions = [], generic_names = [], generics = generics}
+      |> Shared_Reference_Overrides.put renames end
+
+  fun inherit_shared_references header ctxt =
+    let val {generics, ...} = Shared_References.get header
+    in ctxt |> Shared_References.put
+      {positions = [], generic_names = [], generics = generics}
+      |> Shared_Reference_Overrides.put [] end
+
+  fun activate_shared_references ctxt =
+    let
+      val {positions, generic_names, generics} = Shared_References.get ctxt
+      fun generic ((name, key_pos), selection) =
+        (case find_first (fn binding => #rust (binding_parameter binding) = name)
+            (installed_bindings ctxt) of
+           NONE => error ("urust: unknown shared-reference generic " ^ quote name ^
+             Position.here key_pos)
+         | SOME binding =>
+             if #kind (binding_parameter binding) <> Type_Parameter then
+               error ("urust: shared-reference generic requires a type parameter" ^
+                 Position.here key_pos)
+             else
+               (#report_reference (binding_parameter binding) key_pos;
+                Navigation.defer_report ctxt key_pos Markup.tfree;
+                (binding_identity binding, selection)))
+    in Shared_References.put
+      {positions = positions, generic_names = [],
+       generics = fold (AList.update (op =)) (map generic generic_names) generics}
+      ctxt end
 
   fun capture_binding_events ctxt action =
     if null (installed_bindings ctxt) then
@@ -2667,6 +2830,7 @@ struct
         Option.map #typ (Models.lookup ctxt role))
         (Models.order (Address :: Global :: map fst (model_parameter_requirements ctxt)))
       val imported_types = initial_types @ model_types @
+        map snd (Impl_Model_Parameters.get ctxt) @
         maps binding_types (installed_bindings ctxt) @
         map #self_type (the_list (impl_self ctxt))
       val initial_maxidx =
@@ -2809,7 +2973,7 @@ struct
       parameter dependency =
     let
       (* Raw pointers and mutable references share one reference model and one backend pair. *)
-      fun reference_typ target pos =
+      fun reference_carrier carrier target pos =
         let
           val [address, global] =
             backend [(Address, \<^sort>\<open>type\<close>), (Global, \<^sort>\<open>type\<close>)] pos
@@ -2818,8 +2982,53 @@ struct
             [(\<^typ>\<open>'urust_address\<close>, address),
              (\<^typ>\<open>'urust_global\<close>, global),
              (\<^typ>\<open>'urust_value\<close>, target)]
-            \<^typ>\<open>('urust_address, 'urust_global, 'urust_value) Global_Store.ref\<close>
+            carrier
           |> Proof_Context.cert_typ ctxt
+        end
+      val reference_typ = reference_carrier
+        \<^typ>\<open>('urust_address, 'urust_global, 'urust_value) Global_Store.ref\<close>
+      val readonly_typ = reference_carrier
+        \<^typ>\<open>('urust_address, 'urust_global, 'urust_value) Global_Store.ro_ref\<close>
+
+      fun shared_selection target meaning pos =
+        let
+          val {positions, generics, ...} = Shared_References.get ctxt
+          fun same_position (left, right) =
+            Position.properties_of left = Position.properties_of right
+          fun self_target (Group_Type (typ, _)) = self_target typ
+            | self_target (Path_Type ([Rust_Type_Path_Segment ("Self", _, NONE, _)], _)) = true
+            | self_target _ = false
+          val generic = case meaning of
+              Meaning_Scoped_Parameter (declaration, Type_Parameter) =>
+                AList.lookup (op =) generics declaration
+            | _ => NONE
+          val nominal = case meaning of
+              Meaning_Mapped (base, _, _, _, _, _) => SOME base
+            | Meaning_Primitive primitive => SOME (rust_primitive_name primitive)
+            | Meaning_HOL _ => if self_target target then Option.map #canonical_path (impl_self ctxt)
+                else NONE
+            | _ => NONE
+          fun nominal_selection base =
+            (case lookup ctxt base of
+               SOME entry =>
+                 (case #shared_policy entry of
+                    SOME selection => (report_reference ctxt pos base entry; SOME selection)
+                  | NONE => NONE)
+             | NONE => NONE)
+          val selected =
+            (case AList.lookup same_position positions pos of
+               SOME selection => SOME selection
+             | NONE => (case generic of SOME selection => SOME selection
+                 | NONE => Option.mapPartial nominal_selection nominal))
+        in
+          (case selected of
+             SOME (policy, policy_pos) =>
+               (Navigation.defer_report_text ctxt pos Markup.typing
+                  ("shared representation = " ^ shared_policy_name policy ^
+                    Position.here policy_pos); policy)
+           | NONE => error
+               ("urust_fn: shared Rust references (&T) require an explicit representation; " ^
+                 "declare a shared type policy or shared_references override" ^ Position.here pos))
         end
 
       fun unsigned_value integer =
@@ -3169,11 +3378,16 @@ struct
                  meaning = Meaning_Reference (BM_Mut, #meaning target_type)}
               end
             else unsupported kind "Rust reference types" (source_span layout)
-        | resolve_type_value _ (Reference_Type (BM_Imm, _, _, layout)) =
+        | resolve_type_value _ (Reference_Type (BM_Imm, _, target, layout)) =
             if signature_kind kind then
-              error
-                ("urust_fn: shared Rust references (&T) are not supported in function signatures; " ^
-                  "use &mut T or \<tau>\<open>...\<close>" ^ Position.here (source_span layout))
+              let
+                val target_type = resolve_type NONE target
+                val pos = source_span layout
+                val typ = (case shared_selection target (#meaning target_type) pos of
+                    Shared_Value => #typ target_type
+                  | Shared_Reference => reference_typ (#typ target_type) pos
+                  | Shared_Readonly => readonly_typ (#typ target_type) pos)
+              in {typ = typ, meaning = Meaning_Reference (BM_Imm, #meaning target_type)} end
             else unsupported kind "Rust reference types" (source_span layout)
         | resolve_type_value _ (Raw_Pointer_Type (mutability, target, layout)) =
             let val target_type = resolve_type NONE target in
@@ -3462,6 +3676,62 @@ struct
     | rust_type_operands (Macro_Type _) = []
     | rust_type_operands (Primitive_Type _) = []
     | rust_type_operands (HOL_Type_Source _) = []
+
+  fun with_shared_references renames parameters result ctxt =
+    let
+      val _ = Models.distinct_keys "shared-reference override" renames
+      fun error_at message pos = error ("urust: " ^ message ^ Position.here pos)
+      fun borrow_positions typ =
+        (case typ of
+           Reference_Type (BM_Imm, _, _, layout) =>
+             let
+               val pos = source_span layout
+               val _ = if is_some (Position.offset_of pos) then ()
+                 else error_at "shared-reference slot requires located borrow syntax" pos
+             in [pos] end
+         | _ => []) @ maps borrow_positions (rust_type_operands typ)
+      fun slot key pos =
+        if key = "result" then SOME result
+        else if String.isPrefix "arg:" key then
+          let
+            val digits = String.extract (key, 4, NONE)
+            val index = (case Int.fromString digits of
+                SOME index => if index >= 0 andalso string_of_int index = digits then index
+                  else ~1
+              | NONE => ~1)
+          in
+            if index >= 0 andalso index < length parameters then SOME (nth parameters index)
+            else error_at ("unknown shared-reference slot " ^ quote key) pos
+          end
+        else NONE
+      fun read ((key, key_pos), source) (positions, generics) =
+        let val selection = read_shared_policy ctxt source
+        in
+          (case slot key key_pos of
+             SOME typ => (map (fn pos => (pos, selection)) (borrow_positions typ) @ positions, generics)
+           | NONE =>
+               if String.isPrefix "type:" key andalso size key > 5 then
+                 (positions, ((String.extract (key, 5, NONE), key_pos), selection) :: generics)
+               else error_at ("unknown shared-reference key " ^ quote key) key_pos)
+        end
+      val (positions, generic_names) = fold read renames ([], [])
+    in
+      Shared_References.put
+        {positions = positions, generic_names = rev generic_names,
+         generics = #generics (Shared_References.get ctxt)} ctxt
+    end
+
+  fun prepare_shared_references parameters result ctxt =
+    ctxt |> with_shared_references (Shared_Reference_Overrides.get ctxt) parameters result
+      |> activate_shared_references
+
+  fun prepare_impl_shared_references ctxt =
+    let
+      val _ = List.app (fn ((key, pos), _) =>
+        if String.isPrefix "type:" key andalso size key > 5 then ()
+        else error ("urust: impl shared_references accepts only type:NAME keys" ^
+          Position.here pos)) (Shared_Reference_Overrides.get ctxt)
+    in prepare_shared_references [] (Primitive_Type (DPT_Unit, Position.none)) ctxt end
 
   (* Check lexical Rust restrictions without interpreting any retained type. The operand walk
      includes function-pointer types, impl Trait and associated-type binding values. Const-expression
@@ -4027,6 +4297,9 @@ struct
                 val compared_types = Vartab.map (K (apsnd unfreeze)) compared_types
                 val _ = accept_native (compared_types, compared_max)
                 val _ = unify [(actual relation, actual other)]
+                  handle Type.TUNIFY => error
+                    ("urust: incompatible callable bounds with different checked native types" ^
+                     Position.here_list (map (#bound_pos o #origin) (#callables (binding_spec binding))))
               in () end
             val _ = List.app compare (tl relations)
             val _ = check_sort (#rust parameter) (actual relation) (snd (#hol parameter)) (#pos parameter)
@@ -4156,6 +4429,7 @@ struct
       val _ = Option.app (fn trace => trace := map (fn (source, evidence, argument) =>
         (finish_meaning restore source, Option.map (the_single o restore o single) evidence, argument))
         (!trace)) (Source_Resolution_Trace.get ctxt)
+      val _ = record_impl_model_parameters kind ctxt restore (backend_slots ())
     in {types = finished, scope = scope, resolved = resolved, channels = #channels
       (finish_relation {inputs = [], result = (HOLogic.unitT, Meaning_Primitive DPT_Unit),
         channels = channels ()})} end
@@ -4322,6 +4596,7 @@ struct
         (!trace)) (Source_Resolution_Trace.get ctxt)
       val finished_resolved = map (fn {typ, meaning} =>
         {typ = typ, meaning = finish_meaning finish meaning}) resolved
+      val _ = record_impl_model_parameters kind ctxt finish (backend_slots ())
     in (finish (assemble leading_types finished_resolved),
       {arguments = actual_arguments, identities =
         map (source_identity_name o finish_meaning finish o #meaning) resolved_arguments,
@@ -5164,6 +5439,7 @@ struct
     in
       (case prepared of
          Existing _ => lthy
+       | Refined _ => raise Fail "uRust alias declaration unexpectedly refined a shared policy"
        | Fresh entry => install_new base entry lthy)
     end
 
@@ -5209,7 +5485,8 @@ struct
   fun unknown_mapping_option (name, pos) =
     mapping_error ("unknown option " ^ quote name) pos
 
-  val mapping_option_configs = Symtab.make [("implicit", ()), ("erase", ()), ("model", ())]
+  val mapping_option_configs =
+    Symtab.make [("implicit", ()), ("erase", ()), ("model", ()), ("shared", ())]
 
   fun add_mapping_option ((name, pos), value) options =
     if Symtab.defined options name then mapping_error ("duplicate option " ^ quote name) pos
@@ -5232,7 +5509,9 @@ struct
             NONE => [] | SOME source => read_model_roles lthy source)
             val erased = case Symtab.lookup options "erase" of
               NONE => [] | SOME source => read_erased_parameters lthy source
-        in declare_mapping Manual roles erased payload lthy end)
+             val shared = Option.map (read_shared_policy lthy)
+               (Symtab.lookup options "shared")
+        in declare_mapping Manual roles erased shared payload lthy end)
       val _ = URust_Report_Transaction.replay result reports
     in result end
 

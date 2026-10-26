@@ -83,7 +83,8 @@ Literal function-pointer
 types, \<open>impl Trait\<close>, lifetime generic arguments, associated type bindings, const-expression
 generic arguments, and unexpanded macro type variables are parsed as unresolved syntax. They
 require a declared HOL type; the type resolver supplies no interpretation for them.
-Shared references \<open>&T\<close> are also rejected without a declared type. An omitted return
+Shared references \<open>&T\<close> require a checked shared type policy or a
+\<open>shared_references\<close> item override selecting value, reference, or readonly. An omitted return
 means Rust unit, just like explicit \<open>-> ()\<close>. Non-unit results require a return annotation.
 The independently optional inline \<open>state\<close>, \<open>abort\<close>, \<open>input\<close> and
 \<open>output\<close> options take positioned HOL types and constrain the actual constant's channels.
@@ -452,6 +453,7 @@ val hol_names_option = "hol_names"
 val hol_type_parameters_option = "hol_type_parameters"
 val model_parameters_option = "model_parameters"
 val ambient_type_parameters_option = "ambient_type_parameters"
+val shared_references_option = "shared_references"
 val state_option = "state"
 val abort_option = "abort"
 val input_option = "input"
@@ -525,6 +527,7 @@ val function_option_configs =
      (hol_type_parameters_option, Renames_Config),
      (model_parameters_option, Type_Bindings_Config),
      (ambient_type_parameters_option, Type_Bindings_Config),
+      (shared_references_option, Type_Bindings_Config),
      (state_option, Type_Config urust_state), (abort_option, Type_Config urust_abort),
      (input_option, Type_Config urust_input), (output_option, Type_Config urust_output)]
     declaration_option_configs
@@ -1389,7 +1392,7 @@ fun declare_urust_result pp_test render_pretty
 (* Receiver shorthands denote a type only inside an impl member, whose Self type the free
    function signature lacks. In a member they are exactly their typed spellings: self: Self,
    mut self: Self and self: &'a mut Self, where Self resolves through the member's impl context;
-   the reference type spans the receiver, so &self reports the shared-reference rejection there. *)
+   the reference type spans the receiver, so a missing shared policy is reported there. *)
 fun receiver_shorthand_error parameter =
   error
     ("urust: receiver shorthand is only allowed in impl members" ^
@@ -1857,6 +1860,11 @@ fun prepare_callable_function_signature lthy overrides channels function =
             ({canonical_path = canonical_path, self_type = substitute self_type, target_pos = target_pos,
               report_reference = report_reference}, Option.map (URust_Type_Mappings.morph_source_identity phi)
                 (URust_Type_Mappings.impl_source_identity lthy)) scoped end
+    val scoped = URust_Type_Mappings.prepare_shared_references
+      (function_parameter_types scoped function)
+      (the_default (URust_AST.Primitive_Type
+        (URust_AST.DPT_Unit, URust_AST.function_item_position function))
+        (URust_AST.function_return_type function)) scoped
     val _ = check_outlives_heads scoped function
     val arguments = function_arguments scoped function
     val parameter_types = function_parameter_types scoped function
@@ -1926,6 +1934,11 @@ fun prepare_function_signature lthy overrides signature_source function =
           in URust_Type_Mappings.with_impl_self_identity
             (self, Option.map (URust_Type_Mappings.morph_source_identity phi)
               (URust_Type_Mappings.impl_source_identity lthy)) scoped end
+    val scoped = if authoritative then URust_Type_Mappings.prepare_shared_references
+      (function_parameter_types scoped function)
+      (the_default (URust_AST.Primitive_Type
+        (URust_AST.DPT_Unit, URust_AST.function_item_position function))
+        (URust_AST.function_return_type function)) scoped else scoped
     val _ = if authoritative then check_outlives_heads scoped function else ()
     val arguments = function_arguments scoped function
     val (complete_type, type_pos, source_uses) =
@@ -2648,9 +2661,13 @@ fun configured_model_context options function =
   end
 
 fun configured_function_context options function signature_source =
-  case signature_source of Rust_Signature _ => configured_model_context options function
+  case signature_source of Rust_Signature _ =>
+      configured_model_context options function #>
+      URust_Type_Mappings.configure_shared_references
+        (option_renames options shared_references_option)
   | Declared_Signature _ =>
       URust_Type_Mappings.without_model_parameters #>
+      URust_Type_Mappings.without_shared_references #>
       configured_model_context (Symtab.delete_safe model_parameters_option options) function
 
 fun prepare_function lthy
@@ -3205,6 +3222,7 @@ fun prepare_impl_item lthy {interactive, options, impl} =
       SOME (Renames_Value renames, _) => renames | _ => []
     val member_defaults = options |> Symtab.delete_safe hol_type_parameters_option
       |> Symtab.delete_safe ambient_type_parameters_option
+      |> Symtab.delete_safe shared_references_option
     val layout = #layout generics
     val header = URust_AST.Function_Item ("_impl", URust_AST.source_span layout,
       generics, [], SOME target, URust_AST.UE_Unit layout, layout)
@@ -3234,7 +3252,9 @@ fun prepare_impl_item lthy {interactive, options, impl} =
       end
   in
     Prepared_Impl {target = target, generics = generics, overrides = overrides,
-      model_context = configured_model_context options header,
+      model_context = configured_model_context options header #>
+        URust_Type_Mappings.configure_shared_references
+          (option_renames options shared_references_option),
       members = map prepare_member (URust_AST.impl_members impl)}
   end
 
@@ -3359,20 +3379,24 @@ fun declare_prepared_impl {enter, leave}
               (#parameters scope)
             val scoped = URust_Type_Mappings.with_identified_generic_scope scope identities target_lthy
         in (the (URust_Type_Mappings.binding_scope scoped), report, identities, scoped) end
+    val target_lthy = URust_Type_Mappings.prepare_impl_shared_references target_lthy
     val _ = report_declarations ()
-    val (self, source_identity, selection, base_scope) =
+    val ((self, source_identity, selection, base_scope), model_parameters) =
       URust_Report_Transaction.release_on_failure target_lthy (fn () =>
-        if scope_has_callables initial_scope then
-          let val {self, source, selection, scope} =
-            URust_Type_Mappings.resolve_impl_target_selection_with_bindings target_lthy target
-          in (self, source, selection, scope) end
-        else let val (self, source, selection) = URust_Type_Mappings.resolve_impl_target_selection target_lthy target
-          in (self, source, selection, initial_scope) end)
+        URust_Type_Mappings.capture_impl_model_parameters target_lthy (fn observed =>
+          if scope_has_callables initial_scope then
+            let val {self, source, selection, scope} =
+              URust_Type_Mappings.resolve_impl_target_selection_with_bindings observed target
+            in (self, source, selection, scope) end
+          else let val (self, source, selection) =
+              URust_Type_Mappings.resolve_impl_target_selection observed target
+            in (self, source, selection, initial_scope) end))
     val source_only = if scope_has_callables base_scope then
       let val {source_uses, witness_uses} = URust_Type_Mappings.binding_event_declarations
         (URust_Type_Mappings.binding_signature_events base_scope)
       in filter_out (member (op =) witness_uses) source_uses end else []
-    val target_lthy = target_lthy |> URust_Type_Mappings.with_binding_scope base_scope
+    val target_lthy = target_lthy |> URust_Type_Mappings.with_impl_model_parameters model_parameters
+      |> URust_Type_Mappings.with_binding_scope base_scope
       |> URust_Type_Mappings.with_binding_availability
         {source_only = source_only, unavailable = [], declared_body = false}
     val head_lthy = URust_Type_Mappings.with_impl_self_identity (self, source_identity) target_lthy
@@ -3411,6 +3435,8 @@ fun declare_prepared_impl {enter, leave}
         val member_lthy = enter lthy'
         val impl_context = URust_Type_Mappings.inherit_header_lifetimes target_lthy #>
           URust_Type_Mappings.inherit_model_parameters target_lthy #>
+          URust_Type_Mappings.inherit_impl_model_parameters target_lthy #>
+          URust_Type_Mappings.inherit_shared_references target_lthy #>
           URust_Type_Mappings.with_binding_scope base_scope #>
           URust_Type_Mappings.with_binding_availability
             {source_only = source_only, unavailable = [], declared_body = false} #>

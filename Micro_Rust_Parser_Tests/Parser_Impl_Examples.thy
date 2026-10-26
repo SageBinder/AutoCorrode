@@ -1839,4 +1839,128 @@ in
 end
 \<close>
 
+section\<open> Shared policies in callable impl headers \<close>
+
+urust_type [shared = \<open>value\<close>] "SharedImplValueFlag" = \<open>bool\<close>
+
+
+context notes [[urust_model_parameters = \<open>["address" \<rightarrow> \<open>nat\<close>,
+    "global" \<rightarrow> \<open>unit\<close>]\<close>]]
+begin
+urust \<open>
+  struct SharedCallableOwner<T, U, F> { left: T, right: U, callback: F }
+  \<omega>\<open>shared_references = ["type:T" \<rightarrow> \<open>value\<close>,
+    "type:U" \<rightarrow> \<open>reference\<close>]\<close>
+  impl<T, U, F: Fn(&T) -> &T> SharedCallableOwner<T, U, F> {
+    fn keep(self: Self, value: &T, other: &U) -> &T { value }
+    \<omega>\<open>shared_references = ["type:U" \<rightarrow> \<open>readonly\<close>]\<close>
+    fn readonly_other(self: Self, value: &T, other: &U) -> &U { other }
+    fn ordinary_again(self: Self, value: &T, other: &U) -> &U { other }
+    \<omega>\<open>shared_references = ["arg:2" \<rightarrow> \<open>value\<close>,
+      "result" \<rightarrow> \<open>value\<close>]\<close>
+    fn slot_other(self: Self, value: &T, other: &U) -> &U { other }
+    fn ordinary_after_slot(self: Self, value: &T, other: &U) -> &U { other }
+  }
+  struct SharedNominalCallableOwner<F> { callback: F }
+  impl<F: Fn(&SharedImplValueFlag) -> &SharedImplValueFlag> SharedNominalCallableOwner<F> {
+    fn keep(self: Self, value: &SharedImplValueFlag) -> &SharedImplValueFlag { value }
+  }
+\<close>
+urust_fn [state = \<open>'state\<close>, abort = \<open>'abort\<close>, input = \<open>'input\<close>, output = \<open>'output\<close>] shared_callable_owner_keep_escape \<open>
+  fn SharedCallableOwnerKeepEscape(
+    owner: \<tau>\<open>('t, 'u, 't \<Rightarrow> ('state, 't, 'abort, 'input, 'output) function_body) shared_callable_owner\<close>,
+    value: \<tau>\<open>'t\<close>, other: \<tau>\<open>(nat, unit, 'u) ref\<close>) -> \<tau>\<open>'t\<close> { value }
+\<close>
+urust_fn [state = \<open>'state\<close>, abort = \<open>'abort\<close>, input = \<open>'input\<close>, output = \<open>'output\<close>] shared_callable_owner_readonly_escape \<open>
+  fn SharedCallableOwnerReadonlyEscape(
+    owner: \<tau>\<open>('t, 'u, 't \<Rightarrow> ('state, 't, 'abort, 'input, 'output) function_body) shared_callable_owner\<close>,
+    value: \<tau>\<open>'t\<close>, other: \<tau>\<open>(nat, unit, 'u) ro_ref\<close>) -> \<tau>\<open>(nat, unit, 'u) ro_ref\<close> { other }
+\<close>
+urust_fn [state = \<open>'state\<close>, abort = \<open>'abort\<close>, input = \<open>'input\<close>, output = \<open>'output\<close>] shared_callable_owner_reference_escape \<open>
+  fn SharedCallableOwnerReferenceEscape(
+    owner: \<tau>\<open>('t, 'u, 't \<Rightarrow> ('state, 't, 'abort, 'input, 'output) function_body) shared_callable_owner\<close>,
+    value: \<tau>\<open>'t\<close>, other: \<tau>\<open>(nat, unit, 'u) ref\<close>) -> \<tau>\<open>(nat, unit, 'u) ref\<close> { other }
+\<close>
+urust_fn [state = \<open>'state\<close>, abort = \<open>'abort\<close>, input = \<open>'input\<close>, output = \<open>'output\<close>] shared_callable_owner_slot_escape \<open>
+  fn SharedCallableOwnerSlotEscape(
+    owner: \<tau>\<open>('t, 'u, 't \<Rightarrow> ('state, 't, 'abort, 'input, 'output) function_body) shared_callable_owner\<close>,
+    value: \<tau>\<open>'t\<close>, other: \<tau>\<open>'u\<close>) -> \<tau>\<open>'u\<close> { other }
+\<close>
+urust_fn [state = \<open>'state\<close>, abort = \<open>'abort\<close>, input = \<open>'input\<close>, output = \<open>'output\<close>] shared_nominal_callable_owner_keep_escape \<open>
+  fn SharedNominalCallableOwnerKeepEscape(
+    owner: \<tau>\<open>(bool \<Rightarrow> ('state, bool, 'abort, 'input, 'output) function_body) shared_nominal_callable_owner\<close>,
+    value: bool) -> bool { value }
+\<close>
+lemma shared_callable_impl_twins:
+  \<open> shared_callable_owner_keep = shared_callable_owner_keep_escape \<close>
+  \<open> shared_callable_owner_readonly_other = shared_callable_owner_readonly_escape \<close>
+  \<open> shared_callable_owner_ordinary_again = shared_callable_owner_reference_escape \<close>
+  \<open> shared_callable_owner_slot_other = shared_callable_owner_slot_escape \<close>
+  \<open> shared_callable_owner_ordinary_after_slot = shared_callable_owner_reference_escape \<close>
+  \<open> shared_nominal_callable_owner_keep = shared_nominal_callable_owner_keep_escape \<close>
+unfolding shared_callable_owner_keep_def shared_callable_owner_keep_escape_def
+  shared_callable_owner_readonly_other_def shared_callable_owner_readonly_escape_def
+  shared_callable_owner_ordinary_again_def shared_callable_owner_reference_escape_def
+  shared_callable_owner_slot_other_def shared_callable_owner_slot_escape_def
+  shared_callable_owner_ordinary_after_slot_def shared_nominal_callable_owner_keep_def
+  shared_nominal_callable_owner_keep_escape_def
+by (rule refl)+
+end
+
+section\<open> Roles established inside checked callback inputs \<close>
+
+context notes [[urust_verbosity = 0, urust_pp_test = true,
+  urust_model_parameters = \<open>["address" \<rightarrow> \<open>_\<close>,
+    "global" \<rightarrow> \<open>_\<close>]\<close>]]
+begin
+urust \<open>
+  struct SharedReferenceFrameOwner<T, F> { value: T, callback: F }
+  \<omega>\<open>shared_references = ["type:T" \<rightarrow> \<open>reference\<close>]\<close>
+  impl<T, F: Fn(&T) -> &T> SharedReferenceFrameOwner<T, F> {
+    fn weak(self: Self, value: &T, pointer: &mut u8) -> bool { false }
+  }
+  struct SharedReadonlyFrameOwner<T, F> { value: T, callback: F }
+  \<omega>\<open>shared_references = ["type:T" \<rightarrow> \<open>readonly\<close>]\<close>
+  impl<T, F: Fn(&T) -> &T> SharedReadonlyFrameOwner<T, F> {
+    fn weak(self: Self, value: &T, pointer: &mut u8) -> bool { false }
+  }
+\<close>
+urust_fn [state = \<open>'state\<close>, abort = \<open>'abort\<close>, input = \<open>'input\<close>, output = \<open>'output\<close>] shared_reference_frame_exact_escape \<open>
+  fn SharedReferenceFrameExactEscape(
+    owner: \<tau>\<open>('t, ('address, 'global, 't) ref \<Rightarrow>
+      ('state, ('address, 'global, 't) ref, 'abort, 'input, 'output) function_body) shared_reference_frame_owner\<close>,
+    value: \<tau>\<open>('address, 'global, 't) ref\<close>,
+    pointer: \<tau>\<open>('address, 'global, 8 word) ref\<close>) -> bool { false }
+\<close>
+urust_fn [state = \<open>'state\<close>, abort = \<open>'abort\<close>, input = \<open>'input\<close>, output = \<open>'output\<close>] shared_readonly_frame_exact_escape \<open>
+  fn SharedReadonlyFrameExactEscape(
+    owner: \<tau>\<open>('t, ('address, 'global, 't) ro_ref \<Rightarrow>
+      ('state, ('address, 'global, 't) ro_ref, 'abort, 'input, 'output) function_body) shared_readonly_frame_owner\<close>,
+    value: \<tau>\<open>('address, 'global, 't) ro_ref\<close>,
+    pointer: \<tau>\<open>('address, 'global, 8 word) ref\<close>) -> bool { false }
+\<close>
+lemma shared_inferred_frame_exact_twins:
+  \<open> shared_reference_frame_owner_weak = shared_reference_frame_exact_escape \<close>
+  \<open> shared_readonly_frame_owner_weak = shared_readonly_frame_exact_escape \<close>
+unfolding shared_reference_frame_owner_weak_def shared_reference_frame_exact_escape_def
+  shared_readonly_frame_owner_weak_def shared_readonly_frame_exact_escape_def
+by (rule refl)+
+ML_val\<open>
+local
+  val ctxt = \<^context>
+  fun canonical typ = Term_Subst.instantiateT (TVars.make
+    (rev (Term.add_tvarsT typ []) |> map_index
+      (fn (index, variable as (_, sort)) => (variable, TVar (("shared_frame", index), sort))))) typ
+  fun constant_type name = canonical
+    (Sign.the_const_type (Proof_Context.theory_of ctxt) (Proof_Context.intern_const ctxt name))
+in
+  val _ = List.app (fn (native, escaped) =>
+    if constant_type native = constant_type escaped then ()
+    else error ("checked header roles did not survive into " ^ native))
+    [("shared_reference_frame_owner_weak", "shared_reference_frame_exact_escape"),
+     ("shared_readonly_frame_owner_weak", "shared_readonly_frame_exact_escape")]
+end
+\<close>
+end
+
 end

@@ -10,6 +10,7 @@ theory Parser_Function_Examples
     Micro_Rust_Std_Lib.StdLib_Logging
     Shallow_Separation_Logic.Separation_Algebra
     Micro_Rust_Std_Lib.StdLib_Contracts
+    Micro_Rust_Std_Lib.StdLib_References
     Micro_Rust_Parser_Impl.Parser_Impl_Chunk
 begin
 
@@ -2428,6 +2429,205 @@ in
 end
 \<close>
 
+end
+
+
+section\<open> Explicit shared-reference denotations \<close>
+
+text\<open>
+Shared signatures retain their Rust borrowing syntax. Each nominal policy explicitly chooses
+model values, existing storage references, or existing read-only references. The body lowering
+is unchanged: borrowing a modeled storage place uses its existing ro_ref_from_ref conversion.
+These representations do not add Rust borrow checking or automatic reads.
+\<close>
+
+context notes [[urust_verbosity = 0, urust_pp_test = true]]
+begin
+urust_type [shared = \<open>value\<close>] "SharedValueFlag" = \<open>bool\<close>
+urust_type [shared = \<open>reference\<close>] "SharedStorageFlag" = \<open>bool\<close>
+urust_type [shared = \<open>readonly\<close>] "SharedReadonlyFlag" = \<open>bool\<close>
+context notes [[urust_model_parameters = \<open>
+  ["address" \<rightarrow> \<open>nat\<close>, "global" \<rightarrow> \<open>unit\<close>]
+\<close>]] begin
+urust_fn shared_value_identity \<open>
+  fn SharedValueIdentity<'a>(value: &'a SharedValueFlag) -> &'a SharedValueFlag { value }
+\<close>
+urust_fn shared_value_identity_escape \<open>
+  fn SharedValueIdentityEscape(value: bool) -> bool { value }
+\<close>
+urust_fn shared_storage_identity \<open>
+  fn SharedStorageIdentity(value: &SharedStorageFlag) -> &SharedStorageFlag { value }
+\<close>
+urust_fn shared_storage_identity_escape \<open>
+  fn SharedStorageIdentityEscape(value: \<tau>\<open>(nat, unit, bool) ref\<close>) ->
+    \<tau>\<open>(nat, unit, bool) ref\<close> { value }
+\<close>
+urust_fn shared_readonly_identity \<open>
+  fn SharedReadonlyIdentity(value: &SharedReadonlyFlag) -> &SharedReadonlyFlag { value }
+\<close>
+urust_fn shared_readonly_identity_escape \<open>
+  fn SharedReadonlyIdentityEscape(value: \<tau>\<open>(nat, unit, bool) ro_ref\<close>) ->
+    \<tau>\<open>(nat, unit, bool) ro_ref\<close> { value }
+\<close>
+
+lemma shared_identity_twins:
+  \<open> shared_value_identity = shared_value_identity_escape \<close>
+  \<open> shared_storage_identity = shared_storage_identity_escape \<close>
+  \<open> shared_readonly_identity = shared_readonly_identity_escape \<close>
+
+unfolding shared_value_identity_def shared_value_identity_escape_def
+  shared_storage_identity_def shared_storage_identity_escape_def
+  shared_readonly_identity_def shared_readonly_identity_escape_def
+by (rule refl)+
+
+urust_fn shared_readonly_conversion \<open>
+  fn SharedReadonlyConversion(value: *const SharedReadonlyFlag) -> &SharedReadonlyFlag { &value }
+\<close>
+urust_fn shared_readonly_conversion_escape \<open>
+  fn SharedReadonlyConversionEscape(value: \<tau>\<open>(nat, unit, bool) ref\<close>) ->
+    \<tau>\<open>(nat, unit, bool) ro_ref\<close> { &value }
+\<close>
+definition shared_readonly_conversion_existing ::
+  \<open>(nat, unit, bool) ref \<Rightarrow> ('state, (nat, unit, bool) ro_ref, 'abort, 'input, 'output) function_body\<close>
+where \<open> shared_readonly_conversion_existing value = FunctionBody (literal (ro_ref_from_ref value)) \<close>
+lemma shared_readonly_conversion_twin:
+  \<open> shared_readonly_conversion = shared_readonly_conversion_escape \<close>
+  unfolding shared_readonly_conversion_def shared_readonly_conversion_escape_def by (rule refl)
+lemma shared_readonly_conversion_correspondence:
+  \<open> shared_readonly_conversion = shared_readonly_conversion_existing \<close>
+
+unfolding shared_readonly_conversion_def shared_readonly_conversion_existing_def
+
+by (simp add: bindlift1_def bind1_def lift_exp1_def deep_compose1_def bind_literal_unit)
+
+urust_fn shared_nested_signature \<open>
+  fn SharedNestedSignature(value: (&SharedValueFlag, [&SharedStorageFlag; 2])) -> bool { false }
+\<close>
+urust_fn shared_nested_signature_escape \<open>
+  fn SharedNestedSignatureEscape(value: \<tau>\<open>bool \<times> ((nat, unit, bool) ref, 2) array \<times> tnil\<close>) -> bool { false }
+\<close>
+urust_fn [shared_references = ["arg:0" \<rightarrow> \<open>value\<close>, "result" \<rightarrow> \<open>value\<close>]]
+  shared_slot_value \<open>
+  fn SharedSlotValue(value: &SharedStorageFlag) -> &SharedStorageFlag { value }
+\<close>
+urust_fn shared_slot_value_escape \<open>
+  fn SharedSlotValueEscape(value: bool) -> bool { value }
+\<close>
+urust_fn [shared_references = ["type:T" \<rightarrow> \<open>value\<close>]] shared_generic_value \<open>
+  fn SharedGenericValue<T>(value: &T) -> &T { value }
+\<close>
+urust_fn shared_generic_value_escape \<open>
+  fn SharedGenericValueEscape(value: \<tau>\<open>'t\<close>) -> \<tau>\<open>'t\<close> { value }
+\<close>
+urust_fn [shared_references = ["type:T" \<rightarrow> \<open>reference\<close>,
+  "arg:0" \<rightarrow> \<open>value\<close>, "result" \<rightarrow> \<open>value\<close>]]
+  shared_generic_slot \<open>
+  fn SharedGenericSlot<T>(value: &T) -> &T { value }
+\<close>
+urust_fn [shared_references = ["type:T" \<rightarrow> \<open>value\<close>]] shared_callable_value \<open>
+  fn SharedCallableValue<T, F: Fn(&T) -> &T>(callback: F, value: &T) -> &T { callback(value) }
+\<close>
+urust_fn shared_callable_value_escape \<open>
+  fn SharedCallableValueEscape(callback: \<tau>\<open>'t \<Rightarrow> ('state, 't, 'abort, 'input, 'output) function_body\<close>,
+    value: \<tau>\<open>'t\<close>) -> \<tau>\<open>'t\<close> { callback(value) }
+\<close>
+urust_fn [shared_references = ["type:T" \<rightarrow> \<open>value\<close>]] shared_callable_mut_value \<open>
+  fn SharedCallableMutValue<T, F: std::ops::FnMut(&T) -> &T>(callback: F, value: &T) -> &T { callback(value) }
+\<close>
+
+urust_fn [shared_references = ["type:T" \<rightarrow> \<open>value\<close>]] shared_callable_once_value \<open>
+  fn SharedCallableOnceValue<T, F: std::ops::FnOnce(&T) -> &T>(callback: F, value: &T) -> &T { callback(value) }
+\<close>
+
+lemma shared_callable_kind_twins:
+  \<open> shared_callable_mut_value = shared_callable_value_escape \<close>
+  \<open> shared_callable_once_value = shared_callable_value_escape \<close>
+unfolding shared_callable_mut_value_def shared_callable_once_value_def shared_callable_value_escape_def
+by (rule refl)+
+
+lemma shared_composition_twins:
+  \<open> shared_nested_signature = shared_nested_signature_escape \<close>
+  \<open> shared_slot_value = shared_slot_value_escape \<close>
+  \<open> shared_generic_value = shared_generic_value_escape \<close>
+  \<open> shared_generic_slot = shared_generic_value_escape \<close>
+  \<open> shared_callable_value = shared_callable_value_escape \<close>
+
+unfolding shared_nested_signature_def shared_nested_signature_escape_def
+  shared_slot_value_def shared_slot_value_escape_def shared_generic_value_def
+  shared_generic_value_escape_def shared_generic_slot_def shared_callable_value_def
+  shared_callable_value_escape_def
+by (rule refl)+
+
+urust_type "SharedLateFlag" = \<open>bool\<close>
+urust_type_alias \<open> type SharedAliasBeforePolicy = SharedLateFlag; \<close>
+urust_type [shared = \<open>value\<close>] "SharedLateFlag" = \<open>bool\<close>
+urust_fn shared_alias_current_policy \<open>
+  fn SharedAliasCurrentPolicy(value: &SharedAliasBeforePolicy) -> &SharedLateFlag { value }
+\<close>
+urust_fn shared_alias_current_policy_escape \<open>
+  fn SharedAliasCurrentPolicyEscape(value: bool) -> bool { value }
+\<close>
+urust \<open> struct SharedGeneratedOwner { flag: bool } \<close>
+urust_type [shared = \<open>value\<close>] "SharedGeneratedOwner" = \<open>shared_generated_owner\<close>
+urust \<open>
+  impl SharedGeneratedOwner {
+    fn shared_peek(&self) -> bool { false }
+    fn shared_peek_escape(self: \<tau>\<open>shared_generated_owner\<close>) -> bool { false }
+    \<omega>\<open>shared_references = ["arg:0" \<rightarrow> \<open>readonly\<close>]\<close>
+    fn shared_readonly_peek(&self) -> bool { false }
+    fn shared_readonly_peek_escape(self: \<tau>\<open>(nat, unit, shared_generated_owner) ro_ref\<close>) -> bool { false }
+  }
+\<close>
+lemma shared_alias_and_self_twins:
+  \<open> shared_alias_current_policy = shared_alias_current_policy_escape \<close>
+  \<open> shared_generated_owner_shared_peek = shared_generated_owner_shared_peek_escape \<close>
+  \<open> shared_generated_owner_shared_readonly_peek = shared_generated_owner_shared_readonly_peek_escape \<close>
+unfolding shared_alias_current_policy_def shared_alias_current_policy_escape_def
+  shared_generated_owner_shared_peek_def shared_generated_owner_shared_peek_escape_def
+  shared_generated_owner_shared_readonly_peek_def shared_generated_owner_shared_readonly_peek_escape_def
+by (rule refl)+
+end
+
+end
+
+section\<open> Existing shared-reference operations \<close>
+
+context reference
+begin
+context notes [[urust_model_parameters = \<open>
+  ["address" \<rightarrow> \<open>'a\<close>, "global" \<rightarrow> \<open>'b\<close>]
+\<close>]]
+begin
+urust_fn shared_readonly_read \<open>
+  fn SharedReadonlyRead(value: &SharedReadonlyFlag) -> bool { *value }
+\<close>
+urust_fn shared_readonly_read_escape \<open>
+  fn SharedReadonlyReadEscape(value: \<tau>\<open>('a, 'b, bool) ro_ref\<close>) -> bool { *value }
+\<close>
+urust_fn shared_storage_read \<open>
+  fn SharedStorageRead(value: &SharedStorageFlag) -> bool { *value }
+\<close>
+urust_fn shared_storage_read_escape \<open>
+  fn SharedStorageReadEscape(value: \<tau>\<open>('a, 'b, bool) ref\<close>) -> bool { *value }
+\<close>
+lemma shared_read_operation_twins:
+  \<open> shared_readonly_read = shared_readonly_read_escape \<close>
+  \<open> shared_storage_read = shared_storage_read_escape \<close>
+unfolding shared_readonly_read_def shared_readonly_read_escape_def
+  shared_storage_read_def shared_storage_read_escape_def
+by (rule refl)+
+end
+end
+
+context reference
+begin
+lemma shared_read_existing_correspondence:
+  \<open> shared_readonly_read = ro_dereference_fun \<close>
+  \<open> shared_storage_read = dereference_fun \<close>
+unfolding shared_readonly_read_def shared_storage_read_def
+by (rule ext; simp add: ro_dereference_fun_def dereference_fun_def
+  funcall1_def bind1_def lift_exp1_def deep_compose1_def bind_literal_unit
+  no_return_call_inline[symmetric] no_return_intros split: option.splits)+
 end
 
 end

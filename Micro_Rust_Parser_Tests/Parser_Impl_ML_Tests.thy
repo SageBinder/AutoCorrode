@@ -1173,8 +1173,8 @@ section\<open> Receivers and Self \<close>
 
 text\<open>
 In an impl member, \<open>self\<close> may only be the first parameter, typed or not, as in Rust; free
-functions keep their typed \<open>self\<close> extension. \<open>&self\<close> is rejected with the shared-reference
-message at the receiver. \<open>Self\<close> outside an impl member is rejected in every type position.
+functions keep their typed \<open>self\<close> extension. \<open>&self\<close> requires an explicit policy; its missing-policy
+message is positioned at the receiver. \<open>Self\<close> outside an impl member is rejected in every type position.
 \<close>
 
 ML\<open>
@@ -1193,7 +1193,7 @@ local
     "fn late(self, value: u32, self: Counter) -> u32 { value }" "self" 1
   val _ = member "member-shorthand-second" [first]
     "fn late(value: u32, &mut self) -> u32 { value }" "&mut self" 0
-  val shared = "shared Rust references (&T) are not supported in function signatures"
+  val shared = "shared Rust references (&T) require an explicit representation"
   val _ = member "member-shared-receiver" [shared] "fn peek(&self) -> u32 { 0_u32 }" "&self" 0
   val _ = member "member-shared-lifetime-receiver" [shared]
     "fn peek<'a>(&'a self) -> u32 { 0_u32 }" "&'a self" 0
@@ -1663,7 +1663,7 @@ struct
        "    " ^ annotation "name = \"atomic_gauge_fresh\"" ^ "\n" ^ "    fn again() -> u32 { 0_u32 }\n",
        "", "fn again", ["atomic_gauge_fresh"]),
      ("member-receiver", "    fn shared(&self) -> u32 { 0_u32 }\n", "", "fn shared",
-       ["shared Rust references (&T) are not supported"]),
+       ["shared Rust references (&T) require an explicit representation"]),
      ("later-impl", "", "  impl AtomicMissing {}\n", "impl AtomicMissing",
        ["unknown impl target type \"AtomicMissing\""]),
      ("later-item", "", "  fn AtomicImplBroken() -> bool { 1_u32 }\n", "fn AtomicImplBroken",
@@ -4296,6 +4296,125 @@ local
     (is_none (Parser_Test_Calls.lookup (Toplevel.context_of recovered) "ScopedOwner::earlier") andalso
      is_none (URust_Type_Mappings.lookup (Toplevel.context_of recovered) "ScopedUnrelatedHoleOwner"))
 in val _ = writeln "scoped Self conflict and subsequent recovery PASS" end
+\<close>
+
+section\<open> Shared callable policy inheritance \<close>
+
+ML_val\<open>
+local
+  open Impl_Syntax_Test
+  val thy = \<^theory>
+  fun policy key mode = "shared_references = [" ^ quote key ^ " \<rightarrow> " ^ cartouche mode ^ "]"
+  fun annotation options = "\<omega>" ^ cartouche options ^ "\n"
+  fun command text = "urust " ^ command_source text
+  val header = annotation (policy "type:T" "value") ^
+    "impl<T, U, F: Fn(&T) -> &T> SharedCallableOwner<T, U, F> {\n"
+  val _ = command_rejects thy "shared-impl-slot-key"
+    ["impl shared_references accepts only type:NAME keys"]
+    (command (annotation (policy "arg:0" "value") ^
+      "impl<T, U, F> SharedCallableOwner<T, U, F> {}")) "arg:0" 0
+  val conflict = command (header ^ annotation (policy "type:T" "reference") ^
+    "fn conflict(self: Self) -> bool where F: Fn(&T) -> &T { false }\n}")
+  val message = expect_failure "shared impl member recipe conflict"
+    ["incompatible callable bounds with different checked native types",
+     "shared-impl-conflicting-member-bound"]
+    (fn () => run_commands false "shared-impl-conflicting-member-bound" thy conflict)
+  val _ = require "conflicting member recipe lost its bound positions"
+    (range_of conflict "Fn" 0 = message_range message andalso
+      exists (fn pos => position_range pos = range_of conflict "Fn" 1) (message_positions message))
+  fun canonical typ = Term_Subst.instantiateT (TVars.make
+    (rev (Term.add_tvarsT typ []) |> map_index
+      (fn (index, variable as (_, sort)) => (variable, TVar (("shared_impl_twin", index), sort))))) typ
+  fun constant_type name = canonical (Sign.the_const_type thy (Proof_Context.intern_const \<^context> name))
+  val _ = List.app (fn (native, escaped) =>
+    require (native ^ ": principal type, sorts or sharing changed")
+      (constant_type native = constant_type escaped))
+    [("shared_callable_owner_keep", "shared_callable_owner_keep_escape"),
+     ("shared_callable_owner_readonly_other", "shared_callable_owner_readonly_escape"),
+     ("shared_callable_owner_ordinary_again", "shared_callable_owner_reference_escape"),
+     ("shared_callable_owner_slot_other", "shared_callable_owner_slot_escape"),
+     ("shared_callable_owner_ordinary_after_slot", "shared_callable_owner_reference_escape"),
+     ("shared_nominal_callable_owner_keep", "shared_nominal_callable_owner_keep_escape")]
+in val _ = writeln "shared impl header policies, partial overrides and member isolation PASS" end
+\<close>
+
+ML_val\<open>
+local
+  val thy = \<^theory>
+  fun cartouche text = Symbol.open_ ^ "\n" ^ text ^ "\n" ^ Symbol.close
+  fun run label text = fold (Toplevel.command_exception false)
+    (Outer_Syntax.parse_text thy (K thy) (Position.make0 1 1 0 "" label label) text)
+    (Toplevel.make_state (SOME thy)) |> Toplevel.context_of
+  fun annotation options = "\<omega>" ^ cartouche options ^ "\n"
+  fun policy mode = "shared_references = [\"type:T\" \<rightarrow> " ^ cartouche mode ^ "]"
+  fun inspect mode =
+    let
+      val ctxt = run ("shared-callable-inferred-" ^ mode) ("urust " ^ cartouche
+        ("struct SharedInferredCallableOwner<T, F> { value: T, callback: F }\n" ^
+         annotation (policy mode) ^
+         "impl<T, F: Fn(&T) -> &T> SharedInferredCallableOwner<T, F> {\n" ^
+         "fn weak(self: Self, value: &T) -> bool { false }\n}"))
+      val typ = Sign.the_const_type (Proof_Context.theory_of ctxt)
+        (Proof_Context.intern_const ctxt "shared_inferred_callable_owner_weak")
+      val [Type (_, [_, Type ("fun", [input, _])]), value] = binder_types typ
+    in writeln (mode ^ ": " ^ ML_Syntax.print_typ typ);
+       if input = value then writeln "inferred roles shared PASS"
+       else error "inferred roles lost" end
+  val _ = List.app inspect ["reference", "readonly"]
+  val conflict = "urust " ^ cartouche
+    ("struct SharedBoundCallableOwner<T, F> { value: T, callback: F }\n" ^
+     annotation (policy "reference" ^
+       ", model_parameters = [\"address\" \<rightarrow> " ^ cartouche "nat" ^
+       ", \"global\" \<rightarrow> " ^ cartouche "unit" ^ "]") ^
+     "impl<T, F: Fn(&T) -> &T> SharedBoundCallableOwner<T, F> {\n" ^
+     annotation ("model_parameters = [\"address\" \<rightarrow> " ^ cartouche "bool" ^ "]") ^
+     "fn weak(self: Self, value: &T) -> bool { false }\n}")
+  val _ = case Exn.capture0 (fn () => run "shared-callable-header-role-conflict" conflict) () of
+      Exn.Res ctxt => error ("conflicting header role accepted: " ^
+        ML_Syntax.print_typ (Sign.the_const_type (Proof_Context.theory_of ctxt)
+          (Proof_Context.intern_const ctxt "shared_bound_callable_owner_weak")))
+    | Exn.Exn exn => if Exn.is_interrupt exn then Exn.reraise exn
+        else if String.isSubstring "conflicts with checked Self" (Runtime.exn_message exn) then ()
+        else Exn.reraise exn
+in end
+\<close>
+
+ML_val\<open>
+local
+  val thy = \<^theory>
+  fun cartouche text = Symbol.open_ ^ "\n" ^ text ^ "\n" ^ Symbol.close
+  fun run label text = fold (Toplevel.command_exception false)
+    (Outer_Syntax.parse_text thy (K thy) (Position.make0 1 1 0 "" label label)
+      ("declare [[urust_verbosity = 0]]\n" ^ text))
+    (Toplevel.make_state (SOME thy)) |> Toplevel.context_of
+  fun typ ctxt name = Sign.the_const_type (Proof_Context.theory_of ctxt)
+    (Proof_Context.intern_const ctxt name)
+  fun require label ok = if ok then () else error label
+  val retained = run "shared-nested-impl-frame" ("urust " ^ cartouche
+    "struct SharedNestedRoleOwner<T> { value: T }\n\
+    \impl<'a> SharedNestedRoleOwner<&'a mut u8> {\n\
+    \  fn weak(self: Self, pointer: *const u8) -> bool { false }\n}")
+  val [Type (_, [nested]), pointer] = binder_types (typ retained "shared_nested_role_owner_weak")
+  val _ = require "retained nested impl argument did not share member roles" (nested = pointer)
+  fun annotation options = "\<omega>" ^ cartouche options ^ "\n"
+  val erased_command =
+    "urust_type [erase = " ^ cartouche "'f" ^ "] \"SharedErasedRoleOwner<'t, 'f>\" = " ^
+    cartouche "'t option" ^ "\nurust " ^ cartouche
+      (annotation ("shared_references = [\"type:T\" \<rightarrow> " ^ cartouche "reference" ^
+         "], model_parameters = [\"address\" \<rightarrow> " ^ cartouche "nat" ^
+         ", \"global\" \<rightarrow> " ^ cartouche "unit" ^ "]") ^
+       "impl<T, F: Fn(&T) -> &T> SharedErasedRoleOwner<T, F> {\n\
+       \  fn weak(self: Self, value: &T) -> bool { false }\n}\n") ^
+    "\nurust_fn " ^ cartouche "fn SharedAfterImpl(pointer: *const u8) -> bool { false }"
+  val erased = run "shared-erased-impl-frame" erased_command
+  val [Type (_, [element]), value] = binder_types (typ erased "shared_erased_role_owner_weak")
+  val expected = Term.typ_subst_atomic [(TFree ("'element", \<^sort>\<open>type\<close>), element)]
+    \<^typ>\<open>(nat, unit, 'element) ref\<close>
+  val _ = require "roles established only by erased callable evidence were lost" (value = expected)
+  val later = the_single (binder_types (typ erased "shared_after_impl"))
+  val _ = require "checked header roles escaped into a later free function"
+    (length (Term.add_tvarsT later []) = 2)
+in val _ = writeln "retained arguments, erased callable roles and impl-context exit PASS" end
 \<close>
 
 end

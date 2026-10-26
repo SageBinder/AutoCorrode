@@ -6361,4 +6361,158 @@ in
 end
 \<close>
 
+section\<open> Checked shared policies and signature selection \<close>
+
+ML_val\<open>
+local
+  structure M = URust_Type_Mappings
+  val ctxt = \<^context>
+  val thy = Proof_Context.theory_of ctxt
+  fun require label condition = if condition then () else error ("shared policy audit: " ^ label)
+  fun cartouche text = Symbol.open_ ^ " " ^ text ^ " " ^ Symbol.close
+  fun run_from state label text =
+    let val base = Toplevel.theory_of state
+    in fold (Toplevel.command_exception false)
+      (Outer_Syntax.parse_text base (K base) (Position.make0 1 1 0 "" label label)
+        ("declare [[urust_verbosity = 0]] " ^ text)) state end
+  fun run base label text = Toplevel.context_of (run_from (Toplevel.make_state (SOME base)) label text)
+  fun policy name mode = "urust_type [shared = " ^ cartouche mode ^ "] " ^
+    quote name ^ " = " ^ cartouche "bool"
+  val original_entry = the (M.lookup ctxt "bool")
+  val promoted = run thy "z-shared-policy-first" (policy "bool" "value")
+  val selected = the (M.lookup promoted "bool")
+  val _ = require "primitive policy promotion changed its mapping identity or schema"
+    (M.entry_identity original_entry = M.entry_identity selected andalso
+      M.entry_origin original_entry = M.entry_origin selected andalso
+      M.entry_template original_entry = M.entry_template selected andalso
+      M.entry_arities original_entry = M.entry_arities selected andalso
+      M.entry_parameter_kinds original_entry = M.entry_parameter_kinds selected andalso
+      M.entry_parameter_sorts original_entry = M.entry_parameter_sorts selected andalso
+      M.entry_erased_parameters original_entry = M.entry_erased_parameters selected andalso
+      M.entry_backend_roles original_entry = M.entry_backend_roles selected andalso
+      M.entry_backend_parameter_sorts original_entry = M.entry_backend_parameter_sorts selected andalso
+      Position.properties_of (M.entry_declaration_position original_entry) =
+        Position.properties_of (M.entry_declaration_position selected))
+  val again = run (Proof_Context.theory_of promoted) "a-shared-policy-repeat" (policy "bool" "value")
+  val repeated = the (M.lookup again "bool")
+  val _ = require "identical declaration changed the first policy's authored position"
+    (Option.map (Position.properties_of o #2) (M.entry_shared_policy selected) =
+      Option.map (Position.properties_of o #2) (M.entry_shared_policy repeated))
+  fun repeat_at base line offset =
+    let val label = "shared-policy-repeat-offset"
+        val state = fold (Toplevel.command_exception false)
+          (Outer_Syntax.parse_text base (K base)
+            (Position.make0 line offset 0 "" label label) (policy "bool" "reference"))
+          (Toplevel.make_state (SOME base))
+    in Toplevel.context_of state end
+  val late_author = repeat_at thy 9 900
+  val earlier_repeat = repeat_at (Proof_Context.theory_of late_author) 1 1
+  val _ = require "a later equal selection at an earlier source position replaced the first author"
+    (Option.map (Position.properties_of o #2)
+       (M.entry_shared_policy (the (M.lookup late_author "bool"))) =
+     Option.map (Position.properties_of o #2)
+       (M.entry_shared_policy (the (M.lookup earlier_repeat "bool"))))
+
+  fun failure expected action =
+    (case Exn.capture0 action () of
+       Exn.Res _ => error ("shared policy audit accepted " ^ expected)
+     | Exn.Exn exn => if Exn.is_interrupt exn then Exn.reraise exn else
+         let val message = Runtime.exn_message exn
+         in require ("wrong diagnostic for " ^ expected ^ ": " ^ message)
+           (String.isSubstring expected message); message end)
+  fun branch label text = run (Theory.begin_theory (label, Position.none) [thy]) label text
+    |> Proof_Context.theory_of |> Theory.end_theory |> Proof_Context.init_global
+  val reference = branch "shared-policy-reference-author" (policy "bool" "reference")
+  val readonly = branch "shared-policy-readonly-author" (policy "bool" "readonly")
+  fun merge left right = Theory.begin_theory ("Shared_Policy_Merge_" ^ string_of_int (serial ()), Position.none)
+    [Proof_Context.theory_of left, Proof_Context.theory_of right] |> Theory.end_theory
+  val _ = List.app (fn (left, right) =>
+    let val message = failure "conflicting shared representations" (fn () => merge left right)
+    in require "policy conflict lost an author's source position"
+      (String.isSubstring "shared-policy-reference-author" message andalso
+       String.isSubstring "shared-policy-readonly-author" message) end)
+    [(reference, readonly), (readonly, reference)]
+  val _ = List.app (fn (left, right) => require "absent policy did not join a selection"
+    (Option.map #1 (M.entry_shared_policy (the (M.lookup (Proof_Context.init_global
+      (merge left right)) "bool"))) = SOME M.Shared_Reference)) [(ctxt, reference), (reference, ctxt)]
+  val same = branch "shared-policy-same-author" (policy "bool" "reference")
+  val merged1 = M.entry_shared_policy (the (M.lookup (Proof_Context.init_global (merge reference same)) "bool"))
+  val merged2 = M.entry_shared_policy (the (M.lookup (Proof_Context.init_global (merge same reference)) "bool"))
+  val _ = require "equal-policy merge depends on order"
+    (Option.map (fn (mode, pos) => (mode, Position.properties_of pos)) merged1 =
+     Option.map (fn (mode, pos) => (mode, Position.properties_of pos)) merged2)
+  val _ = ignore (failure "different Rust meanings, HOL templates or parameter sorts" (fn () =>
+    run (Proof_Context.theory_of promoted) "shared-policy-schema-first"
+      ("urust_type [shared = " ^ cartouche "readonly" ^ "] " ^ quote "bool" ^ " = " ^ cartouche "nat")))
+
+  fun options pairs = "shared_references = [" ^ commas
+    (map (fn (key, mode) => quote key ^ " \<rightarrow> " ^ cartouche mode) pairs) ^ "]"
+  fun declaration pairs item = "urust_fn [" ^ options pairs ^ "] " ^ cartouche item
+  val ordinary = "fn SharedPolicyRejected(value: &bool) -> bool { false }"
+  val _ = List.app (fn (label, expected, pairs, item) => ignore
+    (failure expected (fn () => run thy label (declaration pairs item))))
+    [("shared-policy-unknown-key", "unknown shared-reference key", [("body", "value")], ordinary),
+     ("shared-policy-unknown-slot", "unknown shared-reference slot", [("arg:1", "value")], ordinary),
+     ("shared-policy-negative-slot", "unknown shared-reference slot", [("arg:-1", "value")], ordinary),
+     ("shared-policy-noncanonical-slot", "unknown shared-reference slot", [("arg:00", "value")], ordinary),
+     ("shared-policy-duplicate", "duplicate shared-reference override", [("arg:0", "value"), ("arg:0", "reference")], ordinary),
+     ("shared-policy-unknown-generic", "unknown shared-reference generic", [("type:Missing", "value")], ordinary),
+     ("shared-policy-const-generic", "requires a type parameter", [("type:N", "value")],
+       "fn SharedPolicyRejected<const N: usize>(value: bool) -> bool { value }"),
+     ("shared-policy-invalid-mode", "expects value, reference, or readonly", [("arg:0", "implicit")], ordinary)]
+  val _ = ignore (failure "shared Rust references" (fn () => run thy "shared-policy-missing"
+    ("urust_fn " ^ cartouche ordinary)))
+  val _ = ignore (failure "Rust reference types" (fn () => run (Proof_Context.theory_of promoted)
+    "shared-policy-field-still-unsupported"
+    ("urust_datatype " ^ cartouche "struct SharedUnsupportedField { value: &bool }")))
+  val _ = ignore (failure "Rust reference types" (fn () => run (Proof_Context.theory_of promoted)
+    "shared-policy-alias-still-unsupported"
+    ("urust_type_alias " ^ cartouche "type SharedUnsupportedAlias = &bool;")))
+
+  val complete = "urust_fn [" ^ options [("body", "bad"), ("arg:99", "unparsed"),
+      ("type:Missing", "_"), ("body", "duplicate ignored")] ^ "] shared_complete_ignored :: " ^
+    cartouche "bool \<Rightarrow> (unit, bool, unit, unit, unit) function_body" ^ " " ^
+    cartouche "fn SharedCompleteIgnored(value: &UnknownSharedTarget) -> &UnknownSharedTarget { value }"
+  val ignored = run thy "shared-policy-complete-ignore" complete
+  val _ = require "complete HOL signature gained a denotation constraint"
+    (Sign.the_const_type (Proof_Context.theory_of ignored)
+      (Proof_Context.intern_const ignored "shared_complete_ignored") =
+      \<^typ>\<open>bool \<Rightarrow> (unit, bool, unit, unit, unit) function_body\<close>)
+
+  val callback = "fn SharedPolicyCallback<T, F: Fn(&T) -> &T>(callback: F, value: &T) -> &T { callback(value) }"
+  val untouched = run thy "shared-policy-callback-slot-isolation"
+    (declaration [("type:T", "value"), ("arg:0", "readonly")] callback)
+  val _ = ignore (failure "Type unification failed" (fn () => run thy
+    "shared-policy-callback-slot-clash"
+    (declaration [("type:T", "value"), ("arg:1", "readonly")] callback)))
+  val _ = require "callback slot override modified its template"
+    (case binder_types (Sign.the_const_type (Proof_Context.theory_of untouched)
+      (Proof_Context.intern_const untouched "shared_policy_callback")) of
+       [Type ("fun", [input, Type (_, [_, output, _, _, _])]), argument] =>
+         input = argument andalso output = argument
+     | _ => false)
+
+  fun canonical typ = Term_Subst.instantiateT (TVars.make
+    (rev (Term.add_tvarsT typ []) |> map_index
+      (fn (index, variable as (_, sort)) => (variable, TVar (("shared_twin", index), sort))))) typ
+  fun constant_type name = canonical (Sign.the_const_type thy (Proof_Context.intern_const ctxt name))
+  val _ = List.app (fn (native, escaped) => require (native ^ ": principal type/sorts/sharing changed")
+    (constant_type native = constant_type escaped))
+    [("shared_value_identity", "shared_value_identity_escape"),
+     ("shared_storage_identity", "shared_storage_identity_escape"),
+     ("shared_readonly_identity", "shared_readonly_identity_escape"),
+     ("shared_readonly_conversion", "shared_readonly_conversion_escape"),
+     ("shared_nested_signature", "shared_nested_signature_escape"),
+     ("shared_slot_value", "shared_slot_value_escape"),
+     ("shared_generic_value", "shared_generic_value_escape"),
+     ("shared_generic_slot", "shared_generic_value_escape"),
+     ("shared_callable_value", "shared_callable_value_escape"),
+     ("shared_callable_mut_value", "shared_callable_value_escape"),
+     ("shared_callable_once_value", "shared_callable_value_escape"),
+     ("shared_alias_current_policy", "shared_alias_current_policy_escape"),
+     ("shared_generated_owner_shared_peek", "shared_generated_owner_shared_peek_escape"),
+     ("shared_generated_owner_shared_readonly_peek", "shared_generated_owner_shared_readonly_peek_escape")]
+in end
+\<close>
+
 end
