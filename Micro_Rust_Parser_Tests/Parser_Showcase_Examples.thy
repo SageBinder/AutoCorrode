@@ -1633,4 +1633,35 @@ lemma showcase_storage_method_twin:
   \<open> showcase_storage_method = showcase_storage_call_twin \<close>
   unfolding showcase_storage_method_def showcase_storage_call_twin_def by (rule refl)
 
+
+subsection\<open> Outlives bounds with erased lifetime relations \<close>
+
+text\<open>
+Bounds validate the combined impl and member lifetime scope, including forward and cyclic
+relations. They leave the HOL function, mutable-reference channels and call behavior unchanged.
+No borrow relation is inferred from these erased source assertions.
+\<close>
+
+urust \<open>
+  struct ShowcaseOutlives<T> { value: T }
+  impl<'a: 'b, 'b: 'a, T: 'b> ShowcaseOutlives<T>
+  where Self: 'static, Unknown<&'a T>: 'b {
+    fn carry<'c: 'a, U: 'c>(&'b mut self, value: &'c mut U) -> &'c mut U
+    where T: 'c { value }
+  }
+  fn ShowcaseOutlivesPlain<'b, 'c, T, U>(owner: &'b mut ShowcaseOutlives<T>, value: &'c mut U)
+    -> &'c mut U { value }
+  fn ShowcaseOutlivesSelected<'a, 'b>(owner: &'a mut ShowcaseOutlives<u8>, value: &'b mut bool)
+    -> &'b mut bool { ShowcaseOutlives::<u8>::carry::<bool>(owner, value) }
+  fn ShowcaseOutlivesCallTwin<'a, 'b>(owner: &'a mut ShowcaseOutlives<u8>, value: &'b mut bool)
+    -> &'b mut bool { \<epsilon>\<open>showcase_outlives_carry\<close>(owner, value) }
+\<close>
+
+lemma showcase_outlives_erased:
+  \<open> showcase_outlives_carry = showcase_outlives_plain \<close>
+  unfolding showcase_outlives_carry_def showcase_outlives_plain_def by (rule refl)
+lemma showcase_outlives_selected_twin:
+  \<open> showcase_outlives_selected = showcase_outlives_call_twin \<close>
+  unfolding showcase_outlives_selected_def showcase_outlives_call_twin_def by (rule refl)
+
 end

@@ -1078,9 +1078,6 @@ local
      ("optional-where", "optional trait bounds are not supported", "fn Bad<T>() where T: ?Sized {}", "?", 0),
      ("lifetime-parameter-bound", "lifetime bounds are not supported", "fn Bad<'a: 'b>() {}", ":", 0),
      ("lifetime-parameter-plus-bounds", "lifetime bounds are not supported", "fn Bad<'a: 'b + 'c>() {}", ":", 0),
-     ("lifetime-inline-bound", "lifetime bounds are not supported", "fn Bad<'a, T: 'a>() {}", "'a", 1),
-     ("lifetime-inline-plus-bound", "lifetime bounds are not supported", "fn Bad<'a, T: Marker + 'a>() {}", "'a", 1),
-     ("lifetime-where-bound", "lifetime bounds are not supported", "fn Bad<'a, T>() where T: 'a {}", "'a", 1),
      ("fn-inline-bound", "Fn trait bounds are not supported", "fn Bad<T: Fn(u8) -> u8>() {}", "(", 0),
      ("fn-where-bound", "Fn trait bounds are not supported", "fn Bad<T>() where T: Fn(u8) -> u8 {}", "(", 1),
      ("generic-inline-bound", "generic trait bounds are not supported", "fn Bad<T: Trait<u8>>() {}", "<", 1),
@@ -1099,8 +1096,7 @@ local
      ("legacy-parser-where", "where clauses may only bound this function's type parameters", "fn Where(value: u64) -> u64 where u64: Copy { value }", "u64", 2),
      ("legacy-command-where", "where clauses may only bound this function's type parameters", "fn WhereClause(x: u64) -> u64 where X: Y { x }", "X", 0)]
   val deferred =
-    ["lifetime-parameter-bound", "lifetime-parameter-plus-bounds", "lifetime-inline-bound",
-     "lifetime-inline-plus-bound", "lifetime-where-bound", "fn-inline-bound", "fn-where-bound",
+    ["lifetime-parameter-bound", "lifetime-parameter-plus-bounds", "fn-inline-bound", "fn-where-bound",
      "generic-inline-bound", "generic-empty-bound", "generic-associated-bound", "const-u8",
      "const-named-type", "where-unknown", "where-const", "where-concrete", "where-qualified",
      "where-applied", "where-reference", "legacy-parser-where", "legacy-command-where"]
@@ -5867,5 +5863,234 @@ local
         M.parameter_has_witness inherited parameter | _ => false)
 in end
 \<close>
+
+
+section\<open> Erased outlives scopes, source heads and transactions \<close>
+
+ML_val\<open>
+local
+  open Generic_Signature_Test URust_AST
+  structure M = URust_Type_Mappings
+  val thy = \<^theory>
+  val ctxt = Context_Position.set_visible true \<^context>
+  fun parameters key = the (M.generic_source_scheme_for_source ctxt (#serial (entry ctxt key)))
+  val _ = require "mixed outlives preserve the exact trait-only source scheme"
+    (parameters "OutlivesMixed" = parameters "OutlivesMixedPlain")
+  val _ = require "unused source-only heads preserve the exact legacy witness slots and masks"
+    (parameters "OutlivesSourceOnly" = parameters "OutlivesSourceOnlyPlain" andalso
+      forall (fn p => is_some (#hol p) andalso #source_used p = SOME false)
+        (parameters "OutlivesSourceOnly"))
+  val _ = require "declared outlives preserve authored types, source slots and ignored trait keys"
+    (parameters "OutlivesDeclared" = parameters "OutlivesDeclaredPlain" andalso
+      forall (null o #bounds) (parameters "OutlivesDeclared"))
+  fun constant_type name = Sign.the_const_type thy
+    (fst (dest_Const (Proof_Context.read_const {proper = true, strict = true} ctxt name)))
+  val _ = List.app (fn (actual, plain) =>
+    require (actual ^ ": complete constant types/sorts/channels are identical")
+      (constant_type actual = constant_type plain))
+    [("outlives_mixed", "outlives_mixed_plain"),
+     ("outlives_source_only", "outlives_source_only_plain"),
+     ("outlives_declared", "outlives_declared_plain")]
+
+  val calls = Unsynchronized.ref ([]: Position.T list)
+  val callback = fn pos => calls := pos :: !calls
+  val parameter: M.generic_parameter = {rust = "T", pos = start "outlives-T",
+    kind = Type_Parameter, hol = ("'outlives_t", \<^sort>\<open>ord\<close>),
+    bounds = ["plain::Ordered"], report_reference = callback}
+  val count: M.generic_parameter = {rust = "N", pos = start "outlives-N",
+    kind = Const_Parameter, hol = ("'outlives_n", \<^sort>\<open>len0\<close>),
+    bounds = [], report_reference = K ()}
+  val identities = map (fn _ => M.fresh_generic_declaration_identity ()) [parameter, count]
+  val installed = ctxt
+    |> M.with_identified_generic_scope {parameters = [parameter, count]} identities
+    |> M.with_source_only_parameters ["'outlives_t"]
+    |> M.with_declared_body_parameters ["'outlives_t", "'outlives_n"]
+  val before_state = snapshot installed
+  val schemes = scheme_snapshot installed
+  fun head text =
+    let val f = parse installed "outlives-head" ("fn Head<'a>() where " ^ text ^ ": 'a {}")
+    in case #where_clause (function_generics f) of [Rust_Type_Predicate (head, _, _)] => head
+      | _ => error "outlives head fixture did not produce a positioned predicate" end
+  val opaque = "\<tau>" ^ cartouche "_ 'unresolved_model"
+  val heads = map head ["T", "Unmapped<T, N>", "qualified::Unmapped<T, N, 3, { 1 + 2 }>",
+    "([T; N], *const T, fn(&u8) -> &u8)", "$Unexpanded", "$T", opaque]
+  val (((), nested), outer) = M.capture_generic_use_events installed (fn observed =>
+    M.capture_generic_use_events observed (fn nested =>
+      List.app (M.check_outlives_head nested) heads))
+  val _ = require "pure-head validation emits no nested or parent source/witness event"
+    (null (#source_uses nested) andalso null (#witness_uses nested) andalso
+      null (#source_uses outer) andalso null (#witness_uses outer) andalso null (!calls))
+  val _ = require "pure-head validation preserves full records, callback objects, IDs and availability"
+    (snapshot installed = before_state andalso scheme_snapshot installed = schemes andalso
+      M.generic_scope_identities installed = SOME identities andalso
+      (case M.generic_scope installed of SOME {parameters = [after, after_count]} =>
+        #rust after = #rust parameter andalso #kind after = #kind parameter andalso
+        #hol after = #hol parameter andalso #bounds after = #bounds parameter andalso
+        Position.properties_of (#pos after) = Position.properties_of (#pos parameter) andalso
+        PolyML.pointerEq (#report_reference after, callback) andalso
+        #hol after_count = #hol count andalso
+        not (M.parameter_available installed after) andalso
+        not (M.parameter_has_witness installed after) andalso
+        not (M.parameter_available installed after_count) andalso
+        M.parameter_has_witness installed after_count | _ => false))
+
+  fun collect (XML.Text _) = []
+    | collect (XML.Elem (markup, body)) = markup :: maps collect body
+  fun markup events = maps collect (trees "report" events)
+  fun at text token occurrence props =
+    position_range (Position.of_properties props) = range_of text token occurrence
+  fun ids kind field text token occurrence properties =
+    properties |> map_filter (fn (element, props) =>
+      if element = Markup.entityN andalso Properties.get props Markup.kindN = SOME kind andalso
+        at text token occurrence props then Properties.get props field else NONE)
+  val prefix = "/* " ^ Symbol.open_ ^ " positioned " ^ Symbol.close ^ " */ "
+  val retained = "\<tau>" ^ cartouche "T 'a '_"
+  val rust = prefix ^
+    "fn OutlivesNavigation<'a: 'b, 'b: 'a, T: 'b>(value: u8) -> u8 " ^
+    "where 'a: 'a + 'b, u8: 'a, qualified::Opaque<&'a T>: 'b, T: 'static, " ^
+    "$T: 'static, " ^ retained ^ ": 'static { value }"
+  val text = "urust_fn [verbosity = 0] " ^ cartouche rust
+  val callbacks = saved_callbacks ()
+  val reporter = !Private_Output.report_fn
+  val (result, events) = capture (fn () => run thy "outlives-navigation" text)
+  val completed = Exn.release result |> Toplevel.context_of
+  val properties = markup events
+  val _ = List.app (fn (name, declaration, references) =>
+    let val identity = the_single (ids "urust_lifetime" Markup.defN text name declaration properties)
+    in List.app (fn occurrence => require "outlives lifetime uses navigate at exact symbol ranges"
+      (ids "urust_lifetime" Markup.refN text name occurrence properties = [identity])) references
+    end) [("'a", 0, [1, 2, 3, 4, 5]), ("'b", 1, [0, 2, 3, 4])]
+  val identity = the_single (ids "urust_generic_parameter" Markup.defN text "T" 0 properties)
+  val _ = List.app (fn occurrence =>
+    require "pure-head generic navigation uses the original declaration at each visible token"
+      (ids "urust_generic_parameter" Markup.refN text "T" occurrence properties = [identity]))
+    [1, 2]
+  val _ = require "opaque macro/model text invents no generic or lifetime navigation"
+    (null (ids "urust_generic_parameter" Markup.refN text "T" 3 properties) andalso
+      null (ids "urust_generic_parameter" Markup.refN text "T" 4 properties) andalso
+      null (ids "urust_lifetime" Markup.refN text "'a" 6 properties) andalso
+      null (ids "urust_lifetime" Markup.refN text "'_" 0 properties))
+  val head_ranges = map (range_of text "T") [1, 2]
+  val _ = require "source-only head references have lexical markup and no fabricated HOL typing"
+    (forall (fn range => exists (fn (name, props) => name = Markup.tfreeN andalso
+      position_range (Position.of_properties props) = range) properties andalso
+      not (exists (fn (name, props) => name = Markup.typingN andalso
+        position_range (Position.of_properties props) = range) properties)) head_ranges)
+  val _ = require "pure-head navigation does not resolve nominal or trait mappings"
+    (not (exists (fn (name, props) => name = Markup.entityN andalso
+      Library.member (op =) ["urust_trait", "micro_rust_type_mapping"]
+        (the_default "" (Properties.get props Markup.kindN)) andalso
+      Library.member (op =)
+        (range_of text "u8" 2 :: range_of text "qualified" 0 ::
+          range_of text "Opaque" 0 :: head_ranges)
+        (position_range (Position.of_properties props))) properties))
+  val _ = require "header navigation preserves callbacks and closes scopes"
+    (same_callbacks callbacks andalso PolyML.pointerEq (reporter, !Private_Output.report_fn))
+  val _ = require_scope_closed "outlives navigation" completed
+  val _ = writeln "S3 complete types/sorts/channels, source masks, full-record zero-event validation and exact native navigation PASS"
+in end
+\<close>
+
+ML_val\<open>
+local
+  open Generic_Signature_Test
+  val thy = \<^theory>
+  val ctxt = \<^context>
+  val old_names = snapshot ctxt
+  val old_schemes = scheme_snapshot ctxt
+  val prefix = "/* " ^ Symbol.open_ ^ " failure " ^ Symbol.close ^ " */ "
+  val complete = "nat => ('state, nat, 'abort, 'input, 'output) function_body"
+  fun command declared rust = "urust_fn [verbosity = 0] outlives_failure " ^
+    (if declared then ":: " ^ cartouche complete ^ " " else "") ^ cartouche (prefix ^ rust)
+  val structural =
+    [("unknown-inline", "undeclared lifetime", "fn Bad<T: 'missing>(value: u8) -> u8 { value }", "'missing", 0),
+     ("unknown-forward", "undeclared lifetime", "fn Bad<'a: 'missing>(value: u8) -> u8 { value }", "'missing", 0),
+     ("unknown-where-head", "undeclared lifetime", "fn Bad<'a>(value: u8) -> u8 where 'missing: 'a { value }", "'missing", 0),
+     ("unknown-where-bound", "undeclared lifetime", "fn Bad<'a>(value: u8) -> u8 where 'a: 'missing { value }", "'missing", 0),
+     ("unknown-nominal-lifetime", "undeclared lifetime", "fn Bad<'a>(value: u8) -> u8 where Unknown<'missing>: 'a { value }", "'missing", 0),
+     ("unknown-nested-reference", "undeclared lifetime", "fn Bad<'a>(value: u8) -> u8 where (&'missing u8): 'a { value }", "'missing", 0),
+     ("placeholder-inline", "placeholder lifetime", "fn Bad<T: '_>(value: u8) -> u8 { value }", "'_", 0),
+     ("placeholder-head", "placeholder lifetime", "fn Bad<'a>(value: u8) -> u8 where '_: 'a { value }", "'_", 0),
+     ("placeholder-bound", "placeholder lifetime", "fn Bad<'a>(value: u8) -> u8 where 'a: '_ { value }", "'_", 0),
+     ("placeholder-reference", "placeholder lifetime", "fn Bad<'a>(value: u8) -> u8 where &'_ u8: 'a { value }", "'_", 0),
+     ("static-declaration", "cannot be declared as a lifetime parameter", "fn Bad<'static>(value: u8) -> u8 { value }", "'static", 0),
+     ("placeholder-declaration", "cannot be declared as a lifetime parameter", "fn Bad<'_>(value: u8) -> u8 { value }", "'_", 0),
+     ("head-elision", "reference lifetime must be explicit", "fn Bad<'a, T>(value: u8) -> u8 where &T: 'a { value }", "&", 0),
+     ("const-head", "const parameters cannot be used as type where heads", "fn Bad<'a, const N: usize>(value: u8) -> u8 where (N): 'a { value }", "N", 1),
+     ("type-length", "type parameters cannot be used as const where operands", "fn Bad<'a, T>(value: u8) -> u8 where [u8; T]: 'a { value }", "T", 1)]
+  val shapes =
+    [("bare-hole", "Rust inference holes", "fn Bad<'a>(value: u8) -> u8 where _: 'a { value }", "_", 2),
+     ("nested-hole", "Rust inference holes", "fn Bad<'a>(value: u8) -> u8 where Unknown<(_, u8)>: 'a { value }", "_", 2),
+     ("applied-generic", "takes no generic arguments", "fn Bad<'a, T>(value: u8) -> u8 where T<u8>: 'a { value }", "T", 1),
+     ("applied-const-argument", "takes no generic arguments", "fn Bad<'a, const N: usize>(value: u8) -> u8 where Unknown<N<u8>>: 'a { value }", "N", 1),
+     ("scoped-projection", "associated paths on scoped parameters", "fn Bad<'a, T>(value: u8) -> u8 where T::Item: 'a { value }", "T", 1),
+     ("nested-scoped-projection", "associated paths on scoped parameters", "fn Bad<'a, T>(value: u8) -> u8 where Unknown<T::Item>: 'a { value }", "T", 1),
+     ("associated-binding", "associated type bindings", "fn Bad<'a, T>(value: u8) -> u8 where Unknown<Item = T>: 'a { value }", "Item", 0),
+     ("impl-trait", "impl Trait", "fn Bad<'a>(value: u8) -> u8 where impl Marker: 'a { value }", "impl Marker", 0)]
+  fun check declared (label, expected, rust, token, occurrence) =
+    let val text = command declared rust
+      val callbacks = saved_callbacks ()
+      val reporter = !Private_Output.report_fn
+      val (result, events) = capture (fn () => failure label expected (fn () => run thy label text))
+      val diagnostic = Exn.release result
+      val _ = require (label ^ ": smallest positioned diagnostic changed")
+        (map position_range (message_positions diagnostic) =
+          [range_of text token occurrence, range_of text "urust_fn" 0])
+      val _ = require (label ^ ": failed outlives leaked successful output/declaration reports")
+        (null (ordinary events) andalso null (declaration_reports events))
+      val _ = require (label ^ ": failure changed namespace, schemes or callbacks")
+        (snapshot ctxt = old_names andalso scheme_snapshot ctxt = old_schemes andalso
+          same_callbacks callbacks andalso PolyML.pointerEq (reporter, !Private_Output.report_fn))
+      val (recovery, _) = capture (fn () => run thy (label ^ "-recovery")
+        ("urust_fn [verbosity = 0] " ^ cartouche
+          "fn OutlivesRecovery<'a: 'a>(value: u8) -> u8 where 'a: 'static { value }"))
+      val completed = Exn.release recovery |> Toplevel.context_of
+      val _ = require "outlives failure recovers with a checked ordinary declaration"
+        (is_some (Parser_Test_Calls.lookup completed "OutlivesRecovery"))
+      val _ = require_scope_closed label completed
+    in () end
+  val _ = List.app (check false) (structural @ shapes)
+  val _ = List.app (check true) structural
+  val _ = List.app (fn (label, _, rust, _, _) =>
+    let val (result, _) = capture (fn () => run thy (label ^ "-declared") (command true rust))
+    in require_scope_closed label (Exn.release result |> Toplevel.context_of) end) shapes
+  val _ = List.app (fn (label, expected, rust) =>
+    ignore (failure label expected (fn () => run thy label (command false rust))))
+    [("mixed-concrete-trait", "where clauses may only bound", "fn Bad<'a>(value: u8) -> u8 where Unknown: 'a + Marker { value }"),
+     ("mixed-callable", "Fn trait bounds are not supported", "fn Bad<'a, T: 'a + Fn(u8) -> u8>(value: u8) -> u8 { value }"),
+     ("mixed-conditional-const", "conditional-const trait bounds are not supported", "fn Bad<'a, T: 'a + [const] Marker>(value: u8) -> u8 { value }"),
+     ("mixed-higher-ranked", "higher-ranked trait bounds are not supported", "fn Bad<'a, T: 'a + for<'b> Fn(&'b u8)>(value: u8) -> u8 { value }"),
+     ("mixed-generic-trait", "generic trait bounds are not supported", "fn Bad<'a, T: 'a + Unknown<u8>>(value: u8) -> u8 { value }"),
+     ("wrapped-where-outlives", "higher-ranked where predicates are not supported", "fn Bad<T>(value: u8) -> u8 where for<'a> T: 'a { value }"),
+     ("bound-local-leak", "undeclared lifetime", "fn Bad<T: for<'b> Unknown<&'b u8>>(value: u8) -> u8 where T: 'b { value }")]
+  val body_type = "\<llangle>undefined :: 't\<rrangle>"
+  val body_const = "\<llangle>undefined :: 'n itself\<rrangle>"
+  val body_rows =
+    [("source-only-call-shape", "no backend matches",
+       "fn Body<'a, T>(value: u8) -> u8 where Unknown<T>: 'a { SignatureIdentity::<T>(value) }",
+       "fn Body<T>(value: u8) -> u8 { SignatureIdentity::<T>(value) }"),
+     ("source-only-body-type", "generic parameter T does not occur in the signature",
+       "fn Body<'a, T>(value: u8) -> usize where Unknown<T>: 'a { let spare = " ^ body_type ^ "; 0 }",
+       "fn Body<T>(value: u8) -> usize { let spare = " ^ body_type ^ "; 0 }"),
+     ("source-only-body-const", "generic parameter N does not occur in the signature",
+       "fn Body<'a, const N: usize>(value: u8) -> usize where [u8; N]: 'a { let spare = " ^ body_const ^ "; 0 }",
+       "fn Body<const N: usize>(value: u8) -> usize { let spare = " ^ body_const ^ "; 0 }")]
+  val _ = List.app (fn (label, expected, bounded, plain) =>
+    List.app (fn rust =>
+      let val (result, events) = capture (fn () =>
+          failure label expected (fn () => run thy label (command false rust)))
+        val _ = Exn.release result
+      in require "plain and bounded body failures retain atomic output and unchanged registries"
+        (null (ordinary events) andalso null (declaration_reports events) andalso
+          snapshot ctxt = old_names andalso scheme_snapshot ctxt = old_schemes)
+      end) [bounded, plain]) body_rows
+  val _ = List.app (fn (label, expected, bounded, plain) =>
+    List.app (fn rust => ignore (failure (label ^ "-declared") expected
+      (fn () => run thy label (command true rust)))) [bounded, plain])
+    (tl body_rows)
+  val _ = writeln "S3 smallest-token authoritative/declared scope and shape failures, rich wrappers, body availability, rollback and recovery PASS"
+in end
+\<close>
+
 
 end

@@ -34,6 +34,16 @@ references in datatype fields, aliases and cast targets, remain rejected. A func
 declared HOL type resolves no signature type while retaining these lifetime scope rules and the
 lexical restrictions on Self and self in Rust type paths.
 
+The common header traversal also checks direct outlives relations against complete declared and
+inherited lifetime scopes. Relations erase and create no HOL sort, witness, backend role or borrow
+law. \<open>check_impl_header\<close> gives predicates lexical Self scope before the target is checked;
+it installs no denotation. After the single target check, \<open>check_outlives_head\<close> validates
+the pure head's supported source shape and scoped generic kinds, without lookup, inference,
+reports or use events. The common header traversal has already checked its lifetime references.
+This source-only policy does not consult nominal HOL mapping metadata. Opaque HOL, macro and
+const-expression payloads remain opaque; no expansion, Rust type-name resolution or body binding
+is claimed. The separate erased call/target-argument policy below is unchanged.
+
 An impl target resolves like a signature type, expanding type aliases to their nominal target; its
 canonical registry key and HOL Self type form the context of the impl's members, in which every
 type resolution reads \<open>Self\<close> as that type. Source-sensitive owners additionally retain
@@ -121,6 +131,8 @@ sig
   val check_lifetimes: URust_AST.rust_lifetime list -> URust_AST.rust_type list -> unit
   val check_signature_syntax: Proof.context -> URust_AST.rust_type list -> unit
   val check_function_header: Proof.context -> URust_AST.urust_function -> unit
+  val check_impl_header: Proof.context -> URust_AST.urust_function -> unit
+  val check_outlives_head: Proof.context -> URust_AST.rust_type -> unit
   val with_header_lifetimes: URust_AST.rust_lifetime list -> Proof.context -> Proof.context
   val inherit_header_lifetimes: Proof.context -> Proof.context -> Proof.context
   val rust_type_operands: URust_AST.rust_type -> URust_AST.rust_type list
@@ -2723,7 +2735,7 @@ struct
   (* Check lexical Rust restrictions without interpreting any retained type. The operand walk
      includes function-pointer types, impl Trait and associated-type binding values. Const-expression
      and HOL source escapes retain their own syntax and are not Rust type paths. *)
-  fun check_signature_syntax ctxt rust_types =
+  fun check_signature_syntax_with_self lexical_self ctxt rust_types =
     let
       fun key name pos =
         (case Micro_Rust_Names.reserved_key_segment {bare_self = false} name of
@@ -2741,7 +2753,10 @@ struct
                 (case segments of
                    Rust_Type_Path_Segment ("Self", pos, arguments, _) :: _ =>
                      (case impl_self ctxt of
-                        NONE => self_outside_impl pos
+                        NONE => if lexical_self then
+                          if null (the_default [] arguments) then ()
+                          else error ("urust: Self cannot take generic arguments" ^ Position.here pos)
+                        else self_outside_impl pos
                       | SOME _ =>
                           if null (the_default [] arguments) then ()
                           else error ("urust: Self cannot take generic arguments" ^ Position.here pos))
@@ -2751,6 +2766,8 @@ struct
             in List.app check (rust_type_operands typ) end
         | check typ = List.app check (rust_type_operands typ)
     in List.app check rust_types end
+
+  val check_signature_syntax = check_signature_syntax_with_self false
 
   fun hol_sources (HOL_Type_Source source) = [source]
     | hol_sources typ = maps hol_sources (rust_type_operands typ)
@@ -2816,9 +2833,80 @@ struct
 
   fun inherit_header_lifetimes source = Header_Lifetimes.put (Header_Lifetimes.get source)
 
+  (* Definite type/const positions are shared by ignored headers and erased outlives heads.
+     Bare nominal arguments stay kind-neutral: the HOL registry is not Rust name resolution. *)
+  fun check_type_kinds kind_of (purpose as (type_position, _)) (Path_Type (segments, _)) =
+        let
+          val _ =
+            (case segments of
+               Rust_Type_Path_Segment (name, pos, _, _) :: _ =>
+                 if kind_of name = SOME Const_Parameter then
+                   error ("urust_fn: const parameters cannot be used as " ^ type_position ^
+                     Position.here pos)
+                 else ()
+             | _ => ())
+        in check_generic_kinds kind_of purpose segments end
+    | check_type_kinds kind_of (purpose as (_, const_position)) (Const_Array_Type (element, length, _)) =
+        (check_type_kinds kind_of purpose element;
+         case length of
+           Path_Type ([Rust_Type_Path_Segment (name, pos, NONE, _)], _) =>
+             if kind_of name = SOME Type_Parameter then
+               error ("urust_fn: type parameters cannot be used as const " ^ const_position ^
+                 Position.here pos)
+             else ()
+         | _ => ())
+    | check_type_kinds kind_of purpose typ =
+        List.app (check_type_kinds kind_of purpose) (rust_type_operands typ)
+  and check_generic_kinds kind_of purpose segments =
+        let
+          fun argument (Rust_Associated_Type_Argument (_, _, typ)) = check_type_kinds kind_of purpose typ
+            | argument (Rust_Type_Argument (Path_Type (nested, _))) = check_generic_kinds kind_of purpose nested
+            | argument (Rust_Type_Argument typ) = check_type_kinds kind_of purpose typ
+            | argument _ = ()
+          fun segment (Rust_Type_Path_Segment (_, _, arguments, _)) =
+            List.app argument (the_default [] arguments)
+        in List.app segment segments end
+
+  fun scope_parameter_kind ctxt name =
+    Option.map #kind (find_first (fn ({rust, ...}: generic_parameter) => rust = name)
+      (scope_parameters ctxt))
+
+  (* No type/source resolution, reports, observers or inference belong to this syntax-only
+     context. Opaque model/macro/const payloads cannot establish Rust expansion or body bindings. *)
+  fun check_outlives_head ctxt head =
+    let
+      fun unsupported description pos = error
+        ("urust_fn: " ^ description ^ " is not supported in authoritative outlives heads" ^
+          Position.here pos)
+      fun argument (Rust_Type_Argument typ) = visit typ
+        | argument (Rust_Associated_Type_Argument (_, pos, _)) =
+            unsupported "associated type bindings" pos
+        | argument _ = ()
+      and visit (Path_Type (segments, _)) =
+            let
+              val _ = List.app (fn Rust_Type_Path_Segment (name, pos, _, _) =>
+                if name = "_" then unsupported "Rust inference holes" pos else ()) segments
+              val _ = (case segments of Rust_Type_Path_Segment (name, pos, arguments, _) :: rest =>
+                  if name = "Self" orelse is_some (scope_parameter_kind ctxt name) then
+                    (if null rest then () else unsupported "associated paths on scoped parameters" pos;
+                     if null (the_default [] arguments) then ()
+                     else error ("urust: generic parameter " ^ name ^
+                       " takes no generic arguments" ^ Position.here pos))
+                  else ()
+                | [] => ())
+            in List.app (fn Rust_Type_Path_Segment (_, _, arguments, _) =>
+              List.app argument (the_default [] arguments)) segments end
+        | visit (Impl_Trait_Type (_, layout)) =
+            unsupported "impl Trait" (source_span layout)
+        | visit typ = List.app visit (rust_type_operands typ)
+      val _ = check_signature_syntax ctxt [head]
+      val _ = check_type_kinds (scope_parameter_kind ctxt) ("type where heads", "where operands") head
+    in visit head end
+
   (* Header validation extends the immutable inherited lifetime context. Bound-local binders
-     still have their own isolated environment and do not escape. *)
-  fun check_function_header ctxt function =
+     still have their own isolated environment and do not escape. Impl predicate Self has
+     lexical scope before the single target resolution; no checked Self is manufactured. *)
+  fun check_header impl_header ctxt function =
     let
       fun declare (lifetime as Rust_Lifetime (name, pos)) scope =
         (case Symtab.lookup (Header_Lifetimes.get ctxt) name of
@@ -2828,40 +2916,11 @@ struct
       val scope = fold declare (function_lifetime_parameters function) (Header_Lifetimes.get ctxt)
       val descriptors = function_type_parameters function
       fun local_kind name =
-        get_first (fn Generic_Parameter (rust, _, kind) =>
-          if rust = name then SOME kind else NONE) descriptors
-      (* Definite type positions retain local generic kinds even when HOL denotation is ignored.
-         Bare path generic arguments remain neutral without source-arity selection. *)
-      fun type_kind (purpose as (type_position, _)) (Path_Type (segments, _)) =
-            let
-              val _ =
-                (case segments of
-                   Rust_Type_Path_Segment (name, pos, _, _) :: _ =>
-                     if local_kind name = SOME Const_Parameter then
-                       error ("urust_fn: const parameters cannot be used as " ^ type_position ^
-                         Position.here pos)
-                     else ()
-                 | _ => ())
-            in generic_kinds purpose segments end
-        | type_kind (purpose as (_, const_position)) (Const_Array_Type (element, length, _)) =
-            (type_kind purpose element;
-             case length of
-               Path_Type ([Rust_Type_Path_Segment (name, pos, NONE, _)], _) =>
-                 if local_kind name = SOME Type_Parameter then
-                   error ("urust_fn: type parameters cannot be used as const " ^ const_position ^
-                     Position.here pos)
-                 else ()
-             | _ => ())
-        | type_kind purpose typ = List.app (type_kind purpose) (rust_type_operands typ)
-      and generic_kinds purpose segments =
-            let
-              fun argument (Rust_Associated_Type_Argument (_, _, typ)) = type_kind purpose typ
-                | argument (Rust_Type_Argument (Path_Type (nested, _))) = generic_kinds purpose nested
-                | argument (Rust_Type_Argument typ) = type_kind purpose typ
-                | argument _ = ()
-              fun segment (Rust_Type_Path_Segment (_, _, arguments, _)) =
-                List.app argument (the_default [] arguments)
-            in List.app segment segments end
+        (case get_first (fn Generic_Parameter (rust, _, kind) =>
+          if rust = name then SOME kind else NONE) descriptors of
+           SOME kind => SOME kind | NONE => scope_parameter_kind ctxt name)
+      val type_kind = check_type_kinds local_kind
+      val generic_kinds = check_generic_kinds local_kind
       fun use outlives scope (Rust_Lifetime (name, pos)) =
         if outlives andalso name = "'_" then
           error ("urust_fn: placeholder lifetime " ^ quote name ^ " is not allowed in bounds" ^
@@ -2906,7 +2965,9 @@ struct
                     List.app argument (the_default [] arguments)
                 in List.app segment segments end
             | visit context typ = List.app (visit context) (rust_type_operands typ)
-          val _ = if check_syntax then check_signature_syntax ctxt [rust_type] else ()
+          val _ = if check_syntax then
+            check_signature_syntax_with_self (impl_header andalso is_some strict) ctxt [rust_type]
+            else ()
         in visit strict rust_type end
       (* Callable elision uses only source-visible input lifetime occurrences. Function pointers
          introduce their own binder boundary; external nominal/alias lifetime inference is not
@@ -2996,6 +3057,9 @@ struct
       List.app formal (function_parameters function);
       Option.app (typ false NONE scope) (function_return_type function)
     end
+
+  val check_function_header = check_header false
+  val check_impl_header = check_header true
 
   datatype channel_source =
       Authored_Channel of Input.source

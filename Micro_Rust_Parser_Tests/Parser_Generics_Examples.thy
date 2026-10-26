@@ -1136,4 +1136,84 @@ urust_fn declared_body_const_plain
 lemma declared_body_const_twin: \<open> declared_body_const = declared_body_const_plain \<close>
   unfolding declared_body_const_def declared_body_const_plain_def by (rule refl)
 
+
+section\<open> Authoritative outlives erasure \<close>
+
+text\<open>
+Outlives are checked for source scope and then erased. Compound and opaque predicate heads
+need no HOL type denotation; opaque payloads do not establish Rust expansion or body bindings.
+\<close>
+
+urust_fn [pp_test, verbosity = 0] outlives_mixed \<open>
+  fn OutlivesMixed<'a, 'b: 'a, T: Scale + 'b>(value: T) -> T
+  where 'a: 'b + 'a + 'b, T: 'a + Scale + 'a + 'static, T: 'b { value }
+\<close>
+urust_fn [pp_test, verbosity = 0] outlives_mixed_plain \<open>
+  fn OutlivesMixedPlain<T: Scale>(value: T) -> T { value }
+\<close>
+lemma outlives_mixed_erased: \<open> outlives_mixed = outlives_mixed_plain \<close>
+  unfolding outlives_mixed_def outlives_mixed_plain_def by (rule refl)
+
+urust_fn [pp_test, verbosity = 0] outlives_source_only \<open>
+  fn OutlivesSourceOnly<'a, T, const N: usize>(value: u8) -> u8
+  where ([&'a T; N], *const T, fn(&u8) -> &u8): 'a + 'static,
+    foreign::Wrapper<'a, &'a mut T, N, { 1 + 2 }>: 'a,
+    Array<u8, u8, u8>: 'a, &'static Unknown: 'static, 'static: 'a,
+    $Unexpanded: 'a, \<tau>\<open>_'unresolved_model\<close>: 'a
+  { value }
+\<close>
+urust_fn [pp_test, verbosity = 0] outlives_source_only_plain \<open>
+  fn OutlivesSourceOnlyPlain<T, const N: usize>(value: u8) -> u8 { value }
+\<close>
+lemma outlives_source_only_erased: \<open> outlives_source_only = outlives_source_only_plain \<close>
+  unfolding outlives_source_only_def outlives_source_only_plain_def by (rule refl)
+
+urust_fn [pp_test, verbosity = 0] outlives_declared
+  :: \<open> 'payload \<Rightarrow> ('state, 'payload, 'abort, 'input, 'output) function_body \<close>
+  \<open>
+    fn OutlivesDeclared<'a: 'b, 'b, T: 'a, const N: bool>(value: Unknown) -> Unknown
+    where T: 'static, (_, T): 'a, Unknown<Item = T>: 'b { value }
+  \<close>
+urust_fn [pp_test, verbosity = 0] outlives_declared_plain
+  :: \<open> 'payload \<Rightarrow> ('state, 'payload, 'abort, 'input, 'output) function_body \<close>
+  \<open> fn OutlivesDeclaredPlain<T, const N: bool>(value: Unknown) -> Unknown { value } \<close>
+lemma outlives_declared_erased: \<open> outlives_declared = outlives_declared_plain \<close>
+  unfolding outlives_declared_def outlives_declared_plain_def by (rule refl)
+
+locale outlives_function_locale = fixes outlives_function_seed :: 'ambient
+begin
+urust_fn [pp_test, verbosity = 0] outlives_function \<open>
+  fn OutlivesFunction<'a: 'b, 'b: 'a, T: 'b>(value: T, ambient: \<tau>\<open>'ambient\<close>) -> T
+  where T: 'a { let spare = outlives_function_seed; value }
+\<close>
+urust_fn [pp_test, verbosity = 0] outlives_function_plain \<open>
+  fn OutlivesFunctionPlain<T>(value: T, ambient: \<tau>\<open>'ambient\<close>) -> T
+  { let spare = outlives_function_seed; value }
+\<close>
+lemma outlives_function_locale_erased:
+  \<open> outlives_function = outlives_function_plain \<close>
+  unfolding outlives_function_def outlives_function_plain_def by (rule refl)
+end
+interpretation outlives_function_nat: outlives_function_locale "0 :: nat" .
+interpretation outlives_function_bool: outlives_function_locale False .
+
+urust \<open>
+  fn OutlivesFunctionNat(value: u8) -> u8 {
+    OutlivesFunction::<u8>(value, \<epsilon>\<open>literal (0 :: nat)\<close>)
+  }
+  fn OutlivesFunctionNatTwin(value: u8) -> u8 {
+    \<epsilon>\<open>outlives_function_nat.outlives_function\<close>(value, \<epsilon>\<open>literal (0 :: nat)\<close>)
+  }
+  fn OutlivesFunctionBool(value: u8) -> u8 { OutlivesFunction::<u8>(value, false) }
+  fn OutlivesFunctionBoolTwin(value: u8) -> u8 {
+    \<epsilon>\<open>outlives_function_bool.outlives_function\<close>(value, false)
+  }
+\<close>
+lemma outlives_function_nat_twin:
+  \<open> outlives_function_nat = outlives_function_nat_twin \<close>
+  unfolding outlives_function_nat_def outlives_function_nat_twin_def by (rule refl)
+lemma outlives_function_bool_twin:
+  \<open> outlives_function_bool = outlives_function_bool_twin \<close>
+  unfolding outlives_function_bool_def outlives_function_bool_twin_def by (rule refl)
+
 end

@@ -3262,7 +3262,6 @@ local
      ("callable", "F: FnOnce(u8) -> u8", "", "Fn trait bounds are not supported"),
      ("higher-ranked", "F: for<'a> Fn(&'a u8)", "", "higher-ranked trait bounds are not supported"),
      ("conditional-const", "T: [const] Marker", "", "conditional-const trait bounds are not supported"),
-     ("outlives", "'a, T: 'a", "", "lifetime bounds are not supported"),
      ("const-type", "const N: bool", "", "const parameters require usize"),
      ("where-head", "T", "where (T, u8): Marker ", "where clauses may only bound")]
   val _ = List.app (fn (label, parameters, predicate, expected) =>
@@ -3455,7 +3454,6 @@ local
      ("member-shadows-inherited-hol", "impl<T> GenericPocket<T> {\n" ^
        annotation ("hol_type_parameters = [\"U\" \<rightarrow> " ^ cartouche "'t" ^ "]") ^
        "\n fn rejected<U>(value: U) -> U { value } }", "redeclares an impl HOL parameter"),
-     ("impl-outlives-denotation", "impl<'a, 'b: 'a, T> GenericPocket<T> {}", "lifetime bounds are not supported"),
      ("member-concrete-predicate", "impl<T> GenericPocket<T> { fn rejected(self) where u8: Unmapped {} }", "where clauses may only bound"),
      ("body-only-inherited-type", "impl<T> ImplDemandBox<T> { fn body_only(value: u8) -> u8 { let spare = \<epsilon>\<open>literal (undefined :: 't)\<close>; value } }", "signature"),
      ("body-only-const", "impl<const N: usize> GenericBuffer<u8, N> { fn rejected() -> usize { N } }", "signature"),
@@ -4017,6 +4015,248 @@ local
   val _ = List.app (fn (root, nested) => check root nested)
     [("ImplDemandBox", false), ("ImplDemandBox", true),
      ("ImplLocalePair", false), ("ImplLocalePair", true)]
+in end
+\<close>
+
+
+section\<open> Outlives impl scope, sparse schemes and native navigation \<close>
+
+ML_val\<open>
+local
+  open Impl_Declaration_Test
+  structure M = URust_Type_Mappings
+  structure N = Micro_Rust_Names
+  val ctxt = \<^context>
+  val thy = \<^theory>
+  val existing_capture = capture
+  fun capture interactive label thy text =
+    if is_some (Position.id_of (Position.thread_data ()))
+    then existing_capture interactive label thy text
+    else Position.setmp_thread_data (Position.make0 1 1 0 "" label label)
+      (fn () => existing_capture interactive label thy text) ()
+  fun source key = the_single (N.lookups ctxt N.NFunction key)
+  fun scheme key = the (M.scoped_generic_scheme_for_source ctxt (#serial (source key)))
+  val carry = scheme "OutlivesPocket::carry"
+  val owner = the (M.scoped_owner carry)
+  val _ = require "outlives preserve separate ordered owner and local member schemes"
+    (map #rust (#parameters owner) = ["T"] andalso
+      map #rust (M.scoped_parameters carry) = ["U"] andalso
+      forall (null o #bounds) (#parameters owner @ M.scoped_parameters carry))
+  val ordered = the_single (#parameters (the (M.scoped_owner (scheme "OutlivesMixedOwner::ordered"))))
+  val sibling_parameter = the_single (#parameters (the (M.scoped_owner (scheme "OutlivesMixedOwner::sibling"))))
+  val _ = require "mixed inherited trait/outlives refinement strengthens only the selected member"
+    (#sort ordered = \<^sort>\<open>ord\<close> andalso #bounds ordered = ["impl_scope::Ordered"] andalso
+      #sort sibling_parameter = \<^sort>\<open>type\<close> andalso null (#bounds sibling_parameter))
+  val erased = the (M.scoped_owner (scheme "OutlivesErasedBox::irrelevant"))
+  val forwarded = the (M.scoped_owner (scheme "OutlivesErasedBox::source_forward"))
+  val _ = require "erased heads add no member witness, role, slot, or source-use bit"
+    (map #hol (#parameters erased) = [NONE] andalso
+      map #source_used (#parameters erased) = [SOME false] andalso
+      map #hol (#parameters forwarded) = [NONE] andalso
+      #parameters erased = #parameters (the (M.scoped_owner (scheme "ImplDemandBox::irrelevant"))) andalso
+      #parameters forwarded = #parameters (the (M.scoped_owner (scheme "ImplDemandBox::source_forward"))) andalso
+      null (M.scoped_parameters (scheme "OutlivesErasedBox::source_forward")))
+  val _ = List.app (fn (actual, plain) => require "outlives impl complete native constant type twin"
+    (Sign.the_const_type thy actual = Sign.the_const_type thy plain))
+    [(\<^const_name>\<open>outlives_pocket_carry\<close>, \<^const_name>\<open>outlives_pocket_carry_plain\<close>),
+     (\<^const_name>\<open>outlives_erased_box_source_forward\<close>,
+      \<^const_name>\<open>outlives_erased_forward_plain\<close>)]
+  fun selection index =
+    let
+      val inherited = TVar (("outlives_owner", index), \<^sort>\<open>type\<close>)
+      val local_parameter = TVar (("outlives_member", index + 1), \<^sort>\<open>type\<close>)
+      val address = TVar (("outlives_address", index + 2), \<^sort>\<open>type\<close>)
+      val global = TVar (("outlives_global", index + 3), \<^sort>\<open>type\<close>)
+      val [state, abort, input, output] = map (fn offset =>
+        TVar (("outlives_channel", index + offset), \<^sort>\<open>type\<close>)) [4, 5, 6, 7]
+      val owner = Type (\<^type_name>\<open>outlives_pocket\<close>, [inherited])
+      fun reference target = Term.typ_subst_atomic
+        [(\<^typ>\<open>'address\<close>, address), (\<^typ>\<open>'global\<close>, global),
+         (\<^typ>\<open>'target\<close>, target)]
+        \<^typ>\<open>('address, 'global, 'target) Global_Store.ref\<close>
+      val occurrence = reference owner --> reference local_parameter -->
+        Type (\<^type_name>\<open>function_body\<close>, [state, reference local_parameter, abort, input, output])
+      val target: N.target_selection = {self_type = owner,
+        source = SOME (N.Source_Node (N.Mapped_Source "OutlivesPocket",
+          [N.Source_HOL (N.Type_Source, inherited)])), source_identity = NONE,
+        evidence = [([0], inherited)], inputs = [], pos = Position.none}
+      val arguments: Micro_Rust_Dispatch.scoped_sparse_arguments =
+        {instances = [{source = #serial (source "OutlivesPocket::carry"),
+          target = SOME target, arguments = SOME [(SOME local_parameter, Position.none)], identities = [""]}],
+         pending = NONE, pos = Position.none}
+      val [(candidate, _)] = Micro_Rust_Dispatch.filtered_candidates_with_scoped_generic_effects ctxt []
+        N.NFunction "OutlivesPocket::carry" occurrence NONE NONE NONE (SOME arguments)
+      val backend = case Term_Position.strip_positions (#term candidate) of
+        Const ("_type_constraint_", _) $ term => term | term => term
+      val expected = Const (\<^const_name>\<open>outlives_pocket_carry\<close>, occurrence)
+      val _ = require "outlives selection shares exact inherited/local/reference and outer channel variables"
+        (backend aconv expected)
+    in Term.add_tvars backend [] end
+  val first = selection 9017
+  val second = selection 12017
+  val _ = require "successive outlives owner/member selections freshen independently"
+    (null (inter (op =) first second))
+  val transported = N.lookups ctxt N.NFunction "OutlivesLocalePair::replace"
+  val _ = require "outlives locale transports retain one source serial and both native ambient types"
+    (length transported = 2 andalso length (distinct (op =) (map #serial transported)) = 1 andalso
+      length (distinct (op =) (map (fastype_of o #hol_term) transported)) = 2 andalso
+      forall (fn backend => is_some (M.scoped_generic_scheme_for_source ctxt (#serial backend)))
+        transported)
+
+  val prefix = "/* " ^ Symbol.open_ ^ " navigation " ^ Symbol.close ^ " */ "
+  val raw = prefix ^ "struct OutlivesNavigationOwner<T> { value: T }\n" ^
+    "impl<'a: 'b, 'b: 'a, T: 'b> OutlivesNavigationOwner<T> " ^
+    "where Self: 'static, &'a Self: 'b {\n" ^
+    "fn first<'c: 'a, U: 'c>(&'a mut self, value: &'c mut U) -> &'c mut U where T: 'c { value }\n" ^
+    "fn second<'c: 'b>() where 'a: 'c {}\n}"
+  val text = quiet (chunk raw)
+  val {result, reports, ...} = capture true "outlives-impl-navigation" thy text
+  val completed = result_context result
+  fun definitions token occurrence kind =
+    entity_ids_at (range_of text token occurrence) kind true reports
+  fun references token occurrence kind =
+    entity_ids_at (range_of text token occurrence) kind false reports
+  val a = the_single (definitions "'a" 0 "urust_lifetime")
+  val b = the_single (definitions "'b" 1 "urust_lifetime")
+  val c = the_single (definitions "'c" 0 "urust_lifetime")
+  val sibling = the_single (definitions "'c" 5 "urust_lifetime")
+  val _ = require "impl and member lifetime declarations have distinct native identities"
+    (length (distinct (op =) [a, b, c, sibling]) = 4)
+  val _ = List.app (fn occurrence => require "impl lifetime references preserve the original declaration ID"
+    (references "'a" occurrence "urust_lifetime" = [a])) [1, 2, 3, 4, 5]
+  val _ = List.app (fn occurrence => require "forward/cyclic impl bounds use the exact later declaration"
+    (references "'b" occurrence "urust_lifetime" = [b])) [0, 2, 3, 4]
+  val _ = List.app (fn occurrence => require "member local bounds and signature use the exact local ID"
+    (references "'c" occurrence "urust_lifetime" = [c])) [1, 2, 3, 4]
+  val _ = require "sibling local bound uses its own fresh declaration"
+    (references "'c" 6 "urust_lifetime" = [sibling])
+  val target_id = definitions "OutlivesNavigationOwner" 0 "micro_rust_type_mapping"
+  val _ = require "checked Self predicate navigation uses the single actual target mapping"
+    (length target_id = 1 andalso
+      references "Self" 0 "micro_rust_type_mapping" = target_id andalso
+      references "Self" 1 "micro_rust_type_mapping" = target_id)
+  val _ = List.app (fn occurrence => require "erased Self has lexical keyword markup without HOL typing"
+    (exists (fn (role, _) => role = Markup.keyword3N)
+      (texts_at (range_of text "Self" occurrence) reports) andalso
+      not (exists (fn (role, _) => role = Markup.typingN)
+        (texts_at (range_of text "Self" occurrence) reports)))) [0, 1]
+  val _ = require "impl outlives closes all generic/Self state"
+    (is_none (M.generic_scope completed) andalso is_none (M.impl_self completed) andalso
+      is_none (M.generic_scope_identities completed))
+  val _ = writeln "S3 impl/member masks, exact channels, locale source identity and checked Self/lifetime native navigation PASS"
+in end
+\<close>
+
+ML_val\<open>
+local
+  open Impl_Declaration_Test
+  structure M = URust_Type_Mappings
+  val thy = \<^theory>
+  val ctxt = \<^context>
+  val existing_capture = capture
+  fun capture interactive label thy text =
+    if is_some (Position.id_of (Position.thread_data ()))
+    then existing_capture interactive label thy text
+    else Position.setmp_thread_data (Position.make0 1 1 0 "" label label)
+      (fn () => existing_capture interactive label thy text) ()
+  val before_state = registry_snapshot ctxt
+  val callbacks = (!Private_Output.writeln_fn, !Private_Output.writeln_urgent_fn,
+    !Private_Output.warning_fn, !Private_Output.report_fn)
+  val rows =
+    [("impl-unknown-bound", "undeclared lifetime", "impl<'a: 'missing, T> GenericPocket<T> {}", "'missing", 0),
+     ("member-unknown-bound", "undeclared lifetime",
+      "impl<'a, T> GenericPocket<T> { fn early() {} fn late<'b: 'missing>() {} }", "'missing", 0),
+     ("member-local-leak", "undeclared lifetime",
+      "impl<'a, T> GenericPocket<T> { fn early<'b: 'a>() {} fn late() where T: 'b {} }", "'b", 1),
+     ("member-placeholder", "placeholder lifetime",
+      "impl<'a, T> GenericPocket<T> { fn early() {} fn late() where T: '_ {} }", "'_", 0),
+     ("member-const-head", "const parameters cannot be used as type where heads",
+      "impl<const N: usize> GenericBuffer<u8, N> { fn early() {} fn late() where N: 'static {} }", "N", 2),
+     ("member-type-length", "type parameters cannot be used as const where operands",
+      "impl<T> GenericPocket<T> { fn early() {} fn late() where [u8; T]: 'static {} }", "T", 2),
+     ("impl-self-projection", "associated paths on scoped parameters",
+      "impl<T> GenericPocket<T> where Self::Item: 'static {}", "Self", 0),
+     ("free-self", "Self is only available inside an impl",
+      "fn OutlivesFree(value: u8) -> u8 where Self: 'static { value }", "Self", 0),
+     ("impl-target-self", "Self is only available inside an impl", "impl Self {}", "Self", 0),
+     ("member-body-only", "does not occur in the signature",
+      "impl<'a, T> OutlivesErasedBox<T> { fn late(value: u8) -> u8 where T: 'a { let spare = \<llangle>undefined :: 't\<rrangle>; value } }", "T", 0)]
+  val _ = List.app (fn (label, expected, raw, token, occurrence) =>
+    let
+      val text = quiet (chunk raw)
+      val {result, output, reports, ...} = capture true label thy text
+      val diagnostic = (case result of Exn.Res _ => error (label ^ ": unexpectedly accepted")
+        | Exn.Exn exn => if Exn.is_interrupt exn then Exn.reraise exn else Runtime.exn_message exn)
+      val _ = require (label ^ ": original positioned error: " ^ diagnostic)
+        (String.isSubstring expected diagnostic andalso
+          position_range (hd (message_positions diagnostic)) = range_of text token occurrence)
+      val _ = require (label ^ ": report transaction leaked a successful member or declaration")
+        (null output andalso not (exists (fn (name, props) => name = Markup.entityN andalso
+          is_some (Properties.get props Markup.defN) andalso
+          Properties.get props Markup.kindN <> SOME "urust_var")
+          (fold Parser_Test_Reports.collect_markup reports [])))
+      val (w, u, n, r) = callbacks
+      val _ = require (label ^ ": failed impl changed callback objects or the caller registry")
+        (registry_snapshot ctxt = before_state andalso PolyML.pointerEq (w, !Private_Output.writeln_fn) andalso
+          PolyML.pointerEq (u, !Private_Output.writeln_urgent_fn) andalso
+          PolyML.pointerEq (n, !Private_Output.warning_fn) andalso
+          PolyML.pointerEq (r, !Private_Output.report_fn))
+      val recovered = context_after (label ^ "-recovery") thy (quiet (chunk
+        "impl<'a, 'b: 'a, T: 'b> GenericPocket<T> { fn outlives_recovery(value: u8) -> u8 where T: 'static { value } }"))
+      val _ = require "failed outlives impl recovers with an isolated checked member"
+        (not (null (entries recovered "GenericPocket::outlives_recovery")) andalso
+          is_none (M.generic_scope recovered) andalso is_none (M.impl_self recovered))
+    in () end) rows
+  val _ = writeln "S3 impl-header Self boundaries, inherited kinds, member isolation/body availability, atomic reports and recovery PASS"
+in end
+\<close>
+
+section\<open> Bounded locale schemes in both theory merge orders \<close>
+
+ML_val\<open>
+local
+  structure N = Micro_Rust_Names
+  structure M = URust_Type_Mappings
+  fun require label condition = if condition then () else error ("outlives merge: " ^ label)
+  fun cartouche text = Symbol.open_ ^ text ^ Symbol.close
+  fun hol text = "\<tau>" ^ cartouche text
+  fun chunk text = "urust [verbosity = 0] " ^ cartouche text
+  fun run thy label text = Unsynchronized.setmp Private_Output.report_fn (K ()) (fn () =>
+    fold (Toplevel.command_exception false)
+      (Outer_Syntax.parse_text thy (K thy) (Position.make0 1 1 0 "" label label) text)
+      (Toplevel.make_state (SOME thy))) ()
+  fun branch name parents text = Theory.begin_theory (name, Position.none) parents
+    |> (fn thy => Toplevel.theory_of (run thy name text)) |> Theory.end_theory
+  val parent = branch "Outlives_Merge_Parent" [\<^theory>]
+    ("urust_type \"OutlivesMergeOwner<'payload, 'ambient>\" = " ^ cartouche " 'payload * 'ambient " ^
+      "\nlocale outlives_merge_locale = fixes seed :: 'ambient\nbegin\n" ^
+      chunk ("impl<'a, T: 'a> OutlivesMergeOwner<T, " ^ hol "'ambient" ^
+        "> where Self: 'static { fn joint<'b: 'a, U: 'b>(self, value: U) -> U where T: 'b { let spare = seed; value } }") ^
+      "\nend")
+  val natural = branch "Outlives_Merge_Nat" [parent]
+    ("interpretation outlives_merge_nat: outlives_merge_locale " ^ cartouche "0 :: nat" ^ " .")
+  val boolean = branch "Outlives_Merge_Bool" [parent]
+    "interpretation outlives_merge_bool: outlives_merge_locale False ."
+  fun check (name, parents) =
+    let val thy = Theory.begin_theory (name, Position.none) parents
+      val ctxt = Proof_Context.init_global thy
+      val entries = N.lookups ctxt N.NFunction "OutlivesMergeOwner::joint"
+      val _ = require "both native ambient types retain one declaration in either merge order"
+        (length entries = 2 andalso length (distinct (op =) (map #serial entries)) = 1 andalso
+          length (distinct (op =) (map (fastype_of o #hol_term) entries)) = 2)
+      val result = run thy name (chunk
+        ("fn OutlivesMergeNat(owner: OutlivesMergeOwner<u8, " ^ hol "nat" ^ ">, value: bool) -> bool { " ^
+          "OutlivesMergeOwner::<u8, " ^ hol "nat" ^ ">::joint::<bool>(owner, value) }\n" ^
+         "fn OutlivesMergeBool(owner: OutlivesMergeOwner<u8, bool>, value: u8) -> u8 { owner.joint::<u8>(value) }"))
+      val _ = require "selected bounded locale calls remain available after merge"
+        (length (N.lookups (Toplevel.context_of result) N.NFunction "OutlivesMergeNat") = 1 andalso
+          length (N.lookups (Toplevel.context_of result) N.NFunction "OutlivesMergeBool") = 1 andalso
+          is_none (M.generic_scope (Toplevel.context_of result)))
+    in map #serial entries |> sort int_ord end
+  val forward = check ("Outlives_Merge_Forward", [natural, boolean])
+  val reverse = check ("Outlives_Merge_Reverse", [boolean, natural])
+  val _ = require "canonical declaration identities survive both bounded locale merge orders" (forward = reverse)
+  val _ = writeln "S3 bounded locale/morphism schemes and native selection in both theory merge orders PASS"
 in end
 \<close>
 

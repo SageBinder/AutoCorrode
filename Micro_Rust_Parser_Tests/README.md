@@ -108,6 +108,10 @@ Impl `hol_type_parameters` addresses impl declarations, while member overrides a
 Members inherit impl declarations and supported inline/`where` trait bounds, extend the scope
 separately and may refine inherited bounds for that member alone. Type/const impl declarations
 must constrain the canonical target; lifetime declarations keep their separate rule.
+Plain type/lifetime outlives bounds are checked against the combined impl/member lifetime scope
+and then erased. Forward, repeated, reflexive and cyclic relations are accepted; `'static` is a
+use or bound, while reserved lifetime declarations and `'_` bounds are rejected. Bounds add no
+HOL sorts, parameters, backend roles or borrow semantics.
 Every member registers
 its associated path `T::f` as an associated-function owner of the impl's Self type; a first
 `self` receiver adds the method-only entry `f`. `impl` is a reserved word, as in Rust: a
@@ -122,6 +126,22 @@ positions, selected-only native effects, locale transport and both theory-merge 
 Source-insensitive concrete selection retains native HOL equivalence. Generic selection
 requires canonical structural agreement; equivalent native representations still overlap
 conservatively for ownership, so representation differences cannot admit duplicate impl members.
+
+Pure type-to-lifetime predicates additionally accept source-only compound and nominal heads,
+including explicit references, pointers, arrays and function pointers. Their structural, scoped
+generic-kind and lifetime checks need no HOL denotation or nominal mapping metadata. Unmapped
+qualified paths and retained opaque HOL/type-macro/const-expression payloads are allowed as source
+syntax; opaque payloads receive no expansion, resolution or synthesized Rust navigation. This
+does not establish Rust type-name validity or make a body witness available. Known generic/Self
+projections, associated-type binding arguments, `impl Trait` and visible `_` holes remain outside
+the authoritative subset. A predicate containing an ordinary trait keeps the existing visible
+generic-head restriction and mapped-trait sort lookup. Rich higher-ranked, conditional-const,
+generic-trait and callable bounds remain unsupported authoritatively.
+
+The Function, Generics and Impl pairs contain outlives kernel/type twins, native declaration/use
+identities and exact source ranges, unchanged sparse witness masks and zero-event pure-head checks,
+declared-HOL scope checks, body-availability failures, transactional recovery and locale/merge
+controls. The showcase includes a bounded generic impl with a checked backend call twin.
 
 A `use` member is a complete Rust use item and takes no options, so an annotation before it is
 rejected at the annotation. The imports of one chunk form one batch, validated (duplicates and

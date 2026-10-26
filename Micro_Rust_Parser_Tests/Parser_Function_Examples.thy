@@ -2162,4 +2162,18 @@ lemma function_combined_twin:
   \<open> function_combined_native = function_combined_escape \<close>
   unfolding function_combined_native_def function_combined_escape_def by (rule refl)
 
+
+section\<open> Lifetime relations preserve reference channels \<close>
+
+urust_fn [register_notation = false] function_outlives_carry \<open>
+  fn FunctionOutlivesCarry<'a: 'b, 'b: 'a>(value: &'a mut u8) -> &'a mut u8
+  where 'a: 'a + 'b + 'static, 'b: 'a { value }
+\<close>
+urust_fn [register_notation = false] function_outlives_carry_plain \<open>
+  fn FunctionOutlivesCarryPlain<'a>(value: &'a mut u8) -> &'a mut u8 { value }
+\<close>
+lemma function_outlives_carry_erased:
+  \<open> function_outlives_carry = function_outlives_carry_plain \<close>
+  unfolding function_outlives_carry_def function_outlives_carry_plain_def by (rule refl)
+
 end

@@ -4960,8 +4960,6 @@ ML_val\<open>
         "fn BadReference<'static>(value: u8) -> u8 { 0 }"),
        ("reference-declared-anonymous", "cannot be declared as a lifetime parameter",
         "fn BadReference<'_>(value: u8) -> u8 { 0 }"),
-       ("reference-lifetime-bound", "lifetime bounds are not supported",
-        "fn BadReference<'a, 'b: 'a>(value: &'b mut u8) -> u8 { 0 }"),
        ("reference-lifetime-argument", "undeclared lifetime",
         "fn BadReference(value: RefOption<'a>) -> u8 { 0 }"),
        ("reference-lifetime-without-reference", "syntax error",
@@ -6043,6 +6041,80 @@ local
     "fn AfterBinder(one: &'c mut u8) {}" 601
   val _ = reject "binder cannot shadow inherited declaration" "shadows an enclosing lifetime"
     "fn ShadowBinder<T: for<'a> Unknown<&'a mut u8>>() {}" 701
+in end
+\<close>
+
+
+section\<open> Outlives relations reuse inherited lifetime identities \<close>
+
+ML_val\<open>
+local
+  structure M = URust_Type_Mappings
+  open URust_AST
+  fun require label condition = if condition then () else error ("outlives lifetime regression: " ^ label)
+  val ctxt = Context_Position.set_visible true \<^context>
+  fun pos offset = Position.make0 1 offset 0 "" "s3-outlives-lifetimes" "s3-outlives-lifetimes"
+  fun collect (XML.Text _) acc = acc
+    | collect (XML.Elem (markup, body)) acc = fold collect body (markup :: acc)
+  fun capture action =
+    let val chunks = Unsynchronized.ref ([]: string list)
+      val result = Parser_Test_Report_Lock.run (fn () =>
+        Unsynchronized.setmp Private_Output.report_fn
+          (fn output => chunks := output @ !chunks)
+          (fn () => Print_Mode.with_modes [Print_Mode.PIDE] action ()) ())
+    in (result, fold collect (maps YXML.parse_body (!chunks)) []) end
+  fun parse text offset = URust_Parser.parse_function_source ctxt
+    (Parser_Lex_Util.positioned_content_source text (pos offset)) |> the
+  fun lifetime_reports reports = reports |> map_filter (fn (name, props) =>
+    if name = Markup.entityN andalso Properties.get props Markup.kindN = SOME "urust_lifetime"
+      then SOME props else NONE)
+  val (parent, reports) = capture (fn () => M.with_header_lifetimes
+    [Rust_Lifetime ("'a", pos 1), Rust_Lifetime ("'b", pos 11)] ctxt)
+  val declarations = lifetime_reports reports
+  fun declaration name = the_single (map_filter (fn props =>
+    if Properties.get props Markup.nameN = SOME name then Properties.get props Markup.defN
+    else NONE) declarations)
+  val member = M.inherit_header_lifetimes parent ctxt
+  val (_, first) = capture (fn () => M.check_function_header member
+    (parse "fn First<'c: 'd, 'd: 'c, T: 'a>(one: &'c mut u8) where 'a: 'b + 'a, 'c: 'b, T: 'd {}" 101))
+  val (_, second) = capture (fn () => M.check_function_header member
+    (parse "fn Second<'c: 'a>() where 'b: 'a {}" 301))
+  val first_reports = lifetime_reports first
+  val second_reports = lifetime_reports second
+  fun definitions reports = map_filter (fn props =>
+    Option.map (pair (the (Properties.get props Markup.nameN)))
+      (Properties.get props Markup.defN)) reports
+  val _ = require "inherited declarations are emitted once and retained through member bounds"
+    (length declarations = 2 andalso length (definitions first_reports) = 2 andalso
+      length (definitions second_reports) = 1 andalso
+      forall (fn name => exists (fn props => Properties.get props Markup.refN = SOME (declaration name))
+        first_reports) ["'a", "'b"])
+  val first_c = the (AList.lookup (op =) (definitions first_reports) "'c")
+  val first_d = the (AList.lookup (op =) (definitions first_reports) "'d")
+  val second_c = the (AList.lookup (op =) (definitions second_reports) "'c")
+  val _ = require "forward/cyclic member bounds navigate to actual local declarations"
+    (exists (fn props => Properties.get props Markup.refN = SOME first_d) first_reports andalso
+      exists (fn props => Properties.get props Markup.refN = SOME first_c) first_reports andalso
+      first_c <> second_c andalso first_d <> second_c)
+  fun reject text expected offset =
+    (case Exn.capture0 (fn () => M.check_function_header member (parse text offset)) () of
+      Exn.Exn exn => if Exn.is_interrupt exn then Exn.reraise exn else
+        require "mis-scoped member bound retains native error"
+          (String.isSubstring expected (Runtime.exn_message exn))
+    | Exn.Res _ => error "mis-scoped member bound was accepted")
+  val _ = reject "fn Sibling() where 'c: 'a {}" "undeclared lifetime" 501
+  val _ = reject "fn Shadow<'a: 'b>() {}" "duplicate lifetime parameter" 601
+  val _ = reject "fn Local<T: for<'z> Unknown<&'z u8>>() where T: 'z {}" "undeclared lifetime" 701
+  val (_, placeholder) = capture (fn () => M.check_function_header ctxt
+    (parse "fn Placeholder(value: &'_ mut u8) -> &'_ mut u8 { value }" 801))
+  val _ = require "reference-use placeholders retain their existing scope behavior"
+    (null (lifetime_reports placeholder))
+  val _ = require "outlives reference erasure preserves every channel and native type variable"
+    (Sign.the_const_type \<^theory> \<^const_name>\<open>function_outlives_carry\<close> =
+      Sign.the_const_type \<^theory> \<^const_name>\<open>function_outlives_carry_plain\<close>)
+  val _ = require "lifetime checks do not publish generic or Self scopes"
+    (is_none (M.generic_scope member) andalso is_none (M.impl_self member))
+  val _ = writeln "S3 inherited/local/forward/cyclic/repeated lifetime IDs, sibling isolation, placeholder compatibility and exact reference channels PASS"
 in end
 \<close>
 

@@ -1597,4 +1597,104 @@ lemma generic_concrete_hol_choice_twin:
   unfolding generic_concrete_hol_choice_def generic_concrete_hol_choice_twin_def
   by (rule refl)
 
+
+section\<open> Outlives on generic impls and members \<close>
+
+text\<open>
+The impl and member lifetime environments are combined only while each header is checked.
+Their relations erase; explicit receivers and ordinary calls retain their complete channels.
+\<close>
+
+urust \<open>
+  struct OutlivesPocket<T> { value: T }
+  impl<'a, 'b: 'a, T: 'b> OutlivesPocket<T>
+  where Self: 'static, &'a Self: 'b {
+    fn carry<'c: 'b, U: 'c>(&'a mut self, value: &'c mut U) -> &'c mut U
+    where T: 'c { value }
+    fn bare(value: u8) -> u8 { value }
+  }
+  \<omega>\<open>register_notation = false\<close>
+  fn OutlivesPocketCarryPlain<'a, 'c, T, U>(owner: &'a mut OutlivesPocket<T>, value: &'c mut U)
+    -> &'c mut U { value }
+  fn OutlivesPocketCall<'a, 'c>(owner: &'a mut OutlivesPocket<u8>, value: &'c mut bool)
+    -> &'c mut bool { OutlivesPocket::<u8>::carry::<bool>(owner, value) }
+  fn OutlivesPocketMethod<'a, 'c>(owner: &'a mut OutlivesPocket<u8>, value: &'c mut bool)
+    -> &'c mut bool { owner.carry::<bool>(value) }
+  fn OutlivesPocketCallPlain<'a, 'c>(owner: &'a mut OutlivesPocket<u8>, value: &'c mut bool)
+    -> &'c mut bool { \<epsilon>\<open>outlives_pocket_carry\<close>(owner, value) }
+\<close>
+lemma outlives_pocket_carry_erased:
+  \<open> outlives_pocket_carry = outlives_pocket_carry_plain \<close>
+  unfolding outlives_pocket_carry_def outlives_pocket_carry_plain_def by (rule refl)
+lemma outlives_pocket_call_erased:
+  \<open> outlives_pocket_call = outlives_pocket_call_plain \<close>
+  unfolding outlives_pocket_call_def outlives_pocket_call_plain_def by (rule refl)
+lemma outlives_pocket_method_erased:
+  \<open> outlives_pocket_method = outlives_pocket_call_plain \<close>
+  unfolding outlives_pocket_method_def outlives_pocket_call_plain_def by (rule refl)
+
+urust \<open>
+  struct OutlivesMixedOwner<T> { value: T }
+  impl<'a, T: 'a> OutlivesMixedOwner<T> {
+    fn ordered(self, value: T) -> T where T: 'a + impl_scope::Ordered + 'static { value }
+    fn sibling(self, value: T) -> T where T: 'a { value }
+  }
+  fn OutlivesMixedOrderedPlain<T: impl_scope::Ordered>(owner: OutlivesMixedOwner<T>, value: T) -> T { value }
+  fn OutlivesMixedSiblingPlain<T>(owner: OutlivesMixedOwner<T>, value: T) -> T { value }
+\<close>
+lemma outlives_mixed_ordered_erased:
+  \<open> outlives_mixed_owner_ordered = outlives_mixed_ordered_plain \<close>
+  unfolding outlives_mixed_owner_ordered_def outlives_mixed_ordered_plain_def by (rule refl)
+lemma outlives_mixed_sibling_erased:
+  \<open> outlives_mixed_owner_sibling = outlives_mixed_sibling_plain \<close>
+  unfolding outlives_mixed_owner_sibling_def outlives_mixed_sibling_plain_def by (rule refl)
+
+urust_type [erase = \<open>'tag\<close>] "OutlivesErasedBox<'tag>" = \<open> unit \<close>
+urust \<open>
+  impl<'a, T: 'a> OutlivesErasedBox<T> where Self: 'static, Unknown<T>: 'a {
+    fn irrelevant(value: u8) -> u8 { value }
+    fn source_forward<'b: 'a>(value: u8) -> u8 where T: 'b {
+      OutlivesErasedBox::<T>::irrelevant(value)
+    }
+  }
+  fn OutlivesErasedForwardPlain(value: u8) -> u8 {
+    \<epsilon>\<open>outlives_erased_box_irrelevant\<close>(value)
+  }
+\<close>
+lemma outlives_erased_forward_erased:
+  \<open> outlives_erased_box_source_forward = outlives_erased_forward_plain \<close>
+  unfolding outlives_erased_box_source_forward_def outlives_erased_forward_plain_def by (rule refl)
+
+urust_type "OutlivesLocalePair<'payload, 'ambient>" = \<open> 'payload * 'ambient \<close>
+locale outlives_impl_locale = fixes outlives_seed :: 'ambient
+begin
+urust \<open>
+  impl<'a, T: 'a> OutlivesLocalePair<T, \<tau>\<open>'ambient\<close>> where Self: 'static {
+    fn replace<'b: 'a, U: 'b>(self, value: U) -> U where T: 'b { value }
+    fn ambient(self) -> \<tau>\<open>'ambient\<close> { outlives_seed }
+  }
+\<close>
+end
+interpretation outlives_nat: outlives_impl_locale "0 :: nat" .
+interpretation outlives_bool: outlives_impl_locale False .
+urust \<open>
+  fn OutlivesLocaleCall(owner: OutlivesLocalePair<u8, \<tau>\<open>nat\<close>>, value: bool) -> bool {
+    OutlivesLocalePair::<u8, \<tau>\<open>nat\<close>>::replace::<bool>(owner, value)
+  }
+  fn OutlivesLocaleCallPlain(owner: OutlivesLocalePair<u8, \<tau>\<open>nat\<close>>, value: bool) -> bool {
+    \<epsilon>\<open>outlives_impl_locale.outlives_locale_pair_replace\<close>(owner, value)
+  }
+  fn OutlivesLocaleAmbient(owner: OutlivesLocalePair<u8, \<tau>\<open>nat\<close>>) -> \<tau>\<open>nat\<close> {
+    OutlivesLocalePair::<u8, \<tau>\<open>nat\<close>>::ambient(owner)
+  }
+  fn OutlivesLocaleAmbientPlain(owner: OutlivesLocalePair<u8, \<tau>\<open>nat\<close>>) -> \<tau>\<open>nat\<close> {
+    \<epsilon>\<open>outlives_nat.outlives_locale_pair_ambient\<close>(owner)
+  }
+\<close>
+lemma outlives_locale_call_erased: \<open> outlives_locale_call = outlives_locale_call_plain \<close>
+  unfolding outlives_locale_call_def outlives_locale_call_plain_def by (rule refl)
+lemma outlives_locale_ambient_erased:
+  \<open> outlives_locale_ambient = outlives_locale_ambient_plain \<close>
+  unfolding outlives_locale_ambient_def outlives_locale_ambient_plain_def by (rule refl)
+
 end
