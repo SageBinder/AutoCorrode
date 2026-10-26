@@ -370,6 +370,7 @@ sig
     Impl_Member of item_annotation option * urust_function * Input.source
   datatype urust_impl =
     Impl_Item of rust_type * impl_member list * source_layout
+    | Generic_Impl of function_generics * urust_impl
   datatype urust_item =
       Datatype_Item of urust_datatype
     | Function_Item_Node of urust_function
@@ -396,6 +397,7 @@ sig
   val function_return_type: urust_function -> rust_type option
   val function_parameter_position: function_parameter -> Position.T
   val receiver_parameter: function_parameter -> (receiver_form * Position.T) option
+  val impl_generics: urust_impl -> function_generics
   val impl_target: urust_impl -> rust_type
   val impl_members: urust_impl -> impl_member list
   val impl_source_layout: urust_impl -> source_layout
@@ -1289,6 +1291,7 @@ struct
     Impl_Member of item_annotation option * urust_function * Input.source
   datatype urust_impl =
     Impl_Item of rust_type * impl_member list * source_layout
+    | Generic_Impl of function_generics * urust_impl
   datatype urust_item =
       Datatype_Item of urust_datatype
     | Function_Item_Node of urust_function
@@ -1379,9 +1382,15 @@ struct
   fun receiver_parameter (Receiver_Parameter (form, self_pos, _)) = SOME (form, self_pos)
     | receiver_parameter (Function_Parameter _) = NONE
 
+  fun impl_generics (Generic_Impl (generics, _)) = generics
+    | impl_generics _ = {parameters = [], where_clause = [],
+        layout = make_source_layout Position.none []}: function_generics
   fun impl_target (Impl_Item (target, _, _)) = target
+    | impl_target (Generic_Impl (_, item)) = impl_target item
   fun impl_members (Impl_Item (_, members, _)) = members
+    | impl_members (Generic_Impl (_, item)) = impl_members item
   fun impl_source_layout (Impl_Item (_, _, layout)) = layout
+    | impl_source_layout (Generic_Impl (_, item)) = impl_source_layout item
   fun impl_position impl =
     the_source_token_position (impl_source_layout impl) (Keyword_Token "impl")
   fun impl_item_position impl = source_span (impl_source_layout impl)

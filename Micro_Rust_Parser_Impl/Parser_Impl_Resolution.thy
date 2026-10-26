@@ -1346,6 +1346,59 @@ struct
   val _ = Theory.setup (Micro_Rust_Dispatch.register_sparse_generic_candidate_transform
     sparse_candidate_transform)
 
+  fun scoped_sparse_candidate_transform ctxt
+      ({instances, pos, pending}: Micro_Rust_Dispatch.scoped_sparse_arguments) occurrence_type
+      ({name, eligible = genuine, maximal = entries}: Micro_Rust_Dispatch.generic_candidate_sources) =
+    let
+      fun instance ({serial, ...}: Micro_Rust_Names.entry) =
+        find_first (fn {source, ...} => source = serial) instances
+      fun native_eligible ({hol_term, ...}: Micro_Rust_Names.entry) =
+        is_some (Micro_Rust_Dispatch.unify_and_instantiate ctxt occurrence_type
+          (Micro_Rust_Dispatch.fresh_backend ctxt hol_term))
+      val eligible = filter (fn entry => is_some (instance entry) andalso native_eligible entry) entries
+      fun prepare (entry as {serial, ...}: Micro_Rust_Names.entry) = Exn.capture0 (fn () =>
+        let
+          val {target, arguments, ...} = the (instance entry)
+          val scheme = URust_Type_Mappings.scoped_generic_scheme_for_source ctxt serial
+          val parameters = case scheme of NONE => []
+            | SOME scheme => URust_Type_Mappings.scoped_parameters scheme
+          val ((prepared, events), reports) = URust_Report_Transaction.capture_isolated
+            (fn () => URust_Type_Mappings.capture_generic_argument_events ctxt (fn observed =>
+              let
+                val target = Option.map (URust_Type_Mappings.prepare_scoped_target_selection
+                  observed serial) target
+                val arguments = case pending of NONE => arguments
+                  | SOME sources =>
+                      let
+                        val _ = if length parameters = length sources then ()
+                          else generic_count_error name (length sources) pos
+                        val parsed = map (fn (text, position) =>
+                          URust_Parser.parse_generic_argument_source observed
+                            (Parser_Lex_Util.positioned_content_source text position)) sources
+                      in SOME (#arguments (URust_Type_Mappings.resolve_source_arguments
+                        observed parameters parsed)) end
+                val _ = if is_none arguments andalso exists (is_none o #hol) parameters then
+                    error ("urust: erased generic arguments require explicit source arguments" ^ Position.here pos)
+                  else ()
+              in {target = target, arguments = arguments} end))
+          fun commit () = (URust_Type_Mappings.replay_generic_argument_events ctxt events;
+            URust_Report_Transaction.replay ctxt reports)
+        in (prepared, commit) end) ()
+      val results = map (fn entry => (entry, prepare entry)) eligible
+      val successful = map_filter (fn (entry, Exn.Res result) => SOME (entry, result) | _ => NONE) results
+      val _ = if null successful then
+        (case map_filter (fn (_, Exn.Exn exn) => SOME exn | _ => NONE) results of
+           exn :: _ => Exn.reraise exn | [] => ()) else ()
+    in fn {serial, ...} => fn candidate =>
+      (case find_first (fn ({serial = source, ...}, _) => source = serial) successful of
+         NONE => NONE
+       | SOME (_, (prepared, commit)) => Option.map (fn term => (term, commit))
+           (URust_Type_Mappings.instantiate_scoped_generic_scheme_for_source ctxt serial candidate prepared))
+    end
+
+  val _ = Theory.setup (Micro_Rust_Dispatch.register_scoped_sparse_candidate_transform
+    scoped_sparse_candidate_transform)
+
   fun check_source_inference ctxt entries pos =
     if exists (fn entry => case source_slots ctxt entry of
         SOME slots => exists (is_none o #hol) slots | NONE => false) entries then
@@ -1394,7 +1447,8 @@ struct
      spelling. *)
   (* A selection type, its written spelling, and whether inference holes stand for omitted
      generic arguments. *)
-  type selection = {typ: typ, written: string, inferred: bool, source_identity: string option}
+  type selection = {typ: typ, written: string, inferred: bool, source_identity: string option,
+    target: Micro_Rust_Names.target_selection}
 
   datatype route_origin =
       Import_Origin of S.binding
@@ -1448,10 +1502,13 @@ struct
          | NONE => map (K 0) (S.key_segments key))
       val names = S.key_segments key
       val final_index = length names - 1
+      val parsed_written = case arguments of NONE => NONE | SOME (Generic_Args (arguments, _)) =>
+        SOME (map (fn argument => let val source = generic_argument_source argument
+          in (URust_Parser.parse_generic_argument_source ctxt source, source) end) arguments)
       fun segment (index, (name, arity)) =
         let
           val written =
-            if index = final_index then Option.map (generic_argument_types ctxt) arguments
+            if index = final_index then Option.map (map fst) parsed_written
             else NONE
           val supplied =
             (case written of
@@ -1469,8 +1526,12 @@ struct
           SOME entry => not (null (URust_Type_Mappings.entry_erased_parameters entry))
         | NONE => false) then error
         ("urust: source identity requires explicit type arguments" ^ Position.here pos) else ()
-      val (resolved, identity) = URust_Type_Mappings.resolve_type_identity ctxt typ
-    in (resolved, Option.map URust_Type_Mappings.source_identity_name identity, inferred) end
+      val authored = map (fn (parsed, source) =>
+          ((case parsed of Rust_Type_Argument typ => rust_type_position typ
+            | Rust_Numeric_Argument integer => integer_literal_position integer
+            | _ => Input.pos_of source), source)) (the_default [] parsed_written)
+      val target = URust_Type_Mappings.resolve_target_selection_with_inputs ctxt authored typ
+    in (#self_type target, #source_identity target, inferred, target) end
 
   (* The canonical nominal key that a type alias key expands to. *)
   fun alias_expansion ctxt key =
@@ -1503,6 +1564,29 @@ struct
            rest
      | [] => ())
 
+  fun self_target_selection ctxt self_type pos =
+    let
+      val identity = URust_Type_Mappings.impl_source_identity ctxt
+      val source = Option.map (fn identity => #source
+        (URust_Type_Mappings.source_target_template ctxt
+          {self_type = self_type, source = identity, declarations = [], witnesses = []})) identity
+        |> Option.mapPartial I
+      val parameters = maps #parameters (the_list (URust_Type_Mappings.generic_scope ctxt))
+      val identities = the_default [] (URust_Type_Mappings.generic_scope_identities ctxt)
+      fun evidence path (Micro_Rust_Names.Source_Rigid (identity, _)) =
+            (case find_index (fn current => current = identity) identities of ~1 => []
+             | index => let val parameter = nth parameters index
+               in if URust_Type_Mappings.parameter_has_witness ctxt parameter andalso
+                   URust_Type_Mappings.parameter_available ctxt parameter
+                 then [(path, TFree (#hol parameter))] else [] end)
+        | evidence path (Micro_Rust_Names.Source_Node (_, children)) =
+            maps (fn (index, child) => evidence (path @ [index]) child) (map_index I children)
+        | evidence _ _ = []
+    in {self_type = self_type, source = source,
+      source_identity = Option.map URust_Type_Mappings.source_identity_name identity,
+      evidence = maps (evidence []) (the_list source), inputs = [], pos = pos}
+      : Micro_Rust_Names.target_selection end
+
   fun self_route ctxt path =
     (reject_late_keyword_segments path;
     case path_segments path of
@@ -1526,7 +1610,8 @@ struct
                    selection =
                      SOME (fn () => {typ = self_type, written = "Self", inferred = false,
                        source_identity = Option.map URust_Type_Mappings.source_identity_name
-                         (URust_Type_Mappings.impl_source_identity ctxt)})}
+                         (URust_Type_Mappings.impl_source_identity ctxt),
+                       target = self_target_selection ctxt self_type pos})}
               end)
      | _ => NONE)
 
@@ -1541,9 +1626,9 @@ struct
                 occurrence = pos,
                 selection =
                   SOME (fn () =>
-                    let val (typ, source_identity, inferred) = selection_type ctxt name pos arguments
+                    let val (typ, source_identity, inferred, target) = selection_type ctxt name pos arguments
                     in {typ = typ, written = written_type_name name arguments, inferred = inferred,
-                      source_identity = source_identity}
+                      source_identity = source_identity, target = target}
                     end)}
          | NONE => NONE)
     | alias_route _ _ = NONE
@@ -1565,9 +1650,9 @@ struct
                 occurrence = pos,
                 selection =
                   SOME (fn () =>
-                    let val (typ, source_identity, inferred) = selection_type ctxt (#key binding) pos arguments
+                    let val (typ, source_identity, inferred, target) = selection_type ctxt (#key binding) pos arguments
                     in {typ = typ, written = written_type_name name arguments, inferred = inferred,
-                      source_identity = source_identity}
+                      source_identity = source_identity, target = target}
                     end)}
          | NONE => imported_type_route binding path)
     | imported_head_route _ _ _ = NONE
@@ -2075,7 +2160,7 @@ struct
              split_last type_segments
            val type_key = space_implode "::" (map (#1 o segment_identifier) type_segments)
            val key = type_key ^ "::" ^ name
-           val owners = Micro_Rust_Names.associated_source_functions ctxt key
+           val owners = Micro_Rust_Names.associated_template_functions ctxt key
          in
            if null owners orelse is_primitive_path path then NONE
            else
@@ -2101,10 +2186,10 @@ struct
                   | NONE =>
                       Option.map
                         (fn arguments => fn () =>
-                          let val (typ, source_identity, _) =
+                          let val (typ, source_identity, _, target) =
                             selection_type ctxt type_key type_pos (SOME arguments)
                           in {typ = typ, source_identity = source_identity,
-                            written = written_type_name type_name (SOME arguments), inferred = false} end)
+                            written = written_type_name type_name (SOME arguments), inferred = false, target = target} end)
                         type_arguments)
                fun ambiguous candidates =
                  error
@@ -2114,18 +2199,24 @@ struct
                      implode (map (Position.here o #2) candidates))
              in
                (case selection of
-                  NONE => if exists (is_some o #source_identity) owners then
+                  NONE => if exists (fn {target, ...} => #requires_source_identity target) owners then
                     error ("urust: source identity requires explicit type arguments on " ^ type_key ^
                       Position.here type_pos)
-                  else if length impls >= 2 then ambiguous impls else SOME (stripped, [])
+                  else if length impls >= 2 then ambiguous impls else SOME (stripped, [], NONE)
                 | SOME select =>
                     let
-                      val {typ = selected_type, source_identity, written, inferred} = select ()
+                      val {typ = selected_type, source_identity, written, inferred, target} = select ()
                       val selected =
                         owners
-                        |> filter (fn {self_type, source_identity = owner_source, ...} =>
-                            (is_none owner_source orelse owner_source = source_identity) andalso
-                            unifying_self_types (selected_type, self_type))
+                        |> filter (fn {target = owner, source_identity = owner_source, ...} =>
+                            let
+                              val owner = Micro_Rust_Names.fresh_target
+                                (fold Term.maxidx_typ (selected_type :: map snd (#evidence target))
+                                  (Variable.maxidx_of ctxt) + 1) owner
+                            in (is_some (#source owner) orelse is_none owner_source orelse
+                                  owner_source = source_identity) andalso
+                              is_some (Micro_Rust_Names.match_target ctxt owner target
+                                (Vartab.empty, Variable.maxidx_of ctxt)) end)
                         |> map #identity |> distinct (op =)
                     in
                       if null selected then
@@ -2135,7 +2226,7 @@ struct
                       (* Omitted generic arguments of a type head leave the instance open. *)
                       else if inferred andalso length selected >= 2 then
                         ambiguous (filter (fn (identity, _) => member (op =) selected identity) impls)
-                      else SOME (stripped, [Micro_Rust_Names.Only_Sources selected])
+                      else SOME (stripped, [Micro_Rust_Names.Only_Sources selected], SOME target)
                     end)
              end
          end
@@ -2159,14 +2250,45 @@ struct
 
   fun registered_call ctxt environment direct route_selection path =
     (case associated_selection ctxt route_selection path of
-       SOME (stripped, selection) =>
-         let val base = remove_final_generic_args stripped in
-           Option.map
-             (fn registered =>
-               (reject_generated_function_generics ctxt stripped;
-                apply_generic_arguments ctxt environment registered
-                  (segment_generic_args (final_segment stripped))))
-             (exact_registered_call ctxt (call_filters direct @ selection) base)
+       SOME (stripped, selection, target) =>
+         let
+           val base = remove_final_generic_args stripped
+           val filters = call_filters direct @ selection
+           val entries = Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NFunction (render_path base)
+             |> Micro_Rust_Names.eligible_entries ctxt filters
+           fun has_impl_parameters ({serial, ...}: Micro_Rust_Names.entry) =
+             (case Option.mapPartial URust_Type_Mappings.scoped_owner
+                 (URust_Type_Mappings.scoped_generic_scheme_for_source ctxt serial) of
+                SOME {parameters, ...} => not (null parameters) | NONE => false)
+           fun local_call registered =
+             (reject_generated_function_generics ctxt stripped;
+              apply_generic_arguments ctxt environment registered
+                (segment_generic_args (final_segment stripped)))
+           fun scoped_call registered selected =
+             let
+               val arguments = segment_generic_args (final_segment stripped)
+               val _ = reject_generated_function_generics ctxt stripped
+               val (pending, positions, position) = case arguments of NONE => (NONE, NONE, #pos selected)
+                 | SOME (Generic_Args (arguments, pos)) =>
+                     let val sources = map (fn argument => let val source = generic_argument_source argument
+                       in (Input.string_of source, Input.pos_of source) end) arguments
+                     in (SOME sources, SOME (map (fn (_, pos) => (NONE, pos)) sources), pos) end
+               (* One authored occurrence belongs to each source declaration. Locale instances
+                  share that source while retaining separate native entries and scheme bundles. *)
+               val instances = map #serial entries |> distinct (op =) |> map (fn source =>
+                 {source = source, target = SOME selected, arguments = positions,
+                   identities = replicate (length (the_default [] positions)) ""})
+             in Micro_Rust_Dispatch.with_scoped_sparse_arguments
+               {instances = instances, pos = position, pending = pending} registered end
+         in Option.map (fn registered => case target of
+             NONE => local_call registered
+           | SOME selected =>
+               (* Concrete impls keep the delivered member count/kind/sort diagnostics.
+                  Any real impl declaration, even an erased or irrelevant slot, needs the
+                  jointly transported target/member carrier; mixed eligible sets keep it too. *)
+               if exists has_impl_parameters entries then scoped_call registered selected
+               else local_call registered)
+             (exact_registered_call ctxt filters base)
          end
      | NONE => exact_registered_call ctxt (call_filters direct) path)
 

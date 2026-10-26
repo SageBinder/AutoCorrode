@@ -100,18 +100,28 @@ operations as `urust_fn` and `urust_datatype`, each in the context the next sing
 would receive, so earlier items are available to later ones and forward references are not
 resolved. Type alias items are rejected as chunk members.
 
-An inherent `impl PATH { fn … }` member declares each member function in source order, through the
+An inherent `impl<'a, T, const N: usize> PATH { fn … }` member declares each member function in source order, through the
 same prepared-function operation, with the default HOL name `<target>_<member>` from the final
 written target segment. Its annotation supplies defaults for its members (member, impl, outer,
-configuration); `name` and `hol_type_parameters` are rejected as impl defaults and `pp_test` on
-members. Functions and concrete impl members accept their own generic headers and bounds; a
-member annotation may supply its inline-only `hol_type_parameters` override. Every member registers
+configuration); `name` is rejected on impls and `pp_test` on members.
+Impl `hol_type_parameters` addresses impl declarations, while member overrides address only locals.
+Members inherit impl declarations and supported inline/`where` trait bounds, extend the scope
+separately and may refine inherited bounds for that member alone. Type/const impl declarations
+must constrain the canonical target; lifetime declarations keep their separate rule.
+Every member registers
 its associated path `T::f` as an associated-function owner of the impl's Self type; a first
 `self` receiver adds the method-only entry `f`. `impl` is a reserved word, as in Rust: a
 use path, a `let` binding, a function name or a field named `impl` is a syntax error. Header
-forms other than an inherent path target (`impl<…>`, traits,
-`where`, `unsafe`, negative impls), non-`fn` members and misplaced receivers are positioned
+forms other than an inherent path target (traits, `unsafe`, negative impls), non-`fn` members
+and misplaced receivers are positioned
 rejections.
+
+The Impl examples and ML owner cover mixed generic headers, standalone kernel/type twins,
+separate owner/member turbofish, retained/erased target constraints, original alias-input
+positions, selected-only native effects, locale transport and both theory-merge orders.
+Source-insensitive concrete selection retains native HOL equivalence. Generic selection
+requires canonical structural agreement; equivalent native representations still overlap
+conservatively for ownership, so representation differences cannot admit duplicate impl members.
 
 A `use` member is a complete Rust use item and takes no options, so an annotation before it is
 rejected at the annotation. The imports of one chunk form one batch, validated (duplicates and
@@ -306,7 +316,7 @@ merge transport, final labelled header/use sorts and separate declaration/bound/
 Complete output/report atomicity retains the exact earlier sources and wrapper controls, including
 successful generic prefixes followed by genuine later failures, namespace snapshots and recovery.
 
-Generic impls, parameter defaults, const types other than `usize`, `?Sized`, lifetime and generic
+Parameter defaults, const types other than `usize`, `?Sized`, lifetime and generic
 trait bounds, parenthesized `Fn` bounds, const bounds and non-parameter `where` heads remain
 unsupported. Shared references still require declared HOL signature types or explicit escapes;
 automatic reads are outside this feature.
@@ -591,7 +601,7 @@ restricted turbofish and log-data syntax continue to reject it. Documentation-sh
 `/** ... */` and `/*! ... */` are expression layout, without documentation-item semantics.
 
 The following remain deliberately unsupported: one-element tuples, general postfix invocation, open
-ranges, unary numeric negation, `/=`, leading `::`, generic impls and the unsupported generic
+ranges, unary numeric negation, `/=`, leading `::` and the unsupported generic
 forms listed above, universal macro
 trailing commas, signed integers, `u128`, and floating/character/scientific literals. Focused
 negative rows preserve these boundaries.

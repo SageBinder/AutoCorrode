@@ -237,26 +237,31 @@ local
   fun header label text needle construct =
     parse_rejects ctxt label ["urust: " ^ construct ^ " is not supported in impl headers"]
       text needle 0
-  val _ = header "header-generic-parameters" "impl<T> Pair<T> {}" "<"
-    "a generic parameter list (`impl<T>`)"
-  val _ = header "header-lifetime-parameters" "impl<'a> Counter {}" "<"
-    "a generic parameter list (`impl<T>`)"
+  val _ = List.app (fn (label, text, expected) =>
+    let val (_, impl) = only_impl ctxt label text
+    in require (label ^ ": generic header is preserved")
+      (length (#parameters (URust_AST.impl_generics impl)) = expected) end)
+    [("header-generic-parameters", "impl<T> Pair<T> {}", 1),
+     ("header-lifetime-parameters", "impl<'a> Counter {}", 1),
+     ("header-mixed-parameters", "impl<'a, T, const N: usize> Grid<T, N> {}", 3)]
   val _ = header "header-trait" "impl Display for Counter {}" "for"
     "a trait impl (`impl Trait for T`)"
   val _ = header "header-generic-trait" "impl From<u8> for Counter {}" "for"
     "a trait impl (`impl Trait for T`)"
-  val _ = header "header-where" "impl Counter where Counter: Copy {}" "where"
-    "a where clause"
+  val (_, where_impl) = only_impl ctxt "header-where"
+    "impl Counter where Counter: Copy {}"
+  val _ = require "impl where predicate is retained before denotation"
+    (length (#where_clause (URust_AST.impl_generics where_impl)) = 1)
   val _ = header "header-unsafe" "unsafe impl Counter {}" "unsafe" "`unsafe impl`"
   val _ = header "header-negative" "impl !Send for Counter {}" "!"
     "a negative impl (`impl !T`)"
   val _ = header "header-negative-inherent" "impl !Counter {}" "!"
     "a negative impl (`impl !T`)"
-  (* The lexer rejects the forms the grammar does not parse before any later syntax error. *)
-  val _ = header "header-generic-before-syntax-error" "impl<T: Copy> Pair<T> { fn ( }" "<"
-    "a generic parameter list (`impl<T>`)"
-  val _ = header "header-where-before-syntax-error" "impl Counter where Self: { fn" "where"
-    "a where clause"
+  (* Supported generic headers reach ordinary syntax errors in malformed members. *)
+  val _ = expect_failure "header-generic-before-syntax-error" ["syntax error"]
+    (fn () => parse ctxt "header-generic-before-syntax-error" "impl<T: Copy> Pair<T> { fn ( }")
+  val _ = expect_failure "header-where-before-syntax-error" ["syntax error"]
+    (fn () => parse ctxt "header-where-before-syntax-error" "impl Counter where Self: { fn")
   val _ = header "header-annotated-unsafe"
     (annotation "register_notation" ^ "\nunsafe impl Counter {}") "unsafe" "`unsafe impl`"
   (* Outside impl headers, for and where keep their identifier spelling in signatures. *)
@@ -295,8 +300,10 @@ local
   val _ = header "level-trait-after-tuple" "impl Pair<(u8, u16)> for Counter {}" "for" trait
   val _ = header "level-trait-after-array" "impl Pair<[u8; 4]> for Counter {}" "for" trait
   val _ = header "level-trait-after-split-closer" "impl Pair<Pair<u8>> for Counter {}" "for" trait
-  val _ = header "level-where-after-arguments" "impl Pair<Pair<u8>> where Self: Copy {}" "where"
-    "a where clause"
+  val (_, after_arguments) = only_impl ctxt "level-where-after-arguments"
+    "impl Pair<Pair<u8>> where Self: Copy {}"
+  val _ = require "structured where predicate resumes after split generic closers"
+    (length (#where_clause (URust_AST.impl_generics after_arguments)) = 1)
 
   (* The reason of a diagnostic, without the line and column prefix of a syntax error. *)
   fun reason message =
@@ -3295,6 +3302,722 @@ local
         (not (null (entries recovered "HeaderOwner::early")))
     in () end) rows
 in val _ = () end
+\<close>
+
+chapter\<open> Generic impl ownership and joint schemes \<close>
+
+ML_val\<open>
+local
+  open Impl_Syntax_Test
+  structure N = Micro_Rust_Names
+  structure D = Micro_Rust_Dispatch
+  structure M = URust_Type_Mappings
+  val ctxt = \<^context>
+  val thy = Proof_Context.theory_of ctxt
+  val pos = Position.of_properties [(Markup.offsetN, "7"), (Markup.end_offsetN, "19"),
+    (Markup.fileN, "generic-impl-neutral"), (Markup.idN, "generic-impl-id"), ("custom", "a:,;")]
+  val parameter = TVar (("shared_owner", 0), \<^sort>\<open>type\<close>)
+  val name = ("source", 0)
+  fun atom primitive = N.Source_Node (N.Primitive_Source primitive, [])
+  fun template tree variables = {self_type = \<^typ>\<open>unit\<close>, source = SOME tree,
+    variables = variables, requires_source_identity = true}: N.target_template
+  val variable = {name = name, kind = N.Type_Source, witness = SOME parameter}: N.source_variable
+  val pattern = template (N.Source_Node (N.Mapped_Source "NeutralOwner",
+    [N.Source_Variable (name, N.Type_Source)])) [variable]
+  fun selection tree evidence = {self_type = \<^typ>\<open>unit\<close>, source = SOME tree,
+    source_identity = SOME "opaque compatibility token", evidence = evidence,
+    inputs = [([0], ("u8 /* original comment */", pos))], pos = pos}: N.target_selection
+  val selected = selection (N.Source_Node (N.Mapped_Source "NeutralOwner", [atom "u8"]))
+    [([0], \<^typ>\<open>8 word\<close>)]
+  val matched = the (N.match_target ctxt pattern selected (Vartab.empty, 0))
+  val _ = require "erased target source evidence constrains the native owner witness"
+    (Envir.norm_type (#types matched) parameter = \<^typ>\<open>8 word\<close>)
+  val _ = require "an explicit target cannot contradict the same value variable"
+    (not (can (Sign.typ_unify thy (parameter, \<^typ>\<open>bool\<close>))
+      (#types matched, #maxidx matched)))
+  val pair = template (N.Source_Node (N.Tuple_Source,
+    [N.Source_Variable (name, N.Type_Source), N.Source_Variable (name, N.Type_Source)])) [variable]
+  val _ = require "repeated source variables reject unequal canonical arguments"
+    (is_none (N.match_target ctxt pair
+      (selection (N.Source_Node (N.Tuple_Source, [atom "u8", atom "u16"])) []) (Vartab.empty, 0)))
+  val first_rigid = serial ()
+  val second_rigid = serial ()
+  fun rigid identity = N.Source_Rigid (identity, N.Type_Source)
+  val _ = require "equal HOL witnesses do not collapse distinct rigid caller declarations"
+    (is_none (N.match_target ctxt pair
+      (selection (N.Source_Node (N.Tuple_Source, [rigid first_rigid, rigid second_rigid]))
+        [([0], \<^typ>\<open>bool\<close>), ([1], \<^typ>\<open>bool\<close>)]) (Vartab.empty, 0)))
+  val _ = require "repeated references to the same rigid caller declaration agree"
+    (is_some (N.match_target ctxt pair
+      (selection (N.Source_Node (N.Tuple_Source, [rigid first_rigid, rigid first_rigid]))
+        [([0], \<^typ>\<open>bool\<close>), ([1], \<^typ>\<open>bool\<close>)]) (Vartab.empty, 0)))
+  val _ = require "source type and const roles remain distinct"
+    (is_none (N.match_target ctxt pattern
+      (selection (N.Source_Node (N.Mapped_Source "NeutralOwner",
+        [N.Source_Node (N.Numeric_Source 3, [])])) []) (Vartab.empty, 0)))
+  val concrete = template (N.Source_Node (N.Mapped_Source "NeutralOwner", [atom "u8"])) []
+  val other = template (N.Source_Node (N.Mapped_Source "NeutralOwner", [atom "u16"])) []
+  val _ = require "generic/concrete source ownership overlaps in both orders"
+    (N.overlapping_targets (pattern, concrete) andalso N.overlapping_targets (concrete, pattern))
+  val _ = require "erased concrete source owners remain disjoint"
+    (not (N.overlapping_targets (concrete, other)))
+  val _ = require "native inference does not fabricate an erased concrete source identity"
+    (is_none (N.match_target ctxt concrete
+      (selection (N.Source_Node (N.Mapped_Source "NeutralOwner",
+        [N.Source_HOL (N.Type_Source, TVar (("unknown_source", 9017), \<^sort>\<open>type\<close>))])) [])
+      (Vartab.empty, 9017)))
+  val old_ctxt = N.reserve_associated_source_function
+    {name = "NeutralOwner::legacy", self_type = \<^typ>\<open>unit\<close>, identity = serial (),
+      source_identity = SOME "not a serialized identity", pos = pos} (Context.Proof ctxt)
+  val _ = ignore (expect_failure "legacy-generic-overlap" ["overlapping Self types"] (fn () =>
+    N.reserve_associated_template_function {name = "NeutralOwner::legacy", target = pattern,
+      identity = serial (), source_identity = NONE, pos = pos} old_ctxt))
+  val marker = D.mk_marker_positions N.NFunction "NeutralOwner::call" pos [pos]
+    (Free ("NeutralOwner::call", dummyT))
+  val caller = TVar (("caller", 9017), \<^sort>\<open>type\<close>)
+  val selected = {self_type = caller, source = SOME (N.Source_HOL (N.Type_Source, caller)),
+    source_identity = SOME "opaque : , token", evidence = [([0], caller)],
+    inputs = [([0], ("u8 /* : ; original */", pos))], pos = pos}: N.target_selection
+  val metadata: D.scoped_sparse_arguments = {instances =
+    [{source = 17, target = SOME selected, arguments = NONE, identities = []},
+     {source = 19, target = SOME selected, arguments = SOME [(NONE, pos), (SOME caller, pos)],
+       identities = ["source-only", "witness"]}], pos = pos, pending = NONE}
+  val wrapped = D.with_scoped_sparse_arguments metadata marker
+  val actual = the (D.marker_scoped_sparse_arguments wrapped)
+  val _ = require "owner-aware carrier preserves canonical structure, caller sharing and every position"
+    (actual = metadata andalso D.dest_marker_untyped wrapped = D.dest_marker_untyped marker)
+  val _ = require "old scalar and sparse getters do not reinterpret owner-aware instances"
+    (is_none (D.marker_generic_arguments wrapped) andalso is_none (D.marker_sparse_generic_arguments wrapped))
+  val filters = [N.Exclude_Method_Only, N.Only_Sources [17, 19]]
+  val _ = require "owner-aware carrier composes with native filters in either order"
+    (D.restrict_backends filters wrapped aconv
+      D.with_scoped_sparse_arguments metadata (D.restrict_backends filters marker))
+  val old_registration: D.generic_registration = the (D.Generic_Transform.get thy)
+  val _ = require "old registration getter retains its exact record"
+    (is_some (#sparse_transform old_registration))
+  val [entry] = N.lookups ctxt N.NFunction "GenericPocket::irrelevant"
+  val scoped = the (M.scoped_generic_scheme_for_source ctxt (#serial entry))
+  val _ = require "owner-only scheme exists without granting a member turbofish"
+    (is_some (M.scoped_owner scoped) andalso null (M.scoped_parameters scoped) andalso
+      is_none (M.generic_scheme_for_source ctxt (#serial entry)))
+  val [member] = N.lookups ctxt N.NFunction "GenericPocket::replace"
+  val member_scheme = the (M.scoped_generic_scheme_for_source ctxt (#serial member))
+  val _ = require "owner and member declaration lists remain separate"
+    (map #rust (#parameters (the (M.scoped_owner member_scheme))) = ["T"] andalso
+      map #rust (M.scoped_parameters member_scheme) = ["U"])
+  val _ = List.app (fn (left, right) => require (left ^ ": full principal type twin")
+    (Sign.the_const_type thy left = Sign.the_const_type thy right))
+    [(\<^const_name>\<open>generic_pocket_retain\<close>, \<^const_name>\<open>generic_pocket_retain_twin\<close>),
+     (\<^const_name>\<open>generic_pocket_pass\<close>, \<^const_name>\<open>generic_pocket_pass_twin\<close>),
+     (\<^const_name>\<open>generic_pocket_replace\<close>, \<^const_name>\<open>generic_pocket_replace_twin\<close>),
+     (\<^const_name>\<open>generic_pocket_irrelevant\<close>, \<^const_name>\<open>generic_pocket_irrelevant_twin\<close>),
+     (\<^const_name>\<open>generic_buffer_capacity\<close>, \<^const_name>\<open>generic_buffer_capacity_twin\<close>),
+     (\<^const_name>\<open>generic_buffer_borrow\<close>, \<^const_name>\<open>generic_buffer_borrow_twin\<close>)]
+  val _ = require "impl scope never escapes to the next command"
+    (is_none (M.generic_scope ctxt) andalso is_none (M.generic_scope_identities ctxt) andalso
+      is_none (M.impl_self ctxt))
+in end
+\<close>
+
+section\<open> Generic impl rejection and recovery \<close>
+ML_val\<open>
+local
+  fun require label condition = if condition then () else error ("generic impl regression: " ^ label)
+  val ctxt = \<^context>
+  val thy = Proof_Context.theory_of ctxt
+  fun cartouche text = Symbol.open_ ^ text ^ Symbol.close
+  fun annotation text = "\<omega>" ^ cartouche text
+  fun command body = "urust [verbosity = 0] " ^ cartouche body
+  fun run label text = Unsynchronized.setmp Private_Output.report_fn (K ()) (fn () =>
+    fold (Toplevel.command_exception false)
+      (Outer_Syntax.parse_text thy (K thy) (Position.make0 1 1 0 "" label label) text)
+        (Toplevel.make_state (SOME thy))) ()
+  val rows =
+    [("retained-target-value-contradiction", "fn RejectRetained(value: bool) -> bool { GenericPocket::<u8>::pass(value) }", "no backend"),
+     ("erased-target-value-contradiction", "fn RejectErased(value: bool) -> bool { ImplDemandBox::<u8>::pass(value) }", "no backend"),
+     ("opaque-target-missing-witness", "fn RejectOpaque(value: bool) -> bool { ImplDemandBox::<UnmappedTag>::pass(value) }", "unknown Rust type"),
+     ("member-generic-count", "fn RejectMemberCount(owner: GenericPocket<u8>, value: bool) -> bool { GenericPocket::<u8>::replace::<u8, bool>(owner, value) }", "generic argument"),
+     ("member-generic-kind", "fn RejectMemberKind(owner: GenericPocket<u8>, value: bool) -> bool { GenericPocket::<u8>::replace::<3>(owner, value) }", "numeric generic arguments"),
+     ("target-generic-count", "fn RejectTargetCount(owner: GenericPocket<u8>) -> GenericPocket<u8> { GenericPocket::<u8, bool>::retain(owner) }", "generic arities"),
+     ("target-generic-kind", "fn RejectTargetKind(owner: GenericBuffer<u8, 3>) -> GenericBuffer<u8, 3> { GenericBuffer::<u8, bool>::retain(owner) }", "const"),
+     ("owner-only-member-turbofish", "fn RejectOwnerOnly(value: u8) -> u8 { GenericPocket::<u8>::irrelevant::<bool>(value) }", "generic arguments are not supported"),
+     ("discarded-alias-const", "impl<const N: usize> ImplDemandDiscard<N> {}", "unconstrained"),
+     ("repeated-target-contradiction", "fn RejectRepeated(value: u8) -> u8 { ImplDemandPair::<u8, bool>::repeated(value) }", "no associated function"),
+     ("unconstrained-type", "impl<T> GenericPocket<u8> { fn rejected(value: T) -> T { value } }", "unconstrained"),
+     ("unconstrained-const", "impl<T, const N: usize> GenericPocket<T> {}", "unconstrained"),
+     ("member-shadow-type", "impl<T> GenericPocket<T> { fn rejected<T>(value: T) -> T { value } }", "redeclares an impl parameter"),
+     ("member-shadow-lifetime", "impl<'a, T> GenericPocket<T> { fn rejected<'a>() {} }", "duplicate lifetime parameter"),
+     ("impl-duplicate-type", "impl<T, T> GenericPocket<T> {}", "duplicate generic parameter"),
+     ("impl-const-kind", "impl<const N: bool> GenericBuffer<u8, N> {}", "const parameters require usize"),
+     ("member-remaps-inherited", "impl<T> GenericPocket<T> {\n" ^
+       annotation ("hol_type_parameters = [\"T\" \<rightarrow> " ^ cartouche "'remapped" ^ "]") ^
+       "\n fn rejected<U>(value: U) -> U { value } }", "unknown parameter override"),
+     ("member-shadows-inherited-hol", "impl<T> GenericPocket<T> {\n" ^
+       annotation ("hol_type_parameters = [\"U\" \<rightarrow> " ^ cartouche "'t" ^ "]") ^
+       "\n fn rejected<U>(value: U) -> U { value } }", "redeclares an impl HOL parameter"),
+     ("impl-outlives-denotation", "impl<'a, 'b: 'a, T> GenericPocket<T> {}", "lifetime bounds are not supported"),
+     ("member-concrete-predicate", "impl<T> GenericPocket<T> { fn rejected(self) where u8: Unmapped {} }", "where clauses may only bound"),
+     ("body-only-inherited-type", "impl<T> ImplDemandBox<T> { fn body_only(value: u8) -> u8 { let spare = \<epsilon>\<open>literal (undefined :: 't)\<close>; value } }", "signature"),
+     ("body-only-const", "impl<const N: usize> GenericBuffer<u8, N> { fn rejected() -> usize { N } }", "signature"),
+     ("failed-later-member", "impl<T> GenericPocket<T> { fn first(value: T) -> T { value } fn rejected(value: T) -> T { missing_value } }", "missing_value")]
+  val names = Micro_Rust_Names.dump ctxt |> map (fn (kind, key, entry) => (kind, key, #serial entry))
+  val types = URust_Type_Mappings.dump ctxt |> map (fn (key, entry) =>
+    (key, URust_Type_Mappings.entry_identity entry, URust_Type_Mappings.entry_template entry))
+  val _ = List.app (fn (label, body, expected) =>
+    let
+      val result = Exn.capture0 (fn () => run label (command body)) ()
+      val message = case result of Exn.Res _ => error (label ^ ": unexpectedly succeeded")
+        | Exn.Exn exn => if Exn.is_interrupt exn then Exn.reraise exn else Runtime.exn_message exn
+      val _ = require (label ^ ": " ^ message) (String.isSubstring expected message)
+      val _ = require (label ^ ": changed the original registry")
+        (names = (Micro_Rust_Names.dump ctxt |> map (fn (kind, key, entry) => (kind, key, #serial entry))) andalso
+          types = (URust_Type_Mappings.dump ctxt |> map (fn (key, entry) =>
+            (key, URust_Type_Mappings.entry_identity entry, URust_Type_Mappings.entry_template entry))))
+      val recovery = run (label ^ "-recovery") (command "fn GenericImplRecovery(value: u8) -> u8 { value }")
+      val recovered = Toplevel.context_of recovery
+      val _ = require (label ^ ": failed to recover or leaked generic state")
+        (not (null (Micro_Rust_Names.lookups recovered Micro_Rust_Names.NFunction "GenericImplRecovery")) andalso
+          is_none (URust_Type_Mappings.generic_scope recovered) andalso
+          is_none (URust_Type_Mappings.impl_self recovered))
+    in () end) rows
+in end
+\<close>
+
+section\<open> Canonical target input provenance and selected effects \<close>
+
+ML_val\<open>
+local
+  structure M = URust_Type_Mappings
+  open URust_AST
+  fun require label condition = if condition then () else error ("impl target provenance: " ^ label)
+  val ctxt = Context_Position.set_visible true \<^context>
+  fun pos offset = Position.make0 1 offset 0 "" "s2-target-origins" "s2-target-origins"
+  fun source text offset = Parser_Lex_Util.positioned_content_source text (pos offset)
+  fun origin (Rust_Type_Argument typ) = rust_type_position typ
+    | origin (Rust_Numeric_Argument integer) = integer_literal_position integer
+    | origin _ = raise Fail "unexpected direct target argument"
+  fun target name raws =
+    let val supplied = map (fn (text, offset) => let val input = source text offset
+      in (URust_Parser.parse_generic_argument_source ctxt input, input) end) raws
+      val typ = Path_Type ([Rust_Type_Path_Segment (name, pos 1, SOME (map fst supplied),
+        make_source_layout (pos 1) [])], make_source_layout (pos 1) [])
+    in M.resolve_target_selection_with_inputs ctxt
+      (map (fn (argument, input) => (origin argument, input)) supplied) typ end
+  val reordered = target "ImplDemandSwap" [("u8 /* original first */", 101),
+    ("u16 /* \<alpha> original second */", 201)]
+  fun input selection path = the (AList.lookup (op =) (#inputs selection) path)
+  val _ = require "canonical reordered slots retain original comments and full native positions"
+    (#1 (input reordered [0]) = "u16 /* \<alpha> original second */" andalso
+      Position.offset_of (#2 (input reordered [0])) = SOME 201 andalso
+      #1 (input reordered [1]) = "u8 /* original first */" andalso
+      Position.offset_of (#2 (input reordered [1])) = SOME 101)
+  val nested = target "ImplDemandBox" [("ImplDemandSwap<u8 /* \<alpha> inner */, bool>", 301)]
+  val _ = require "nested alias slots use authoritative Isabelle symbol spans after escaped comments"
+    (#1 (input nested [0]) = "ImplDemandSwap<u8 /* \<alpha> inner */, bool>" andalso
+      #1 (input nested [0, 0]) = "bool" andalso
+      Position.offset_of (#2 (input nested [0, 0])) = SOME 334 andalso
+      #1 (input nested [0, 1]) = "u8" andalso
+      Position.offset_of (#2 (input nested [0, 1])) = SOME 316)
+  val entry = the_single (Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NFunction "ImplDemandPair::first")
+  val prepared = M.prepare_scoped_target_selection ctxt (#serial entry) reordered
+  val _ = require "selected demand resolves the canonical first slot from its original second input"
+    (AList.lookup (op =) (#evidence prepared) [0] = SOME \<^typ>\<open>16 word\<close> andalso
+      is_none (AList.lookup (op =) (#evidence prepared) [1]))
+  fun collect (XML.Text _) reports = reports
+    | collect (XML.Elem (markup, body)) reports = fold collect body (markup :: reports)
+  fun reports action =
+    let val output = Unsynchronized.ref ([]: string list)
+      val result = Unsynchronized.setmp Private_Output.report_fn
+        (fn chunks => output := chunks @ !output)
+        (fn () => Print_Mode.with_modes [Print_Mode.PIDE] action ()) ()
+    in (result, fold collect (maps YXML.parse_body (!output)) []) end
+  fun synthetic_control label =
+    let
+      val input_source = Parser_Lex_Util.positioned_content_source "ImplDemandSwap<u8, u16>"
+        (Position.label label (pos 401))
+      val synthetic_type = URust_Parser.parse_type_source ctxt input_source
+      val expected_origin = case synthetic_type of
+        Path_Type ([Rust_Type_Path_Segment (_, _, SOME [_, second], _)], _) => origin second
+        | _ => raise Fail "synthetic alias syntax changed"
+      val synthetic = M.resolve_target_selection ctxt synthetic_type
+      val supplied_origin = #2 (input synthetic [0])
+      val _ = require "synthetic marker retains original native label and all authoritative coordinates"
+        (Position.label_of supplied_origin = SOME ("urust_synthetic_target_input:" ^ label) andalso
+          Position.properties_of (Position.label label supplied_origin) =
+            Position.properties_of expected_origin)
+      val (prepared, markup) = reports (fn () =>
+        M.prepare_scoped_target_selection ctxt (#serial entry) synthetic)
+      val _ = require "synthetic demanded witness emits no fabricated authored report ranges"
+        (not (exists (fn (_, props) => Properties.get props Markup.idN =
+          Position.id_of expected_origin) markup))
+      val _ = require "synthetic demand preserves semantic substitution"
+        (AList.lookup (op =) (#evidence prepared) [0] = SOME \<^typ>\<open>16 word\<close>)
+      val opaque = M.resolve_target_selection ctxt (URust_Parser.parse_type_source ctxt
+        (Parser_Lex_Util.positioned_content_source "ImplDemandSwap<u8, MissingWitness>"
+          (Position.label label (pos 501))))
+      val (result, failed_reports) = reports (fn () => Exn.capture0
+        (fn () => M.prepare_scoped_target_selection ctxt (#serial entry) opaque) ())
+      val diagnostic = case result of Exn.Exn (ERROR text) => text
+        | Exn.Exn exn => Exn.reraise exn | Exn.Res _ => error "opaque synthetic witness accepted"
+      val positions = fold collect (YXML.parse_body diagnostic) []
+      val _ = require "failed synthetic demand restores original absent/nonempty label in diagnostics"
+        (not (String.isSubstring "urust_synthetic_target_input:" diagnostic) andalso
+          exists (fn (_, props) => Properties.get props Markup.idN = SOME "s2-target-origins" andalso
+            Properties.get props Markup.labelN = (if label = "" then NONE else SOME label)) positions andalso
+          not (exists (fn (_, props) => Properties.get props Markup.idN = SOME "s2-target-origins")
+            failed_reports))
+    in () end
+  val _ = synthetic_control ""
+  val _ = synthetic_control "authored diagnostic label"
+in end
+\<close>
+
+ML_val\<open>
+local
+  structure M = URust_Type_Mappings
+  structure N = Micro_Rust_Names
+  structure D = Micro_Rust_Dispatch
+  fun require label condition = if condition then () else error ("scoped selected effects: " ^ label)
+  val ctxt = \<^context>
+  val position = Position.make0 1 1 0 "" "s2-selected-effects" "s2-selected-effects"
+  val calls = Unsynchronized.ref 0
+  val parameter: M.generic_parameter = {rust = "T", pos = position,
+    kind = URust_AST.Type_Parameter, hol = ("'selected_effect", \<^sort>\<open>type\<close>),
+    bounds = [], report_reference = fn _ => calls := !calls + 1}
+  val scoped = ctxt |> M.with_generic_scope {parameters = [parameter]}
+    |> Variable.declare_typ (TFree (#hol parameter))
+  val target = M.resolve_target_selection ctxt (URust_Parser.parse_type_source ctxt
+    (Parser_Lex_Util.positioned_content_source "ImplDemandBox<UnmappedTag>" position))
+  val entry = the_single (N.lookups ctxt N.NFunction "ImplDemandBox::local")
+  val payload: D.scoped_sparse_arguments = {instances = [{source = #serial entry,
+    target = SOME target, arguments = NONE, identities = []}], pos = position,
+    pending = SOME [("T", position)]}
+  val body = Type (\<^type_name>\<open>function_body\<close>,
+    [\<^typ>\<open>unit\<close>, TFree (#hol parameter), \<^typ>\<open>unit\<close>,
+      \<^typ>\<open>unit\<close>, \<^typ>\<open>unit\<close>])
+  val occurrence = \<^typ>\<open>unit\<close> --> TFree (#hol parameter) --> body
+  val (_, events) = M.capture_generic_use_events scoped (fn observed =>
+    let
+      val effects = D.filtered_candidates_with_scoped_generic_effects observed [] N.NFunction
+        "ImplDemandBox::local" occurrence NONE NONE NONE (SOME payload)
+      val _ = require "candidate preparation invokes no original callback" (!calls = 0)
+      val (_, commit) = the_single effects
+      val _ = commit ()
+    in () end)
+  val _ = require "selected replay publishes one source/witness event and one original callback"
+    (!calls = 1 andalso #source_uses events = [fst (#hol parameter)] andalso
+      #witness_uses events = [fst (#hol parameter)])
+  val failed_occurrence = \<^typ>\<open>unit\<close> --> \<^typ>\<open>bool\<close> -->
+    Type (\<^type_name>\<open>function_body\<close>, replicate 5 \<^typ>\<open>bool\<close>)
+  val (_, discarded) = M.capture_generic_use_events scoped (fn observed =>
+    ignore (D.filtered_candidates_with_scoped_generic_effects observed [] N.NFunction
+      "ImplDemandBox::local" failed_occurrence NONE NONE NONE (SOME payload)))
+  val _ = require "discarded native mismatch releases no speculative effects or callbacks"
+    (!calls = 1 andalso null (#source_uses discarded) andalso null (#witness_uses discarded))
+in end
+\<close>
+
+section\<open> Generic owner overlaps and theory merge orders \<close>
+
+ML_val\<open>
+local
+  structure N = Micro_Rust_Names
+  structure M = URust_Type_Mappings
+  fun require label condition = if condition then () else error ("generic impl merge: " ^ label)
+  val base = \<^theory>
+  fun cartouche text = Symbol.open_ ^ text ^ Symbol.close
+  fun chunk text = "urust [verbosity = 0] " ^ cartouche text
+  fun run thy label text = Unsynchronized.setmp Private_Output.report_fn (K ()) (fn () =>
+    fold (Toplevel.command_exception false)
+      (Outer_Syntax.parse_text thy (K thy) (Position.make0 1 1 0 "" label label) text)
+      (Toplevel.make_state (SOME thy))) ()
+  fun branch name parents text = Theory.begin_theory (name, Position.none) parents
+    |> (fn thy => Toplevel.theory_of (run thy name text)) |> Theory.end_theory
+  val parent = branch "Generic_Impl_Merge_Parent" [base]
+    ("urust_type [erase = " ^ cartouche " 'left, 'right " ^
+      "] \"GenericMergeOwner<'left, 'right>\" = " ^ cartouche " unit ")
+  fun member declarations target = chunk
+    ("impl" ^ declarations ^ " GenericMergeOwner<" ^ target ^
+      "> { fn pick(value: T) -> T { value } }")
+  val first = branch "Generic_Impl_Merge_First" [parent] (member "<T>" "T, bool")
+  val second = branch "Generic_Impl_Merge_Second" [parent] (member "<T>" "T, u16")
+  fun merge name parents = Theory.begin_theory (name, Position.none) parents
+  fun check_merge (name, parents) =
+    let
+      val merged = merge name parents
+      val ctxt = Proof_Context.init_global merged
+      val owners = N.associated_template_functions ctxt "GenericMergeOwner::pick"
+      val _ = require "disjoint generic erased targets coexist" (length owners = 2)
+      val state = run merged name (chunk
+        ("fn GenericMergeFirst(value: u8) -> u8 { GenericMergeOwner::<u8, bool>::pick(value) }\n" ^
+         "fn GenericMergeSecond(value: u8) -> u8 { GenericMergeOwner::<u8, u16>::pick(value) }"))
+      val result = Toplevel.context_of state
+      val _ = require "both canonical selected targets elaborate with complete native types"
+        (length (N.lookups result N.NFunction "GenericMergeFirst") = 1 andalso
+          length (N.lookups result N.NFunction "GenericMergeSecond") = 1 andalso
+          is_none (M.generic_scope result) andalso is_none (M.impl_self result))
+    in map #identity owners |> sort int_ord end
+  val forward = check_merge ("Generic_Impl_Merge_Forward", [first, second])
+  val reverse = check_merge ("Generic_Impl_Merge_Reverse", [second, first])
+  val _ = require "same source declarations and selection survive both theory merge orders"
+    (forward = reverse)
+  val concrete = branch "Generic_Impl_Merge_Concrete" [parent] (chunk
+    "impl GenericMergeOwner<u8, bool> { fn pick(value: u8) -> u8 { value } }")
+  val crossed = branch "Generic_Impl_Merge_Crossed" [parent] (chunk
+    "impl<U> GenericMergeOwner<u8, U> { fn pick(value: u8) -> u8 { value } }")
+  fun reject name parents =
+    (case Exn.capture0 (fn () => merge name parents) () of
+       Exn.Exn (ERROR message) => require "generic overlap diagnostics survive either order"
+         (String.isSubstring "overlapping Self types" message)
+     | Exn.Exn exn => Exn.reraise exn | Exn.Res _ => error "overlapping generic owners merged")
+  val _ = List.app (fn (name, parents) => reject name parents)
+    [("Generic_Impl_Overlap_Concrete_Forward", [first, concrete]),
+     ("Generic_Impl_Overlap_Concrete_Reverse", [concrete, first]),
+     ("Generic_Impl_Overlap_Generic_Forward", [first, crossed]),
+     ("Generic_Impl_Overlap_Generic_Reverse", [crossed, first])]
+  val _ = require "isolated merge fixture does not register in the caller"
+    (null (N.lookups \<^context> N.NFunction "GenericMergeOwner::pick"))
+in end
+\<close>
+
+section\<open> Generic member freshness, native reports and failed-member rollback \<close>
+
+ML_val\<open>
+local
+  structure M = URust_Type_Mappings
+  structure N = Micro_Rust_Names
+  structure D = Micro_Rust_Dispatch
+  fun require label condition = if condition then () else error ("generic impl native control: " ^ label)
+  val ctxt = \<^context>
+  val entry = the_single (N.lookups ctxt N.NFunction "GenericPocket::replace")
+  fun check index =
+    let
+      val inherited = TVar (("owner_caller", index), \<^sort>\<open>type\<close>)
+      val local_parameter = TVar (("member_caller", index + 1), \<^sort>\<open>type\<close>)
+      val channels = map (fn offset => TVar (("channel_caller", index + offset), \<^sort>\<open>type\<close>)) [2, 3, 4, 5]
+      val owner = Type (\<^type_name>\<open>generic_pocket\<close>, [inherited])
+      val [state, abort, input, output] = channels
+      val occurrence = owner --> local_parameter --> Type (\<^type_name>\<open>function_body\<close>,
+        [state, local_parameter, abort, input, output])
+      val target: N.target_selection = {self_type = owner,
+        source = SOME (N.Source_Node (N.Mapped_Source "GenericPocket",
+          [N.Source_HOL (N.Type_Source, inherited)])), source_identity = NONE,
+        evidence = [([0], inherited)], inputs = [], pos = Position.none}
+      val arguments: D.scoped_sparse_arguments = {instances = [{source = #serial entry,
+        target = SOME target, arguments = SOME [(SOME local_parameter, Position.none)], identities = [""]}],
+        pending = NONE, pos = Position.none}
+      val [(candidate, _)] = D.filtered_candidates_with_scoped_generic_effects ctxt [] N.NFunction
+        "GenericPocket::replace" occurrence NONE NONE NONE (SOME arguments)
+      val backend = case Term_Position.strip_positions (#term candidate) of
+        Const ("_type_constraint_", _) $ term => term | term => term
+      val expected = Term.map_types (fn _ => occurrence)
+        (Const (\<^const_name>\<open>generic_pocket_replace\<close>, dummyT))
+      val _ = require "target, local member and all channel variables share the actual native backend"
+        (backend aconv expected)
+    in Term.add_tvars backend [] end
+  val first = check 9017
+  val second = check 12017
+  val _ = require "successive owner/member selections retain independent caller variables"
+    (null (inter (op =) first second))
+  val locale_entries = N.lookups ctxt N.NFunction "ImplLocalePair::locale_replace"
+  val _ = require "locale entries retain one declaration serial and distinct complete ambient types"
+    (length locale_entries = 2 andalso length (distinct (op =) (map #serial locale_entries)) = 1 andalso
+      length (distinct (op =) (map (fastype_of o #hol_term) locale_entries)) = 2)
+  val owner_entries = N.associated_template_functions ctxt "ImplLocalePair::locale_replace"
+  val _ = require "joint scheme transport retains both native owners"
+    (length owner_entries = 2 andalso forall (fn {identity, ...} =>
+      is_some (M.scoped_generic_scheme_for_source ctxt identity)) owner_entries)
+  fun cartouche text = Symbol.open_ ^ text ^ Symbol.close
+  fun run thy label text = fold (Toplevel.command_exception false)
+    (Outer_Syntax.parse_text thy (K thy) (Position.make0 1 1 0 "" label label) text)
+    (Toplevel.make_state (SOME thy))
+  val label = "generic-failed-member-navigation"
+  val text = "urust [verbosity = 0] " ^ cartouche
+    "impl<'a, T> GenericPocket<T> { fn earlier<'b>(self) -> Self { self } fn failing(value: T) -> T { missing_value } }"
+  val snapshot = N.dump ctxt |> map (fn (kind, key, entry) => (kind, key, #serial entry))
+  val (failed, markup) = Parser_Test_Reports.markup (fn () => Exn.capture0
+    (fn () => run \<^theory> label text) ())
+  val _ = require "failed generic member retains actual error"
+    (case failed of Exn.Exn exn => if Exn.is_interrupt exn then Exn.reraise exn
+      else String.isSubstring "missing_value" (Runtime.exn_message exn) | _ => false)
+  val _ = require "earlier member and local lifetime declarations publish no semantic reports"
+    (not (exists (fn (name, props) => name = Markup.entityN andalso
+      is_some (Properties.get props Markup.defN) andalso
+      member (op =) [SOME "'b", SOME "GenericPocket::earlier", SOME "generic_pocket_earlier"]
+        (Properties.get props Markup.nameN)) markup))
+  val _ = require "failed member preserves caller registry and all generic/lifetime scope boundaries"
+    (snapshot = (N.dump ctxt |> map (fn (kind, key, entry) => (kind, key, #serial entry))) andalso
+      is_none (M.generic_scope ctxt) andalso is_none (M.impl_self ctxt))
+  val recovered = run \<^theory> "generic-member-navigation-recovery"
+    ("urust [verbosity = 0] " ^ cartouche "fn GenericNavigationRecovery(value: u8) -> u8 { value }")
+  val _ = require "positioned recovery remains monomorphic and closed"
+    (is_none (M.generic_scope (Toplevel.context_of recovered)) andalso
+      not (null (N.lookups (Toplevel.context_of recovered) N.NFunction "GenericNavigationRecovery")))
+in end
+\<close>
+
+section\<open> Joint locale schemes and selected effects across theory merges \<close>
+
+ML_val\<open>
+local
+  structure N = Micro_Rust_Names
+  structure M = URust_Type_Mappings
+  structure D = Micro_Rust_Dispatch
+  fun require label condition = if condition then () else error ("joint locale merge: " ^ label)
+  fun cartouche text = Symbol.open_ ^ text ^ Symbol.close
+  fun hol text = "\<tau>" ^ cartouche text
+  fun chunk text = "urust [verbosity = 0] " ^ cartouche text
+  fun run thy label text = Unsynchronized.setmp Private_Output.report_fn (K ()) (fn () =>
+    fold (Toplevel.command_exception false)
+      (Outer_Syntax.parse_text thy (K thy) (Position.make0 1 1 0 "" label label) text)
+      (Toplevel.make_state (SOME thy))) ()
+  fun branch name parents text = Theory.begin_theory (name, Position.none) parents
+    |> (fn thy => Toplevel.theory_of (run thy name text)) |> Theory.end_theory
+  val parent = branch "Generic_Joint_Merge_Parent" [\<^theory>]
+    ("urust_type \"GenericJointOwner<'payload, 'ambient>\" = " ^ cartouche " 'payload * 'ambient " ^
+      "\nlocale generic_joint_merge = fixes joint_seed :: 'ambient\nbegin\n" ^
+      chunk ("impl<T> GenericJointOwner<T, " ^ hol "'ambient" ^
+        "> { fn joint<U>(self, value: U) -> U { let spare = joint_seed; value } }") ^ "\nend")
+  val natural = branch "Generic_Joint_Merge_Nat" [parent]
+    ("interpretation joint_nat: generic_joint_merge " ^ cartouche "0 :: nat" ^ " .")
+  val boolean = branch "Generic_Joint_Merge_Bool" [parent]
+    "interpretation joint_bool: generic_joint_merge False ."
+  fun check (name, parents) =
+    let
+      val thy = Theory.begin_theory (name, Position.none) parents
+      val ctxt = Proof_Context.init_global thy
+      val entries = N.lookups ctxt N.NFunction "GenericJointOwner::joint"
+      val _ = require "both interpreted backends and one source serial survive merge"
+        (length entries = 2 andalso length (distinct (op =) (map #serial entries)) = 1 andalso
+          length (distinct (op =) (map (fastype_of o #hol_term) entries)) = 2)
+      val result = run thy name (chunk
+        ("fn JointNat(owner: GenericJointOwner<u8, " ^ hol "nat" ^ ">, value: bool) -> bool { " ^
+          "GenericJointOwner::<u8, " ^ hol "nat" ^ ">::joint::<bool>(owner, value) }\n" ^
+         "fn JointBool(owner: GenericJointOwner<u8, bool>, value: u8) -> u8 { owner.joint::<u8>(value) }"))
+      val _ = require "both native selected interpretations elaborate after merge"
+        (length (N.lookups (Toplevel.context_of result) N.NFunction "JointNat") = 1 andalso
+          length (N.lookups (Toplevel.context_of result) N.NFunction "JointBool") = 1)
+      val calls = Unsynchronized.ref 0
+      val pos = Position.make0 1 1 0 "" name name
+      val parameter: M.generic_parameter = {rust = "V", pos = pos,
+        kind = URust_AST.Type_Parameter, hol = ("'joint_observed", \<^sort>\<open>type\<close>),
+        bounds = [], report_reference = fn _ => calls := !calls + 1}
+      val scoped = ctxt |> M.with_generic_scope {parameters = [parameter]}
+        |> Variable.declare_typ (TFree (#hol parameter))
+      val target = M.resolve_target_selection scoped (URust_Parser.parse_type_source scoped
+        (Parser_Lex_Util.positioned_content_source
+          ("GenericJointOwner<u8, " ^ hol "nat" ^ ">") pos))
+      val instance: D.scoped_sparse_arguments = {instances = [{source = #serial (hd entries),
+        target = SOME target, arguments = NONE, identities = []}], pending = SOME [("V", pos)], pos = pos}
+      val occurrence = #self_type target --> TFree (#hol parameter) -->
+        Type (\<^type_name>\<open>function_body\<close>,
+          [\<^typ>\<open>unit\<close>, TFree (#hol parameter), \<^typ>\<open>unit\<close>,
+            \<^typ>\<open>unit\<close>, \<^typ>\<open>unit\<close>])
+      val (_, events) = M.capture_generic_use_events scoped (fn observed =>
+        let val effects = D.filtered_candidates_with_scoped_generic_effects observed [] N.NFunction
+          "GenericJointOwner::joint" occurrence NONE NONE NONE (SOME instance)
+          val _ = require "unselected interpretation executes no original callback" (!calls = 0)
+          val (_, commit) = the_single effects
+        in commit () end)
+      val _ = require "selected joint interpretation replays exact source/witness effects once"
+        (!calls = 1 andalso #source_uses events = [fst (#hol parameter)] andalso
+          #witness_uses events = [fst (#hol parameter)])
+    in map #serial entries |> sort int_ord end
+  val forward = check ("Generic_Joint_Merge_Forward", [natural, boolean])
+  val reverse = check ("Generic_Joint_Merge_Reverse", [boolean, natural])
+  val _ = require "both merge orders preserve the same canonical declaration serials"
+    (forward = reverse)
+in end
+\<close>
+
+section\<open> Concrete member arguments in mixed generic ownership \<close>
+
+ML_val\<open>
+local
+  open Impl_Declaration_Test
+  structure N = Micro_Rust_Names
+  structure M = URust_Type_Mappings
+  val base = \<^theory>
+  fun run thy label text = Unsynchronized.setmp Private_Output.report_fn (K ()) (fn () =>
+    run_commands false label thy (quiet text)) ()
+  fun branch name parents text = Theory.begin_theory (name, Position.none) parents
+    |> (fn thy => Toplevel.theory_of (run thy name text)) |> Theory.end_theory
+  val parent = branch "Impl_Mixed_Dispatch_Parent" [base]
+    ("urust_type [erase = " ^ cartouche "'left, 'right" ^
+      "] \"MixedDispatchOwner<'left, 'right>\" = " ^ cartouche "unit")
+  val generic = branch "Impl_Mixed_Dispatch_Generic" [parent] (chunk
+    "impl<T> MixedDispatchOwner<T, bool> { fn pick(value: T) -> T { value } }")
+  val concrete = branch "Impl_Mixed_Dispatch_Concrete" [parent] (chunk
+    "impl MixedDispatchOwner<u8, u16> { fn pick<U>(value: U) -> U { value } }")
+  val concrete_entry = the_single (N.lookups (Proof_Context.init_global concrete)
+    N.NFunction "MixedDispatchOwner::pick")
+  val generic_entry = the_single (N.lookups (Proof_Context.init_global generic)
+    N.NFunction "MixedDispatchOwner::pick")
+  val _ = require "concrete/generic owner declarations stay separate from local headers"
+    (null (#parameters (the (M.scoped_owner (the
+        (M.scoped_generic_scheme_for_source (Proof_Context.init_global concrete)
+          (#serial concrete_entry)))))) andalso
+      map #rust (#parameters (the (M.scoped_owner (the
+        (M.scoped_generic_scheme_for_source (Proof_Context.init_global generic)
+          (#serial generic_entry)))))) = ["T"])
+  val _ = List.app (fn (label, parents) =>
+    let
+      val thy = Theory.begin_theory (label, Position.none) parents
+      val selected = Toplevel.context_of (run thy (label ^ "-positive") (chunk
+        "fn MixedSelectedConcrete(value: bool) -> bool { MixedDispatchOwner::<u8, u16>::pick::<bool>(value) }\n\
+        \fn MixedSelectedGeneric(value: u8) -> u8 { MixedDispatchOwner::<u8, bool>::pick(value) }"))
+      fun constants name = Term.add_const_names (Thm.prop_of
+        (Proof_Context.get_thm selected (name ^ "_def"))) []
+      val _ = require "selected concrete local arguments and inherited generic target pick their own backend"
+        (exists (fn name => member (op =) (constants "mixed_selected_concrete") name)
+            (Term.add_const_names (#hol_term concrete_entry) []) andalso
+          exists (fn name => member (op =) (constants "mixed_selected_generic") name)
+            (Term.add_const_names (#hol_term generic_entry) []))
+      val wrong_kind = quiet (chunk
+        "fn MixedWrongKind(value: u8) -> u8 { MixedDispatchOwner::<u8, u16>::pick::<3>(value) }")
+      val _ = rejects_at (label ^ "-kind") ["wrong type or const kind"]
+        (range_within wrong_kind "::pick::<3>" "3")
+        (fn () => run_commands false (label ^ "-kind") thy wrong_kind)
+      val contradiction = quiet (chunk
+        "fn MixedTargetContradiction(value: bool) -> bool { MixedDispatchOwner::<u8, bool>::pick(value) }")
+      val _ = expect_failure (label ^ "-target") ["no backend"]
+        (fn () => run_commands false (label ^ "-target") thy contradiction)
+    in () end)
+    [("Impl_Mixed_Dispatch_Forward", [generic, concrete]),
+     ("Impl_Mixed_Dispatch_Reverse", [concrete, generic])]
+in end
+\<close>
+
+section\<open> Native equivalence and conservative retained ownership \<close>
+
+ML_val\<open>
+local
+  structure N = Micro_Rust_Names
+  fun require label condition = if condition then () else error ("impl native equivalence: " ^ label)
+  val base = \<^theory>
+  fun cartouche text = Symbol.open_ ^ text ^ Symbol.close
+  fun hol text = "\<tau>" ^ cartouche text
+  fun chunk text = "urust [verbosity = 0] " ^ cartouche text
+  fun run thy label text = Unsynchronized.setmp Private_Output.report_fn (K ()) (fn () =>
+    fold (Toplevel.command_exception false)
+      (Outer_Syntax.parse_text thy (K thy) (Position.make0 1 1 0 "" label label) text)
+      (Toplevel.make_state (SOME thy))) ()
+  fun branch name parents text = Theory.begin_theory (name, Position.none) parents
+    |> (fn thy => Toplevel.theory_of (run thy name text)) |> Theory.end_theory
+  val parent = branch "Impl_Equivalent_Parent" [base]
+    ("urust_type \"ImplEquivalentByte\" = " ^ cartouche "8 word" ^ "\n" ^
+     "urust_type \"ImplEquivalentList<'item>\" = " ^ cartouche "'item list" ^ "\n" ^
+     "urust_type \"ImplEquivalentSequence<'item>\" = " ^ cartouche "'item list")
+  fun concrete target result = chunk ("impl Duo<" ^ target ^
+    "> { fn concrete_equivalent(value: " ^ result ^ ") -> " ^ result ^ " { value } }")
+  val primitive = branch "Impl_Equivalent_Primitive" [parent] (concrete "u8" "u8")
+  val escaped = branch "Impl_Equivalent_Escape" [parent] (concrete (hol "8 word") "u8")
+  val mapped = branch "Impl_Equivalent_Mapping" [parent] (concrete "ImplEquivalentByte" "u8")
+  val disjoint = branch "Impl_Equivalent_Disjoint" [parent] (concrete "u16" "u16")
+  fun generic parameter target = chunk ("impl<" ^ parameter ^ "> Duo<" ^ target ^
+    "> { fn retained_equivalent(value: " ^ parameter ^ ") -> " ^ parameter ^ " { value } }")
+  val generic_list = branch "Impl_Equivalent_Generic_List" [parent]
+    (generic "T" "ImplEquivalentList<T>")
+  val generic_sequence = branch "Impl_Equivalent_Generic_Sequence" [parent]
+    (generic "U" "ImplEquivalentSequence<U>")
+  val concrete_list = branch "Impl_Equivalent_Concrete_List" [parent]
+    (chunk ("impl Duo<" ^ hol "nat list" ^
+      "> { fn retained_equivalent(value: " ^ hol "nat" ^ ") -> " ^ hol "nat" ^ " { value } }"))
+  fun owner thy key = the_single (N.associated_template_functions (Proof_Context.init_global thy) key)
+  val cases =
+    [("primitive-escape", "Duo::concrete_equivalent", primitive, escaped),
+     ("equal-rhs-mapping", "Duo::concrete_equivalent", primitive, mapped),
+     ("generic-concrete", "Duo::retained_equivalent", generic_list, concrete_list),
+     ("generic-generic", "Duo::retained_equivalent", generic_list, generic_sequence)]
+  fun rejected label action =
+    case Exn.capture0 action () of
+      Exn.Exn (ERROR message) => require (label ^ ": overlap diagnostic")
+        (String.isSubstring "overlapping Self types" message)
+    | Exn.Exn exn => Exn.reraise exn
+    | Exn.Res _ => error (label ^ ": equivalent native owners were admitted")
+  fun reserve ({target, identity, pos, source_identity}:
+      {target: N.target_template, identity: serial, pos: Position.T, source_identity: string option}) =
+    N.reserve_associated_template_function
+      {name = "ImplEquivalentOwner::probe", target = target, identity = identity,
+       source_identity = source_identity, pos = pos}
+  val _ = List.app (fn (label, key, left, right) =>
+    let
+      val first = owner left key
+      val second = owner right key
+      val _ = require (label ^ ": authoritative source-insensitive targets")
+        (not (#requires_source_identity (#target first)) andalso
+          not (#requires_source_identity (#target second)))
+      val _ = require (label ^ ": native overlap in both orders")
+        (N.overlapping_targets (#target first, #target second) andalso
+          N.overlapping_targets (#target second, #target first))
+      val context = Context.Proof \<^context>
+      val _ = rejected (label ^ "-reserve-forward")
+        (fn () => reserve second (reserve first context))
+      val _ = rejected (label ^ "-reserve-reverse")
+        (fn () => reserve first (reserve second context))
+      val _ = rejected (label ^ "-merge-forward")
+        (fn () => Theory.begin_theory ("Impl_Equivalent_" ^ label ^ "_Forward", Position.none)
+          [left, right])
+      val _ = rejected (label ^ "-merge-reverse")
+        (fn () => Theory.begin_theory ("Impl_Equivalent_" ^ label ^ "_Reverse", Position.none)
+          [right, left])
+    in () end) cases
+  val _ = List.app (fn parents =>
+    let val merged = Theory.begin_theory ("Impl_Equivalent_Disjoint_Merge", Position.none) parents
+    in require "native-disjoint concrete owners survive either merge order"
+      (length (N.associated_template_functions (Proof_Context.init_global merged)
+        "Duo::concrete_equivalent") = 2) end) [[primitive, disjoint], [disjoint, primitive]]
+  val selected = Toplevel.context_of (run generic_list "Impl_Equivalent_Structural_Selection"
+    (chunk ("fn EquivalentStructured(value: " ^ hol "nat" ^ ") -> " ^ hol "nat" ^
+      " { Duo::<ImplEquivalentList<" ^ hol "nat" ^ ">>::retained_equivalent(value) }")))
+  val _ = require "canonical retained generic structure selects its actual backend"
+    (length (N.lookups selected N.NFunction "EquivalentStructured") = 1)
+  val representation = Exn.capture0 (fn () => run generic_list "Impl_Equivalent_HOL_Selection"
+    (chunk ("fn EquivalentRepresentation(value: " ^ hol "nat" ^ ") -> " ^ hol "nat" ^
+      " { Duo::<" ^ hol "nat list" ^ ">::retained_equivalent(value) }"))) ()
+  val _ = require "generic representation selection remains an explicit structural boundary"
+    (case representation of Exn.Exn exn =>
+      String.isSubstring "no associated function" (Runtime.exn_message exn) | _ => false)
+in end
+\<close>
+
+section\<open> Grouped alias provenance with equal source arguments \<close>
+
+ML_val\<open>
+local
+  structure M = URust_Type_Mappings
+  open URust_AST
+  val ctxt = \<^context>
+  val pos = Position.make0 1 601 0 "" "s2-grouped-origins" "s2-grouped-origins"
+  fun nominal (Group_Type (typ, _)) = nominal typ
+    | nominal typ = typ
+  fun check root nested =
+    let
+      val written = if nested then "((ImplDemandSwap<u8 /* \<alpha> first */, u8 /* second */>))"
+        else "(ImplDemandSwap<u8 /* \<alpha> first */, u8 /* second */>)"
+      val raw = Parser_Lex_Util.positioned_content_source written pos
+      val argument = URust_Parser.parse_generic_argument_source ctxt raw
+      val (group_pos, first_pos, second_pos) = case argument of Rust_Type_Argument group =>
+        (case nominal group of Path_Type ([Rust_Type_Path_Segment (_, _, SOME
+          [Rust_Type_Argument first, Rust_Type_Argument second], _)], _) =>
+            (rust_type_position group, rust_type_position first, rust_type_position second)
+         | _ => raise Fail "grouped alias syntax changed")
+        | _ => raise Fail "grouped argument syntax changed"
+      val arguments = [argument] @ (if root = "ImplLocalePair" then
+        [Rust_Type_Argument (Primitive_Type (DPT_Bool, Position.none))] else [])
+      val target = Path_Type ([Rust_Type_Path_Segment (root, pos, SOME arguments,
+        make_source_layout pos [])], make_source_layout pos [])
+      val selected = M.resolve_target_selection_with_inputs ctxt [(group_pos, raw)] target
+      fun input path = the (AList.lookup (op =) (#inputs selected) path)
+      val _ = if #1 (input [0]) = Input.string_of raw andalso
+        Position.offset_of (#2 (input [0, 0])) = Position.offset_of second_pos andalso
+        Position.offset_of (#2 (input [0, 1])) = Position.offset_of first_pos then ()
+        else error "grouped equal canonical arguments lost distinct original subtree associations"
+    in () end
+  val _ = List.app (fn (root, nested) => check root nested)
+    [("ImplDemandBox", false), ("ImplDemandBox", true),
+     ("ImplLocalePair", false), ("ImplLocalePair", true)]
+in end
 \<close>
 
 end

@@ -5972,4 +5972,78 @@ local
 in end
 \<close>
 
+section\<open> Inherited impl lifetimes and isolated member headers \<close>
+
+ML_val\<open>
+local
+  structure M = URust_Type_Mappings
+  fun require label condition = if condition then () else error ("inherited lifetime regression: " ^ label)
+  val ctxt = Context_Position.set_visible true \<^context>
+  fun pos offset = Position.make0 1 offset 0 "" "s2-inherited-lifetimes" "s2-inherited-lifetimes"
+  fun collect (XML.Text _) acc = acc
+    | collect (XML.Elem (markup, body)) acc = fold collect body (markup :: acc)
+  fun capture action =
+    let val chunks = Unsynchronized.ref ([]: string list)
+      val result = Unsynchronized.setmp Private_Output.report_fn
+        (fn output => chunks := output @ !chunks)
+        (fn () => Print_Mode.with_modes [Print_Mode.PIDE] action ()) ()
+    in (result, fold collect (maps YXML.parse_body (!chunks)) []) end
+  fun parse text offset = URust_Parser.parse_function_source ctxt
+    (Parser_Lex_Util.positioned_content_source text (pos offset)) |> the
+  val (prepared, declaration_reports) = capture (fn () => M.with_header_lifetimes
+    [URust_AST.Rust_Lifetime ("'a", pos 1)] ctxt)
+  val scoped_parameter: M.generic_parameter = {rust = "T", pos = pos 11,
+    kind = URust_AST.Type_Parameter, hol = ("'lifetime_parent", \<^sort>\<open>type\<close>),
+    bounds = [], report_reference = K ()}
+  val prepared_with_scope = prepared |> M.with_generic_scope {parameters = [scoped_parameter]}
+    |> M.with_impl_self {canonical_path = "LifetimeParent", self_type = \<^typ>\<open>nat\<close>,
+      target_pos = pos 21, report_reference = K ()}
+  val member_ctxt = M.inherit_header_lifetimes prepared_with_scope ctxt
+  val _ = require "lifetime inheritance copies no generic, Self or availability state"
+    (is_none (M.generic_scope member_ctxt) andalso is_none (M.impl_self member_ctxt) andalso
+      not (M.declared_generic_scope member_ctxt))
+  val (_, first) = capture (fn () => M.check_function_header member_ctxt
+    (parse "fn First<'b>(one: &'a mut u8, two: &'b mut u8) {}" 101))
+  val (_, second) = capture (fn () => M.check_function_header member_ctxt
+    (parse "fn Second(one: &'a mut u8) {}" 201))
+  fun lifetime_reports reports = reports |> map_filter (fn (name, props) =>
+    if name = Markup.entityN andalso Properties.get props Markup.kindN = SOME "urust_lifetime"
+      then SOME props else NONE)
+  val declarations = lifetime_reports declaration_reports
+  val inherited_identity = the (Properties.get (the_single declarations) Markup.defN)
+  val first_lifetimes = lifetime_reports first
+  val second_lifetimes = lifetime_reports second
+  val _ = require "impl lifetime is declared exactly once and both members retain that identity"
+    (length declarations = 1 andalso
+      length (filter (fn props => Properties.get props Markup.refN = SOME inherited_identity)
+        first_lifetimes) = 1 andalso
+      length (filter (fn props => Properties.get props Markup.refN = SOME inherited_identity)
+        second_lifetimes) = 1 andalso
+      not (exists (fn props => Properties.get props Markup.defN = SOME inherited_identity)
+        (first_lifetimes @ second_lifetimes)))
+  val local_declarations = filter (is_some o (fn props => Properties.get props Markup.defN)) first_lifetimes
+  val _ = require "member local lifetime has one declaration and one use"
+    (length local_declarations = 1 andalso
+      length (filter (fn props => Properties.get props Markup.refN =
+        Properties.get (hd local_declarations) Markup.defN) first_lifetimes) = 1)
+  fun reject label expected text offset =
+    (case Exn.capture0 (fn () => M.check_function_header member_ctxt (parse text offset)) () of
+       Exn.Exn (ERROR message) => require (label ^ ": " ^ message) (String.isSubstring expected message)
+     | Exn.Exn exn => Exn.reraise exn
+     | Exn.Res _ => error (label ^ ": unexpectedly accepted"))
+  val _ = reject "local lifetime does not leak to sibling" "undeclared lifetime"
+    "fn Sibling(one: &'b mut u8) {}" 301
+  val _ = reject "local lifetime cannot shadow inherited declaration" "duplicate lifetime parameter"
+    "fn Shadow<'a>() {}" 401
+  val (_, binder_reports) = capture (fn () => M.check_function_header member_ctxt
+    (parse "fn Binder<T: for<'c> Unknown<&'c mut u8>>() {}" 501))
+  val _ = require "bound-local lifetime is isolated and has exact navigation"
+    (length (lifetime_reports binder_reports) = 2)
+  val _ = reject "bound-local lifetime does not leak" "undeclared lifetime"
+    "fn AfterBinder(one: &'c mut u8) {}" 601
+  val _ = reject "binder cannot shadow inherited declaration" "shadows an enclosing lifetime"
+    "fn ShadowBinder<T: for<'a> Unknown<&'a mut u8>>() {}" 701
+in end
+\<close>
+
 end

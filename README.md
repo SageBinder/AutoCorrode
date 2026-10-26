@@ -344,7 +344,17 @@ urust ‹
 ›
 ```
 
-- **Members.** Concrete impl members may declare their own type/const parameters and bounds.
+- **Generic headers.** Inherent impls accept mixed lifetime, type and `usize` const declarations,
+  with supported inline or `where` trait bounds: `impl<'a, T: Ord, const N: usize> Pocket<T, N>`.
+  Type/const parameters must occur in the canonical implementing type; member-only uses and
+  arguments discarded by aliases do not constrain them. Lifetimes follow their separate scope
+  rule. Impl `ω‹hol_type_parameters = …›` selects HOL names for impl declarations; a member
+  override addresses only its own declarations.
+- **Members.** Members may declare their own type/const parameters and bounds.
+  They inherit the impl scope and may strengthen an inherited type parameter in a member's
+  `where` clause, without changing other members. Local declarations cannot shadow inherited
+  Rust or HOL names. An inherited parameter irrelevant to a member adds no HOL type/value
+  argument; a body demand for a witness absent from that member's complete type rejects.
   Each member is declared exactly as the equivalent `urust_fn` with a typed
   receiver; `self`, `mut self` and `&'a mut self` mean `self: Self`, `mut self: Self` and
   `self: &'a mut Self`. The default HOL name is the snake case of the target's final written
@@ -361,7 +371,7 @@ urust ‹
   parameter is `self` also registers a method entry `f`, so `x.f(..)` and `Counter::f(x, ..)`
   call it. Direct calls `f(..)` never reach method entries (the hint names the method forms), and
   associated functions and methods are not importable. Generic calls include `Counter::f::<u8>(x)`,
-  `Holder::<u16>::f::<u8>(x)`, `owner.f::<u8>(x)` and `Self::f::<T>(x)` inside a concrete impl.
+  `Holder::<u16>::f::<u8>(x)`, `owner.f::<u8>(x)` and `Self::f::<T>(x)` inside an impl.
   The first argument list selects the implementing type; the member list instantiates its own header.
 - **`Self`.** In member types, and as a path head in calls, values, struct expressions,
   constructors and patterns, `Self` is the implementing type with its generic arguments;
@@ -377,7 +387,7 @@ urust ‹
   paths, including nested retained types; const-expression and HOL source escapes stay opaque.
   `impl` is a reserved word.
 - **Targets and instances.** A target is a generated datatype or `urust_type` mapping, optionally
-  with concrete or `τ‹…›` arguments, or a `urust_type_alias` of one (keys go under the alias's
+  with impl parameters, concrete or `τ‹…›` arguments, or a `urust_type_alias` of one (keys go under the alias's
   target). Following Rust, a path call `T::f(..)` with impls on several instances of `T` must
   select one with `T::<A>::f(..)`, `Self`, a type alias that fixes the instance, an imported
   alias, or an imported head with generic arguments; a plain imported generic head
@@ -386,15 +396,20 @@ urust ‹
   registration. Impl members reuse checked Self backend roles, so mapped aliases, pointers and
   mutable references share those roles even when their values are unrelated in the body.
   Incompatible demands on fixed Self or ambient types reject; no scoped backend default is inferred.
+  Source-insensitive concrete owners preserve native HOL type equivalence. Generic selection
+  requires canonical target structure, so a nested mapped generic argument cannot be replaced by
+  a structurally different equivalent HOL escape. Overlapping source-insensitive native Self
+  types still reject, including generic/concrete owners with different source representations.
 - **Erased source identities.** Distinct tags or capacities can share a HOL Self type while
   selecting different impl owners. Alias, expanded and `Self` paths preserve the source identity.
   A local receiver carrying only its HOL type cannot select an identity-dependent member, even
   with one compatible owner; use `Handle::<u8, Policy, 0>::member(value)` or a concrete type alias.
-- **Not supported.** `impl<…>` generics, trait impls, impl-header `where`, `unsafe impl`, associated
+- **Not supported.** Trait impls, `unsafe impl`, associated
   `const`/`type` items, `pub`, `&self` (until the shared-reference model is chosen), autoref and
   autoderef at method calls, and order-independent member visibility (members and items are seen
   in source order). Method calls can still reach free functions and explicit notations of the same
-  name.
+  name. Lifetime/outlives bounds, callable bounds and richer generic trait bounds remain unsupported
+  by authoritative impl denotation.
 
 `urust_type` is the sole nominal Rust-to-HOL type translation mechanism. Its context-local keys may
 be qualified and generic. Without options, ordered mapping placeholders must correspond exactly to
@@ -811,7 +826,7 @@ are still reported as ordinary errors. Braced arm bodies such as `{ return value
 ordinary statement semicolons. Complete guard bodies also retain return statements.
 Deliberately deferred Rust surface includes general
 postfix calls, one-element tuples, open ranges, unary numeric negation, `/=`, leading
-`::`, generic impls and the unsupported bounds/const forms listed above, universal macro trailing
+`::` and the unsupported bounds/const forms listed above, universal macro trailing
 commas, and additional numeric families.
 
 The parser implementation depends only on `Shallow_Micro_Rust` and `Isabelle_Lex-Yacc`.

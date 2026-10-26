@@ -2663,7 +2663,8 @@ local
   val _ = require "member annotation sets one generic signature"
     (map #hol (scheme annotated (#hol_term (entry annotated "SignatureAnnotated::Value"))) =
       [("'member", @{sort ord})])
-  val _ = ignore (failure "impl-override-option" "names one function" (fn () =>
+  (* An impl override addresses only declarations on that impl, not a member's local T. *)
+  val _ = ignore (failure "impl-override-option" "unknown parameter override" (fn () =>
     run thy "impl-override-option"
       ("urust [verbosity = 0] " ^ cartouche
         ("struct SignatureAnnotated { value: u8 }\n\<omega>" ^
@@ -5815,6 +5816,56 @@ local
     (snapshot ctxt = snapshot (Proof_Context.init_global thy))
   val _ = require_scope_closed label completed
 in val _ = () end
+\<close>
+
+section\<open> Inherited generic declaration identity \<close>
+
+ML_val\<open>
+local
+  structure M = URust_Type_Mappings
+  fun require label condition = if condition then () else error ("inherited generic identity: " ^ label)
+  val ctxt = \<^context>
+  val calls = Unsynchronized.ref 0
+  val callback = fn _ => calls := !calls + 1
+  val original: M.generic_parameter = {rust = "T", pos = Position.none,
+    kind = URust_AST.Type_Parameter, hol = ("'inherited_identity", \<^sort>\<open>type\<close>),
+    bounds = [], report_reference = callback}
+  val refined: M.generic_parameter = {rust = #rust original, pos = #pos original,
+    kind = #kind original, hol = (fst (#hol original), \<^sort>\<open>ord\<close>),
+    bounds = ["identity::Ordered"], report_reference = callback}
+  val local_parameter: M.generic_parameter = {rust = "U", pos = Position.none,
+    kind = URust_AST.Type_Parameter, hol = ("'local_identity", \<^sort>\<open>type\<close>),
+    bounds = [], report_reference = K ()}
+  val declaration = M.fresh_generic_declaration_identity ()
+  val local_declaration = M.fresh_generic_declaration_identity ()
+  val inherited = M.with_identified_generic_scope {parameters = [original]} [declaration] ctxt
+  val member_ctxt = M.with_identified_generic_scope {parameters = [refined, local_parameter]}
+    [declaration, local_declaration] ctxt
+  val _ = require "explicit transport retains inherited identity and ordered local extension"
+    (M.generic_scope_identities inherited = SOME [declaration] andalso
+      M.generic_scope_identities member_ctxt = SOME [declaration, local_declaration])
+  val SOME {parameters = [after, local_after]} = M.generic_scope member_ctxt
+  val _ = require "compatible records and exact callback objects survive transport"
+    (pointer_eq (refined, after) andalso pointer_eq (local_parameter, local_after) andalso
+      pointer_eq (callback, #report_reference after))
+  val (_, events) = M.capture_generic_use_events inherited (fn observed =>
+    let
+      val refined_ctxt = M.with_identified_generic_scope {parameters = [refined, local_parameter]}
+        [declaration, local_declaration] observed
+      val _ = M.report_generic_reference refined_ctxt refined Position.none
+    in () end)
+  val _ = require "stable declaration tokens do not relax full-record observer membership"
+    (null (#source_uses events) andalso null (#witness_uses events) andalso !calls = 1)
+  val (_, original_events) = M.capture_generic_use_events inherited (fn observed =>
+    M.report_generic_reference observed original Position.none)
+  val _ = require "unchanged inherited record is observed exactly once"
+    (#source_uses original_events = [fst (#hol original)] andalso
+      #witness_uses original_events = [fst (#hol original)] andalso !calls = 2)
+  val _ = require "isolated member refinement leaves parent records and availability unchanged"
+    (case M.generic_scope inherited of SOME {parameters = [parameter]} =>
+      pointer_eq (parameter, original) andalso M.parameter_available inherited parameter andalso
+        M.parameter_has_witness inherited parameter | _ => false)
+in end
 \<close>
 
 end

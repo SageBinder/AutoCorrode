@@ -1,6 +1,8 @@
 theory Parser_Impl_Type_Mappings
   imports
     Parser_Impl_AST
+    Parser_Impl_Grammar
+    Parser_Impl_Printer
     Parser_Utils
     Parser_Impl_Import_Scope
     Shallow_Micro_Rust.Semantic_Navigation
@@ -119,6 +121,8 @@ sig
   val check_lifetimes: URust_AST.rust_lifetime list -> URust_AST.rust_type list -> unit
   val check_signature_syntax: Proof.context -> URust_AST.rust_type list -> unit
   val check_function_header: Proof.context -> URust_AST.urust_function -> unit
+  val with_header_lifetimes: URust_AST.rust_lifetime list -> Proof.context -> Proof.context
+  val inherit_header_lifetimes: Proof.context -> Proof.context -> Proof.context
   val rust_type_operands: URust_AST.rust_type -> URust_AST.rust_type list
   val resolve_fields:
     Proof.context -> URust_AST.rust_type list ->
@@ -178,6 +182,14 @@ sig
      report_reference: Position.T -> unit}
   val resolve_impl_target: Proof.context -> URust_AST.rust_type -> impl_self
   type source_identity
+  val resolve_impl_target_selection:
+    Proof.context -> URust_AST.rust_type ->
+      impl_self * source_identity option * Micro_Rust_Names.target_selection
+  val resolve_target_selection:
+    Proof.context -> URust_AST.rust_type -> Micro_Rust_Names.target_selection
+  val resolve_target_selection_with_inputs:
+    Proof.context -> (Position.T * Input.source) list -> URust_AST.rust_type ->
+      Micro_Rust_Names.target_selection
   val resolve_impl_target_identity:
     Proof.context -> URust_AST.rust_type -> impl_self * source_identity option
   val with_impl_self_identity:
@@ -197,6 +209,14 @@ sig
   type generic_scope = {parameters: generic_parameter list}
   val with_generic_scope: generic_scope -> Proof.context -> Proof.context
   val generic_scope: Proof.context -> generic_scope option
+  val source_target_template:
+    Proof.context -> {self_type: typ, source: source_identity,
+      declarations: serial list, witnesses: typ option list} -> Micro_Rust_Names.target_template
+  type generic_declaration_identity = serial
+  val fresh_generic_declaration_identity: unit -> generic_declaration_identity
+  val generic_scope_identities: Proof.context -> generic_declaration_identity list option
+  val with_identified_generic_scope:
+    generic_scope -> generic_declaration_identity list -> Proof.context -> Proof.context
   val capture_generic_uses:
     Proof.context -> (Proof.context -> 'a) -> 'a * string list
   val report_generic_reference:
@@ -225,6 +245,25 @@ sig
   type generic_source_parameter =
     {rust: string, kind: URust_AST.generic_parameter_kind,
      hol: (string * sort) option, sort: sort, bounds: string list, source_used: bool option}
+  type impl_scheme =
+    {parameters: generic_source_parameter list, declarations: generic_declaration_identity list,
+     target: Micro_Rust_Names.target_template}
+  type scoped_scheme_registration =
+    {identity: term, backend: term, sources: serial list, owner: impl_scheme option,
+     parameters: generic_source_parameter list, pos: Position.T}
+  type scoped_generic_scheme
+  val register_scoped_generic_source_scheme:
+    scoped_scheme_registration -> local_theory -> local_theory
+  val scoped_generic_scheme_for_source: Proof.context -> serial -> scoped_generic_scheme option
+  val scoped_generic_scheme: Proof.context -> term -> scoped_generic_scheme option
+  val scoped_owner: scoped_generic_scheme -> impl_scheme option
+  val scoped_parameters: scoped_generic_scheme -> generic_source_parameter list
+  val instantiate_scoped_generic_scheme_for_source:
+    Proof.context -> serial -> term ->
+      {target: Micro_Rust_Names.target_selection option,
+       arguments: (typ option * Position.T) list option} -> term option
+  val prepare_scoped_target_selection:
+    Proof.context -> serial -> Micro_Rust_Names.target_selection -> Micro_Rust_Names.target_selection
   val generic_source_scheme_for_source:
     Proof.context -> serial -> generic_source_parameter list option
   val register_generic_source_scheme:
@@ -729,6 +768,61 @@ struct
 
   type source_identity = meaning
   val morph_source_identity = morph_meaning
+
+  structure Source_Resolution_Trace = Proof_Data
+  (
+    type T = (meaning * typ option * rust_generic_argument) list Unsynchronized.ref option
+    fun init _ = NONE
+  )
+
+  structure Source_Resolution_Origins = Proof_Data
+  (
+    type T = (Position.T * (int list * rust_generic_argument) list) list Unsynchronized.ref option
+    fun init _ = NONE
+  )
+
+  fun argument_origin (Rust_Type_Argument typ) = rust_type_position typ
+    | argument_origin (Rust_Numeric_Argument integer) = integer_literal_position integer
+    | argument_origin (Rust_Lifetime_Argument (Rust_Lifetime (_, pos))) = pos
+    | argument_origin (Rust_Associated_Type_Argument (_, pos, _)) = pos
+    | argument_origin (Rust_Const_Expression_Argument source) = Input.pos_of source
+
+  fun same_origin (left, right) = Position.properties_of left = Position.properties_of right
+
+  fun meaning_children (Meaning_Mapped (_, _, _, _, _, arguments)) = arguments
+    | meaning_children (Meaning_Opaque rows) = maps snd rows
+    | meaning_children (Meaning_Tuple types) = types
+    | meaning_children (Meaning_Array (element, length)) = [element, length]
+    | meaning_children (Meaning_Pointer (_, typ)) = [typ]
+    | meaning_children (Meaning_Reference (_, typ)) = [typ]
+    | meaning_children _ = []
+
+  (* Use the actual mapping template at the authoritative substitution point. Equal source
+     values in distinct slots retain their own origins, even through reordered aliases. *)
+  fun note_instantiated_origins ctxt pos template arguments =
+    Option.app (fn origins =>
+      let
+        fun argument index =
+          let val source = nth arguments index
+              val nested = the_default [] (AList.lookup same_origin (!origins) (argument_origin source))
+          in ([], source) :: filter (not o null o fst) nested end
+        fun visit path (Meaning_Parameter index) = map (apfst (append path)) (argument index)
+          | visit path (Meaning_Const_Parameter index) = map (apfst (append path)) (argument index)
+          | visit path meaning = maps (fn (index, child) => visit (path @ [index]) child)
+              (map_index I (meaning_children meaning))
+      in origins := AList.update same_origin (pos, visit [] template) (!origins) end)
+      (Source_Resolution_Origins.get ctxt)
+
+  fun note_source_resolution ctxt meaning evidence argument =
+    Option.app (fn trace => trace := (meaning, evidence, argument) :: !trace)
+      (Source_Resolution_Trace.get ctxt)
+
+  fun inherit_source_origins ctxt inner outer =
+    Option.app (fn origins =>
+      case AList.lookup same_origin (!origins) inner of
+        NONE => ()
+      | SOME associated => origins := AList.update same_origin (outer, associated) (!origins))
+      (Source_Resolution_Origins.get ctxt)
 
   (* The key names expanded source structure, never the HOL representation of an erased slot.
      HOL escapes remain typed identities; the associated owner separately checks its full Self
@@ -1266,6 +1360,18 @@ struct
     fun init _ = NONE
   )
 
+  type generic_declaration_identity = serial
+  val fresh_generic_declaration_identity = serial
+  fun generic_scope_identities ctxt = Option.map (K (map snd (Generic_Identities.get ctxt)))
+    (generic_scope ctxt)
+  fun with_identified_generic_scope (scope as {parameters}: generic_scope) identities ctxt =
+    if length parameters <> length identities orelse
+        length (distinct (op =) identities) <> length identities then
+      raise Fail "uRust generic scope: malformed declaration identities"
+    else ctxt |> Generic_Scope.put (SOME scope)
+      |> Generic_Identities.put (parameters ~~ identities)
+      |> Source_Only_Parameters.put [] |> Declared_Body_Parameters.put NONE
+
   fun with_generic_scope (scope as {parameters}: generic_scope) ctxt =
     let
       val previous = Generic_Identities.get ctxt
@@ -1426,9 +1532,22 @@ struct
   type generic_source_parameter =
     {rust: string, kind: generic_parameter_kind, hol: (string * sort) option,
      sort: sort, bounds: string list, source_used: bool option}
-  type function_scheme =
-    {terms: term list, sources: serial list,
+  type impl_scheme =
+    {parameters: generic_source_parameter list, declarations: generic_declaration_identity list,
+     target: Micro_Rust_Names.target_template}
+  type scoped_scheme_registration =
+    {identity: term, backend: term, sources: serial list, owner: impl_scheme option,
      parameters: generic_source_parameter list, pos: Position.T}
+  type function_scheme =
+    {terms: term list, sources: serial list, owner: impl_scheme option,
+     parameters: generic_source_parameter list, pos: Position.T}
+  type scoped_generic_scheme = function_scheme
+  fun scoped_owner (scheme: scoped_generic_scheme) = #owner scheme
+  fun scoped_parameters (scheme: scoped_generic_scheme) = #parameters scheme
+  fun owner_types NONE = []
+    | owner_types (SOME ({target, ...}: impl_scheme)) = Micro_Rust_Names.target_types target
+  fun local_witnesses (scheme: function_scheme) =
+    map Logic.dest_type (drop (2 + length (owner_types (#owner scheme))) (#terms scheme))
 
   (* Normalize the backend and witnesses together; a witness can name a parameter that
      never occurs in the backend, and independent channel slots must stay independent. *)
@@ -1451,7 +1570,7 @@ struct
   fun same_function_scheme (left: function_scheme, right: function_scheme) =
     eq_list (op aconv) (#terms left, #terms right) andalso
       map parameter_core (#parameters left) = map parameter_core (#parameters right) andalso
-      #sources left = #sources right
+      #sources left = #sources right andalso #owner left = #owner right
 
   fun merge_source_usage (left: generic_source_parameter, right: generic_source_parameter) =
     let
@@ -1468,7 +1587,7 @@ struct
          let
            val parameters = map merge_source_usage (#parameters existing ~~ #parameters candidate)
            val merged = {terms = #terms existing, sources = #sources existing,
-             parameters = parameters, pos = #pos existing}: function_scheme
+             parameters = parameters, owner = #owner existing, pos = #pos existing}: function_scheme
          in map (fn entry => if same_function_scheme (entry, existing) then merged else entry) entries end
      | NONE =>
       (case find_first (fn (entry: function_scheme) =>
@@ -1488,17 +1607,23 @@ struct
     fun merge (left, right) = fold add_function_scheme right left
   )
 
-  fun register_function_scheme {identity, backend, sources, parameters, pos} witnesses lthy =
-    if null parameters then lthy
+  fun register_function_scheme_full owner {identity, backend, sources, parameters, pos} witnesses lthy =
+    if null parameters andalso is_none owner then lthy
     else
       let
         val terms = Variable.polymorphic lthy
-          (backend :: identity :: map Logic.mk_type witnesses)
+          (backend :: identity :: map Logic.mk_type (owner_types owner @ witnesses))
         fun install phi =
           let
             val transformed =
               map (Morphism.term phi) terms |> normalize_function_scheme
-            val witnesses = map Logic.dest_type (drop 2 transformed)
+            val (transported_owner_types, witnesses) =
+              chop (length (owner_types owner)) (map Logic.dest_type (drop 2 transformed))
+            val transported_owner = Option.map (fn ({parameters, declarations, target}: impl_scheme) =>
+              let val substitution = owner_types owner ~~ transported_owner_types
+                val target = Micro_Rust_Names.map_target_types
+                  (fn typ => the (AList.lookup (op =) substitution typ)) target
+              in {parameters = parameters, declarations = declarations, target = target}: impl_scheme end) owner
             fun transport ({rust, kind, hol = NONE, sort, bounds, source_used}: generic_source_parameter) pending =
                   ({rust = rust, kind = kind, hol = NONE, sort = sort, bounds = bounds,
                     source_used = source_used}, pending)
@@ -1511,10 +1636,19 @@ struct
             val _ = if null remaining then () else
               raise Fail "uRust function scheme: extra witnesses"
           in Function_Schemes.map (add_function_scheme
-            {terms = transformed, sources = sources, parameters = transported, pos = pos}) end
+            {terms = transformed, sources = sources, owner = transported_owner, parameters = transported, pos = pos}) end
       in
         Local_Theory.declaration {pervasive = false, syntax = false, pos = pos} install lthy
       end
+
+  fun register_function_scheme registration witnesses lthy =
+    register_function_scheme_full NONE registration witnesses lthy
+
+  fun register_scoped_generic_source_scheme
+      ({identity, backend, sources, owner, parameters, pos}: scoped_scheme_registration) lthy =
+    register_function_scheme_full owner
+      {identity = identity, backend = backend, sources = sources, parameters = parameters, pos = pos}
+      (map_filter (Option.map TFree o #hol) parameters) lthy
 
   fun register_generic_source_scheme (registration as {parameters, ...}) lthy =
     register_function_scheme registration
@@ -1558,13 +1692,27 @@ struct
 
   fun generic_scheme ctxt backend =
     Option.mapPartial witnessed_parameters
-      (consistent_parameters (matching_function_schemes ctxt backend))
+      (consistent_parameters (filter (not o null o #parameters) (matching_function_schemes ctxt backend)))
 
   fun schemes_for_source ctxt source =
     filter (fn (entry: function_scheme) => member (op =) (#sources entry) source)
       (function_schemes ctxt)
 
-  fun generic_source_scheme_for_source ctxt source = consistent_parameters (schemes_for_source ctxt source)
+  fun generic_source_scheme_for_source ctxt source = consistent_parameters
+    (filter (not o null o #parameters) (schemes_for_source ctxt source))
+  fun owner_metadata NONE = NONE
+    | owner_metadata (SOME ({parameters, declarations, target}: impl_scheme)) = SOME
+        (map parameter_core parameters, declarations,
+         Option.map (Micro_Rust_Names.map_source_types (K dummyT)) (#source target),
+         map (fn ({name, kind, witness}: Micro_Rust_Names.source_variable) =>
+           (name, kind, is_some witness)) (#variables target), #requires_source_identity target)
+  fun consistent_scoped_schemes [] = NONE
+    | consistent_scoped_schemes (entry :: entries: function_scheme list) =
+        if forall (fn other => #parameters entry = #parameters other andalso
+            owner_metadata (#owner entry) = owner_metadata (#owner other)) entries then SOME entry
+        else error "urust: inconsistent scoped metadata for one source"
+  fun scoped_generic_scheme_for_source ctxt source = consistent_scoped_schemes (schemes_for_source ctxt source)
+  fun scoped_generic_scheme ctxt backend = consistent_scoped_schemes (matching_function_schemes ctxt backend)
   fun generic_scheme_for_source ctxt source =
     Option.mapPartial witnessed_parameters (generic_source_scheme_for_source ctxt source)
 
@@ -1588,7 +1736,9 @@ struct
           val terms = map (Term.map_types (Logic.incr_tvar shift)) (#terms entry)
           val environment = Pattern.match thy (hd terms, backend) (Vartab.empty, Vartab.empty)
             |> Pattern.match thy (nth terms 1, identity)
-          val witnesses = map (Logic.dest_type #> Envir.subst_type (#1 environment)) (drop 2 terms)
+          val witnesses = map (Envir.subst_type (#1 environment)) (local_witnesses
+            {terms = terms, sources = #sources entry, owner = #owner entry,
+             parameters = #parameters entry, pos = #pos entry})
         in (entry, witnesses) end
       val entries = map_filter (try align) schemes
       val previous = (case entries of
@@ -1618,14 +1768,14 @@ struct
       (* Freshen only candidate variables, before caller substitution, and away from unused
          scheme witnesses as well as caller/context indexes. *)
       val fresh_candidate = Term.map_types (Logic.incr_tvar shift) candidate
-      fun instantiate ({terms, parameters, ...}: function_scheme) =
+      fun instantiate (scheme as {terms, parameters, ...}: function_scheme) =
         if length parameters <> length arguments orelse
           not (forall (fn (parameter, (argument, _)) =>
             is_some (#hol parameter) = is_some argument) (parameters ~~ arguments)) then NONE
         else
            let
              val thy = Proof_Context.theory_of ctxt
-             val witnesses = map Logic.dest_type (drop 2 terms)
+             val witnesses = local_witnesses scheme
              val supplied = map_filter (fn (parameter, (argument, pos)) =>
                if is_some (#hol parameter) then Option.map (fn typ => (typ, pos)) argument else NONE)
                (parameters ~~ arguments)
@@ -1659,15 +1809,77 @@ struct
     end
 
   fun instantiate_generic_scheme ctxt backend candidate arguments =
-    instantiate_function_schemes ctxt (matching_function_schemes ctxt backend) candidate
+    instantiate_function_schemes ctxt
+      (filter (not o null o #parameters) (matching_function_schemes ctxt backend)) candidate
       (map (apfst SOME) arguments)
 
   fun instantiate_generic_scheme_for_source ctxt source candidate arguments =
-    instantiate_function_schemes ctxt (schemes_for_source ctxt source) candidate
+    instantiate_function_schemes ctxt
+      (filter (not o null o #parameters) (schemes_for_source ctxt source)) candidate
       (map (apfst SOME) arguments)
 
   fun instantiate_generic_source_scheme_for_source ctxt source candidate arguments =
-    instantiate_function_schemes ctxt (schemes_for_source ctxt source) candidate arguments
+    instantiate_function_schemes ctxt
+      (filter (not o null o #parameters) (schemes_for_source ctxt source)) candidate arguments
+
+  fun instantiate_scoped_generic_scheme_for_source ctxt source candidate
+      {target = selection, arguments} =
+    let
+      val entries = schemes_for_source ctxt source
+      val _ = consistent_parameters entries
+      val caller_types = maps (fn selected => #self_type selected ::
+          map snd (#evidence selected) @ maps Micro_Rust_Names.source_types (the_list (#source selected)))
+        (the_list selection) @ maps (map_filter (fn (typ, _) => typ)) (the_list arguments)
+      val caller_max = fold Term.maxidx_typ caller_types
+        (Int.max (Variable.maxidx_of ctxt, Term.maxidx_of_term candidate))
+      val scheme_max = fold (fold Term.maxidx_term o #terms) entries ~1
+      val shift = Int.max (caller_max, scheme_max) + 1
+      val thy = Proof_Context.theory_of ctxt
+      fun instantiate (entry: function_scheme) =
+        let
+          val terms = map (Term.map_types (Logic.incr_tvar shift)) (#terms entry)
+          val aligned = Pattern.match thy (hd terms, candidate) (Vartab.empty, Vartab.empty)
+          val (types, _) = aligned
+          val owner = Option.map (fn ({parameters, declarations, target}: impl_scheme) =>
+            let
+              val native = owner_types (#owner entry)
+              val transported = map Logic.dest_type
+                (take (length native) (drop 2 terms))
+              val substitution = native ~~ transported
+              val target = Micro_Rust_Names.map_target_types
+                (fn typ => Envir.subst_type types (the (AList.lookup (op =) substitution typ))) target
+              val {self_type, source, variables, requires_source_identity} = target
+              fun rename (name, index) = (name, index + shift)
+            in {self_type = self_type, source = Option.map
+                (Micro_Rust_Names.map_source_variables rename) source,
+              variables = map (fn {name, kind, witness} =>
+                {name = rename name, kind = kind, witness = witness}) variables,
+              requires_source_identity = requires_source_identity}: Micro_Rust_Names.target_template end)
+            (#owner entry)
+          val native = (Vartab.empty, Int.max (caller_max, scheme_max + shift) + 1)
+          val native = case (owner, selection) of
+              (SOME template, SOME selected) =>
+                (case Micro_Rust_Names.match_target ctxt template selected native of
+                   NONE => raise Micro_Rust_Names.SOURCE_MATCH
+                 | SOME {types, maxidx, ...} => (types, maxidx))
+            | (NONE, SOME _) => raise Micro_Rust_Names.SOURCE_MATCH
+            | _ => native
+          val witnesses = map (Envir.subst_type types)
+            (map (Logic.incr_tvar shift) (local_witnesses entry))
+          val native = case arguments of NONE => native
+            | SOME supplied =>
+                if length supplied <> length (#parameters entry) orelse
+                    not (forall (fn (parameter, (argument, _)) =>
+                      is_some (#hol parameter) = is_some argument) (#parameters entry ~~ supplied))
+                then raise Micro_Rust_Names.SOURCE_MATCH
+                else fold (fn (witness, argument) => fn environment =>
+                  Sign.typ_unify thy (witness, argument) environment)
+                  (witnesses ~~ map_filter (fn (typ, _) => typ) supplied) native
+        in SOME (Term.map_types (Envir.norm_type (#1 native)) candidate) end
+        handle Pattern.MATCH => NONE | Type.TUNIFY => NONE | Micro_Rust_Names.SOURCE_MATCH => NONE
+      val results = map_filter instantiate entries |> distinct (op aconv)
+    in case results of [] => NONE | [term] => SOME term
+      | _ => error "urust: inconsistent owner/member instantiations for one source" end
 
   fun self_outside_impl pos =
     error ("urust: Self is only available inside an impl block" ^ Position.here pos)
@@ -1956,18 +2168,22 @@ struct
            | _ => mapping_error ("erased source argument has no denotation to validate sort " ^
                quote (Syntax.string_of_sort ctxt sort) ^ " required by " ^ quote base) pos)
 
-      fun source_argument expected (Rust_Type_Argument typ) = source_type (SOME expected) typ
-        | source_argument Const_Parameter (Rust_Numeric_Argument integer) =
+      fun source_argument expected argument =
+        let val value = source_argument_value expected argument
+          val _ = note_source_resolution ctxt (#meaning value) NONE argument
+        in value end
+      and source_argument_value expected (Rust_Type_Argument typ) = source_type (SOME expected) typ
+        | source_argument_value Const_Parameter (Rust_Numeric_Argument integer) =
             {meaning = Meaning_Numeric (unsigned_value integer), evidence = NONE,
              pos = integer_literal_position integer}
-        | source_argument Type_Parameter (Rust_Numeric_Argument integer) =
+        | source_argument_value Type_Parameter (Rust_Numeric_Argument integer) =
             unsupported kind "numeric generic arguments for type parameters"
               (integer_literal_position integer)
-        | source_argument _ (Rust_Lifetime_Argument (Rust_Lifetime (_, pos))) =
+        | source_argument_value _ (Rust_Lifetime_Argument (Rust_Lifetime (_, pos))) =
             unsupported kind "lifetime generic arguments" pos
-        | source_argument _ (Rust_Associated_Type_Argument (_, pos, _)) =
+        | source_argument_value _ (Rust_Associated_Type_Argument (_, pos, _)) =
             unsupported kind "associated type bindings" pos
-        | source_argument _ (Rust_Const_Expression_Argument source) =
+        | source_argument_value _ (Rust_Const_Expression_Argument source) =
             unsupported kind "const expression generic arguments" (Input.pos_of source)
 
       and opaque_argument (Rust_Type_Argument typ) = source_type NONE typ
@@ -2049,6 +2265,7 @@ struct
                       (TVars.make (map_filter I (map the substitutions))) (#template entry))
                   else NONE
                 val _ = List.app (fn position => report_reference ctxt position base entry) positions
+                val _ = note_instantiated_origins ctxt pos (#meaning entry) arguments
               in {meaning = instantiate_meaning (map #meaning resolved) (#meaning entry),
                 evidence = evidence, pos = pos} end
         end
@@ -2056,7 +2273,11 @@ struct
       and source_type expected rust_type =
         let
           val value = (case rust_type of
-              Group_Type (typ, _) => source_type expected typ
+              Group_Type (typ, _) =>
+                let val value = source_type expected typ
+                  val _ = inherit_source_origins ctxt
+                    (rust_type_position typ) (rust_type_position rust_type)
+                in value end
             | Primitive_Type (primitive, pos) => source_nominal
                 (rust_primitive_name primitive) [pos] [0] [] pos
                 [(rust_primitive_name primitive, pos, [])] (SOME primitive)
@@ -2076,6 +2297,7 @@ struct
             if source_kind (#meaning value) = role then ()
             else unsupported kind (if role = Const_Parameter then "type parameters used as const arguments"
               else "const parameters used as type arguments") (#pos value)
+          val _ = note_source_resolution ctxt (#meaning value) NONE (Rust_Type_Argument rust_type)
         in value end
 
       fun resolve_nominal base positions arities arguments pos primitive =
@@ -2127,6 +2349,7 @@ struct
                             unsupported kind "const expression generic arguments" (Input.pos_of source))
                      val sort = nth (#parameter_sorts entry) index
                      val _ = check_sort base (#typ value) sort argument_pos
+                     val _ = note_source_resolution ctxt (#meaning value) (SOME (#typ value)) argument
                    in (#meaning value, SOME (index, sort, normalize (#typ value))) end
                val resolved_arguments = map_index resolve_argument (arguments ~~ #parameter_kinds entry)
                val parameter_sorts = #parameter_sorts entry
@@ -2156,6 +2379,7 @@ struct
                       Navigation.defer_type ctxt terminal_pos name
                   | _ => ())
                val _ = report_use ctxt base entry positions primitive
+               val _ = note_instantiated_origins ctxt pos (#meaning entry) arguments
              in
                {typ = result,
                 meaning = instantiate_meaning
@@ -2186,6 +2410,8 @@ struct
                     else "const parameters used as field types")
                    (rust_type_position rust_type)
              | _ => ())
+          val _ = note_source_resolution ctxt (#meaning value) (SOME (#typ value))
+            (Rust_Type_Argument rust_type)
         in value end
 
       and resolve_type_value _
@@ -2238,8 +2464,11 @@ struct
                      (map #typ resolved) \<^typ>\<open>tnil\<close>,
                  meaning = Meaning_Tuple (map #meaning resolved)}
               end
-        | resolve_type_value role (Group_Type (typ, _)) =
-            resolve_type role typ
+        | resolve_type_value role (group as Group_Type (typ, _)) =
+            let val value = resolve_type role typ
+              val _ = inherit_source_origins ctxt
+                (rust_type_position typ) (rust_type_position group)
+            in value end
         (* Function_Signature also resolves constructor turbofish arguments, but the generic lexer
            has no reference syntax, so only function signatures reach the mutable case. *)
         | resolve_type_value _ (Reference_Type (BM_Mut, _, target, layout)) =
@@ -2562,26 +2791,41 @@ struct
         else error ("urust_fn: undeclared lifetime " ^ quote name ^ Position.here pos)
     in List.app check (maps lifetime_uses rust_types) end
 
-  (* Header syntax is independent of HOL denotation. Item lifetimes are collected first; each
-     higher-ranked binder extends only its own bound/predicate and cannot shadow that scope. *)
+  structure Header_Lifetimes = Proof_Data
+  (
+    type T = (Position.T * serial) Symtab.table
+    fun init _ = Symtab.empty
+  )
+
+  fun declare_header_lifetime ctxt (Rust_Lifetime (name, pos)) scope =
+    if reserved_lifetime name then
+      error ("urust_fn: " ^ quote name ^ " cannot be declared as a lifetime parameter" ^
+        Position.here pos)
+    else
+      (case Symtab.lookup scope name of
+         SOME (first, _) => error ("urust_fn: duplicate lifetime parameter " ^ quote name ^
+           Position.here_list [first, pos])
+       | NONE =>
+           let val identity = serial ()
+             val _ = Navigation.defer_report ctxt pos
+               (Position.make_entity_markup {def = true} identity "urust_lifetime" (name, pos))
+           in Symtab.update (name, (pos, identity)) scope end)
+
+  fun with_header_lifetimes lifetimes ctxt = Header_Lifetimes.put
+    (fold (declare_header_lifetime ctxt) lifetimes (Header_Lifetimes.get ctxt)) ctxt
+
+  fun inherit_header_lifetimes source = Header_Lifetimes.put (Header_Lifetimes.get source)
+
+  (* Header validation extends the immutable inherited lifetime context. Bound-local binders
+     still have their own isolated environment and do not escape. *)
   fun check_function_header ctxt function =
     let
-      fun declare (Rust_Lifetime (name, pos)) scope =
-        if reserved_lifetime name then
-          error ("urust_fn: " ^ quote name ^ " cannot be declared as a lifetime parameter" ^
-            Position.here pos)
-        else
-          (case Symtab.lookup scope name of
-             SOME (first, _) =>
-               error ("urust_fn: duplicate lifetime parameter " ^ quote name ^
-                 Position.here_list [first, pos])
-           | NONE =>
-               let
-                 val identity = serial ()
-                 val _ = Navigation.defer_report ctxt pos
-                   (Position.make_entity_markup {def = true} identity "urust_lifetime" (name, pos))
-               in Symtab.update (name, (pos, identity)) scope end)
-      val scope = fold declare (function_lifetime_parameters function) Symtab.empty
+      fun declare (lifetime as Rust_Lifetime (name, pos)) scope =
+        (case Symtab.lookup (Header_Lifetimes.get ctxt) name of
+           SOME (old, _) => if Position.properties_of old = Position.properties_of pos then scope
+             else declare_header_lifetime ctxt lifetime scope
+         | NONE => declare_header_lifetime ctxt lifetime scope)
+      val scope = fold declare (function_lifetime_parameters function) (Header_Lifetimes.get ctxt)
       val descriptors = function_type_parameters function
       fun local_kind name =
         get_first (fn Generic_Parameter (rust, _, kind) =>
@@ -2929,6 +3173,9 @@ struct
         | finish_argument _ [] = raise Fail "missing finished function argument"
       val (actual_arguments, unused) = fold_map finish_argument resolved_arguments finished_types
       val _ = if null unused then () else raise Fail "extra finished function arguments"
+      val _ = Option.app (fn trace => trace := map (fn (meaning, evidence, argument) =>
+        (finish_meaning finish meaning, Option.map (the_single o finish o single) evidence, argument))
+        (!trace)) (Source_Resolution_Trace.get ctxt)
       val finished_resolved = map (fn {typ, meaning} =>
         {typ = typ, meaning = finish_meaning finish meaning}) resolved
     in (finish (assemble leading_types finished_resolved),
@@ -3024,7 +3271,7 @@ struct
   fun target_rows (Path_Type (segments, _)) = SOME (path_rows segments)
     | target_rows _ = NONE
 
-  fun resolve_impl_target_identity ctxt target =
+  fun resolve_impl_target_meaning ctxt target =
     let
       val pos = rust_type_position target
       val rows =
@@ -3055,7 +3302,9 @@ struct
            [{typ, meaning = resolved_meaning}] => (meaning := SOME resolved_meaning; [typ])
          | _ => raise Fail "uRust type registry: impl target resolution is not one type")
       val self_type =
-        the_single (resolve_signature_with Impl_Target ctxt [] [] [target] assemble)
+        the_single (resolve_signature_with Impl_Target ctxt []
+          (map (fn (name, (pos, _)) => Rust_Lifetime (name, pos))
+            (Symtab.dest (Header_Lifetimes.get ctxt))) [target] assemble)
       val canonical_path =
         (case the (!meaning) of
            Meaning_Mapped (base, _, _, _, _, _) => base
@@ -3077,8 +3326,203 @@ struct
     in
       ({canonical_path = canonical_path, self_type = self_type, target_pos = pos,
         report_reference = report_target_reference},
-       if identity_sensitive (the (!meaning)) then !meaning else NONE)
+       the (!meaning))
     end
+
+  fun neutral_source_kind Type_Parameter = Micro_Rust_Names.Type_Source
+    | neutral_source_kind Const_Parameter = Micro_Rust_Names.Const_Source
+
+  fun source_tree_of_meaning ctxt declarations meaning =
+    let
+      open Micro_Rust_Names
+      fun tree expected (Meaning_Scoped_Parameter (identity, kind)) =
+            (case find_index (fn declared => declared = identity) declarations of
+               ~1 => Source_Rigid (identity, neutral_source_kind kind)
+             | index => Source_Variable (("_urust_impl_source", index), neutral_source_kind kind))
+        | tree _ (Meaning_Primitive primitive) =
+            Source_Node (Primitive_Source (rust_primitive_name primitive), [])
+        | tree _ (Meaning_Mapped (base, _, _, _, _, arguments)) =
+            let val kinds = case lookup ctxt base of
+                SOME entry => map neutral_source_kind (#parameter_kinds entry)
+              | NONE => map (K Type_Source) arguments
+            in Source_Node (Mapped_Source base, map2 tree kinds arguments) end
+        | tree _ (Meaning_Opaque rows) = Source_Node
+            (Opaque_Source (map (fn (name, arguments) => (name, length arguments)) rows),
+             maps (map (tree Type_Source) o snd) rows)
+        | tree _ (Meaning_Numeric value) = Source_Node (Numeric_Source value, [])
+        | tree _ (Meaning_Tuple types) = Source_Node (Tuple_Source, map (tree Type_Source) types)
+        | tree _ (Meaning_Array (element, length)) = Source_Node (Array_Source, [tree Type_Source element, tree Const_Source length])
+        | tree _ (Meaning_Pointer (mode, typ)) = Source_Node (Pointer_Source (mode = RPM_Mut), [tree Type_Source typ])
+        | tree _ (Meaning_Reference (mode, typ)) = Source_Node (Reference_Source (mode = BM_Mut), [tree Type_Source typ])
+        | tree expected (Meaning_HOL typ) = Source_HOL (expected, typ)
+        | tree _ (Meaning_Parameter _) = raise Fail "uninstantiated mapping source parameter"
+        | tree _ (Meaning_Const_Parameter _) = raise Fail "uninstantiated mapping const parameter"
+    in tree Type_Source meaning end
+
+  fun source_target_template ctxt {self_type, source, declarations, witnesses} =
+    let
+      val parameters = scope_parameters ctxt
+      val identities = the_default [] (generic_scope_identities ctxt)
+      val _ = if length declarations = length witnesses then () else
+        raise Fail "uRust impl source template: inconsistent witnesses"
+      fun variable (index, (declaration, witness)) =
+        let val position = find_index (fn identity => identity = declaration) identities
+          val _ = if position >= 0 then () else raise Fail "foreign impl declaration identity"
+        in {name = ("_urust_impl_source", index),
+          kind = neutral_source_kind (#kind (nth parameters position)), witness = witness} end
+    in {self_type = self_type, source = SOME (source_tree_of_meaning ctxt declarations source),
+      variables = map_index variable (declarations ~~ witnesses),
+      requires_source_identity = identity_sensitive source}: Micro_Rust_Names.target_template end
+
+  val synthetic_input_prefix = "urust_synthetic_target_input:"
+
+  (* Position accepts only native properties. Carry fallback provenance in its native label,
+     retaining the original label for diagnostics; no synthetic read receives authored ranges. *)
+  fun synthetic_input_position pos =
+    Position.label (synthetic_input_prefix ^ the_default "" (Position.label_of pos)) pos
+
+  fun synthetic_input_origin pos =
+    case Position.label_of pos of
+      SOME label => if String.isPrefix synthetic_input_prefix label then
+        SOME (Position.label (String.extract (label, size synthetic_input_prefix, NONE)) pos)
+        else NONE
+    | NONE => NONE
+
+  fun authored_argument_input inputs argument =
+    let
+      val origin = argument_origin argument
+      val exact = AList.lookup same_origin inputs origin
+      fun nested (_, source) =
+        (case (Position.offset_of origin, Position.end_offset_of origin,
+            Position.offset_of (Input.pos_of source), Position.end_offset_of (Input.pos_of source)) of
+           (SOME start, SOME stop, SOME outer_start, SOME outer_stop) =>
+             if start >= outer_start andalso stop <= outer_stop andalso stop > start andalso
+                 Position.file_of origin = Position.file_of (Input.pos_of source) andalso
+                 Position.id_of origin = Position.id_of (Input.pos_of source) then
+               let val symbols = filter (fn (_, pos) => case Position.offset_of pos of
+                   SOME offset => start <= offset andalso offset < stop | NONE => false)
+                     (Input.source_explode source)
+               in case symbols of [] => NONE | (_, pos) :: _ =>
+                 SOME (implode (map fst symbols), pos) end
+             else NONE
+         | _ => NONE)
+    in case exact of SOME source => SOME (Input.string_of source, Input.pos_of source)
+      | NONE => get_first nested inputs end
+
+  fun source_argument_input inputs argument =
+    case authored_argument_input inputs argument of SOME source => source
+    | NONE => (case argument of
+        Rust_Type_Argument (HOL_Type_Source source) => (Input.string_of source, Input.pos_of source)
+      | Rust_Type_Argument typ =>
+          (URust_Printer.string_of_rust_type URust_Printer.serialized_options typ,
+            synthetic_input_position (rust_type_position typ))
+      | Rust_Numeric_Argument integer =>
+          (integer_literal_lexeme integer,
+            synthetic_input_position (integer_literal_position integer))
+      | _ => raise Fail "unsupported target source argument input")
+
+  fun selection_of_meaning ctxt authored typ meaning trace origins pos =
+    let
+      val associated = the_default [] (AList.lookup same_origin origins pos)
+      fun visit path meaning (evidence, inputs) =
+        let
+          val origin = AList.lookup (op =) associated path
+          val records = filter (fn (other, _, argument) => other = meaning andalso
+            (case origin of NONE => true | SOME source =>
+              same_origin (argument_origin source, argument_origin argument))) trace
+          val actual = get_first (fn (_, typ, _) => typ) records
+          val actual = case (actual, meaning) of (NONE, Meaning_Scoped_Parameter (identity, _)) =>
+              (case find_first (fn (_, declared) => declared = identity) (Generic_Identities.get ctxt) of
+                 SOME (parameter, _) => if parameter_has_witness ctxt parameter andalso
+                     parameter_available ctxt parameter then SOME (TFree (#hol parameter)) else NONE
+               | NONE => NONE)
+            | _ => actual
+          val source = case origin of SOME argument => SOME argument
+            | NONE => Option.map #3 (try hd records)
+          val input = Option.map (source_argument_input authored) source
+          val evidence = case actual of NONE => evidence | SOME T => (path, T) :: evidence
+          val inputs = case input of NONE => inputs | SOME source => (path, source) :: inputs
+        in fold_index (fn (index, child) => visit (path @ [index]) child)
+          (meaning_children meaning) (evidence, inputs) end
+      val (evidence, inputs) = visit [] meaning ([], [])
+    in {self_type = typ, source = SOME (source_tree_of_meaning ctxt [] meaning),
+      source_identity = if identity_sensitive meaning then SOME (source_identity_name meaning) else NONE,
+      evidence = rev evidence, inputs = rev inputs, pos = pos}: Micro_Rust_Names.target_selection end
+
+  fun resolve_impl_target_selection ctxt target =
+    let
+      val trace = Unsynchronized.ref []
+      val origins = Unsynchronized.ref []
+      val observed = ctxt |> Source_Resolution_Trace.put (SOME trace)
+        |> Source_Resolution_Origins.put (SOME origins)
+      val (self, meaning) = resolve_impl_target_meaning observed target
+      val selection = selection_of_meaning ctxt [] (#self_type self) meaning (!trace) (!origins) (rust_type_position target)
+    in (self, if identity_sensitive meaning then SOME meaning else NONE, selection) end
+
+  fun resolve_impl_target_identity ctxt target =
+    let val (self, identity, _) = resolve_impl_target_selection ctxt target
+    in (self, identity) end
+
+  fun resolve_target_selection_with_inputs ctxt inputs target =
+    let
+      val trace = Unsynchronized.ref []
+      val origins = Unsynchronized.ref []
+      val observed = ctxt |> Source_Resolution_Trace.put (SOME trace)
+        |> Source_Resolution_Origins.put (SOME origins)
+      val meaning = Unsynchronized.ref NONE
+      fun assemble _ [{typ, meaning = source}] = (meaning := SOME source; [typ])
+        | assemble _ _ = raise Fail "target selection expected one type"
+      val typ = the_single (resolve_signature_with Function_Signature observed []
+        (map (fn (name, (pos, _)) => Rust_Lifetime (name, pos))
+          (Symtab.dest (Header_Lifetimes.get ctxt))) [target] assemble)
+    in selection_of_meaning ctxt inputs typ (the (!meaning)) (!trace) (!origins) (rust_type_position target) end
+
+  fun resolve_target_selection ctxt target = resolve_target_selection_with_inputs ctxt [] target
+
+  fun prepare_scoped_target_selection ctxt source (selection: Micro_Rust_Names.target_selection) =
+    let
+      val entries = schemes_for_source ctxt source
+      val _ = consistent_scoped_schemes entries
+      fun enrich (scheme: function_scheme) (selection: Micro_Rust_Names.target_selection) =
+        case scoped_owner scheme of NONE => selection
+       | SOME {target, parameters, ...} =>
+           let
+             val target = Micro_Rust_Names.fresh_target
+               (fold Term.maxidx_typ (#self_type selection :: map snd (#evidence selection))
+                 (Variable.maxidx_of ctxt) + 1) target
+             val matched = Micro_Rust_Names.match_target ctxt target selection
+               (Vartab.empty, Variable.maxidx_of ctxt)
+             fun demand ({variable, path, evidence, ...}: Micro_Rust_Names.source_binding) acc =
+               let val index = find_index (fn ({name, ...}: Micro_Rust_Names.source_variable) =>
+                   name = variable) (#variables target)
+               in if index < 0 orelse is_none (#hol (nth parameters index)) orelse is_some evidence
+                 then acc else
+                 (case AList.lookup (op =) (#inputs selection) path of
+                    NONE => error ("urust: selected impl argument has no available HOL witness" ^
+                      Position.here (#pos selection))
+                  | SOME (text, origin) =>
+                      let
+                        val authored_origin = synthetic_input_origin origin
+                        val synthetic = is_some authored_origin
+                        val origin = the_default origin authored_origin
+                        val pos = if synthetic then Position.none else origin
+                        val input = Parser_Lex_Util.positioned_content_source text pos
+                        val argument = URust_Parser.parse_generic_argument_source ctxt input
+                        val parameter = nth parameters index
+                        val resolved = resolve_source_arguments ctxt [parameter] [argument]
+                          handle ERROR message => error (message ^
+                            (if synthetic then "; source argument" ^ Position.here origin else ""))
+                        val typ = case #arguments resolved of [(SOME T, _)] => T
+                          | _ => error ("urust: selected impl argument has no available HOL witness" ^
+                              Position.here origin)
+                      in (path, typ) :: acc end)
+               end
+             val evidence = case matched of NONE => #evidence selection
+               | SOME {bindings, ...} => fold demand bindings (#evidence selection)
+           in {self_type = #self_type selection, source = #source selection,
+             source_identity = #source_identity selection, inputs = #inputs selection,
+             evidence = evidence, pos = #pos selection}: Micro_Rust_Names.target_selection end
+    in fold enrich entries selection end
 
   fun resolve_impl_target ctxt target = #1 (resolve_impl_target_identity ctxt target)
 

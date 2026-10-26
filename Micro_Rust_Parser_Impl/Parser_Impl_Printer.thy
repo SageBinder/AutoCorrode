@@ -43,6 +43,7 @@ sig
     options -> URust_AST.urust_type_alias -> Pretty.T
   val pretty_use_item: options -> URust_AST.use_item -> Pretty.T
   val string_of_expr: options -> URust_AST.ur_expr -> string
+  val string_of_rust_type: options -> URust_AST.rust_type -> string
   val string_of_datatype:
     options -> URust_AST.urust_datatype -> string
   val string_of_function:
@@ -1585,12 +1586,9 @@ fun receiver_document Receiver_Value = identifier "self"
       (if mutable then keyword "mut" @ space else []) @
       identifier "self"
 
-fun function_document options
-    (Function_Item
-      (name, _, {parameters = generic_parameters, where_clause, layout},
-       parameters, return_type, body, _)) =
+fun generic_header_documents
+    ({parameters = generic_parameters, where_clause, layout}: function_generics) =
   let
-    val name = require_identifier "function item" name
     fun bound_document (Rust_Trait_Bound (segments, _)) =
       flat (separate (delimiter "::")
         (map (identifier o require_identifier "trait bound" o #1) segments))
@@ -1636,6 +1634,14 @@ fun function_document options
           lifetime_document "where predicate" lifetime @ delimiter ":" @ space @ bounds_document bounds
       | where_document (Rust_For_Predicate (lifetimes, predicate, _)) =
           binder_document lifetimes @ space @ where_document predicate
+  in (generics, if null where_clause then []
+    else space @ keyword "where" @ space @ comma_documents (map where_document where_clause)) end
+
+fun function_document options
+    (Function_Item (name, _, generic_header, parameters, return_type, body, _)) =
+  let
+    val name = require_identifier "function item" name
+    val (generics, where_document) = generic_header_documents generic_header
     fun parameter_document
         (Function_Parameter (mutable_pos, pattern, typ, _)) =
           (case mutable_pos of
@@ -1652,9 +1658,7 @@ fun function_document options
          NONE => []
        | SOME typ =>
             space @ delimiter "->" @ space @ rust_type_document typ) @
-       (if null where_clause then []
-        else space @ keyword "where" @ space @
-          comma_documents (map where_document where_clause))
+       where_document
     val body_document =
       (case body of
          UE_Block _ =>
@@ -1710,15 +1714,19 @@ fun annotation_document annotation =
 
 (* An impl prints its members on their own lines, each annotation on the line before its
    member, in both modes: annotation placement is line-based. *)
-fun impl_document options (Impl_Item (target, members, _)) =
+fun impl_document options impl =
   let
+    val target = impl_target impl
+    val members = impl_members impl
+    val (generics, where_document) = generic_header_documents (impl_generics impl)
     fun member_document member =
       (case impl_member_annotation member of
          NONE => []
        | SOME annotation => annotation_document annotation) @
       events_of_function options (impl_member_function member)
   in
-    multiline_braced_after (keyword "impl" @ space @ rust_type_document target @ space)
+    multiline_braced_after (keyword "impl" @ generics @ space @
+      rust_type_document target @ where_document @ space)
       (flat (separate (line @ line) (map member_document members)))
   end
 
@@ -1938,6 +1946,9 @@ fun pretty_use_item options item =
 
 fun string_of_expr options =
   pretty_expr options #>
+  Pretty.string_of_ops (Pretty.pure_output_ops (SOME 80))
+
+fun string_of_rust_type _ = rust_type_document #> finalize_document #> render_document default_lexeme #>
   Pretty.string_of_ops (Pretty.pure_output_ops (SOME 80))
 
 fun string_of_datatype options =

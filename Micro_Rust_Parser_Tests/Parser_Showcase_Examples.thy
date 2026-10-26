@@ -1583,4 +1583,54 @@ lemma showoff_retained_header_twin:
   \<open>showoff_retained_header = showoff_retained_header_plain\<close>
   unfolding showoff_retained_header_def showoff_retained_header_plain_def by (rule refl)
 
+subsection\<open> Generic inherent impl scopes \<close>
+
+text\<open>
+A mixed impl header makes its lifetime, element type and capacity available to every member.
+Each member extends that scope independently. The target selects the inherited arguments;
+the final turbofish below supplies only the member's local type.
+\<close>
+
+urust \<open>
+  struct ShowcaseStorage<T, const N: usize> { value: T, slots: [T; N] }
+  impl<'a, T, const N: usize> ShowcaseStorage<T, N> {
+    fn capacity(self) -> usize { N }
+    fn borrow(&'a mut self) -> &'a mut Self { self }
+    fn choose<'b, U>(&'b mut self, value: U) -> U { value }
+  }
+  \<omega>\<open>register_notation = false\<close>
+  fn ShowcaseStorageCapacityTwin<T, const N: usize>(self: ShowcaseStorage<T, N>) -> usize { N }
+  \<omega>\<open>register_notation = false\<close>
+  fn ShowcaseStorageBorrowTwin<'a, T, const N: usize>(self: &'a mut ShowcaseStorage<T, N>)
+      -> &'a mut ShowcaseStorage<T, N> { self }
+  \<omega>\<open>register_notation = false\<close>
+  fn ShowcaseStorageChooseTwin<'b, T, const N: usize, U>(self: &'b mut ShowcaseStorage<T, N>, value: U)
+      -> U { value }
+  fn ShowcaseStorageSelected(storage: &mut ShowcaseStorage<u8, 3>, value: bool) -> bool {
+    ShowcaseStorage::<u8, 3>::choose::<bool>(storage, value)
+  }
+  fn ShowcaseStorageMethod(storage: &mut ShowcaseStorage<u8, 3>, value: bool) -> bool {
+    storage.choose::<bool>(value)
+  }
+  fn ShowcaseStorageCallTwin(storage: &mut ShowcaseStorage<u8, 3>, value: bool) -> bool {
+    \<epsilon>\<open>showcase_storage_choose\<close>(storage, value)
+  }
+\<close>
+
+lemma showcase_storage_capacity_twin:
+  \<open> showcase_storage_capacity = showcase_storage_capacity_twin \<close>
+  unfolding showcase_storage_capacity_def showcase_storage_capacity_twin_def by (rule refl)
+lemma showcase_storage_borrow_twin:
+  \<open> showcase_storage_borrow = showcase_storage_borrow_twin \<close>
+  unfolding showcase_storage_borrow_def showcase_storage_borrow_twin_def by (rule refl)
+lemma showcase_storage_choose_twin:
+  \<open> showcase_storage_choose = showcase_storage_choose_twin \<close>
+  unfolding showcase_storage_choose_def showcase_storage_choose_twin_def by (rule refl)
+lemma showcase_storage_selected_twin:
+  \<open> showcase_storage_selected = showcase_storage_call_twin \<close>
+  unfolding showcase_storage_selected_def showcase_storage_call_twin_def by (rule refl)
+lemma showcase_storage_method_twin:
+  \<open> showcase_storage_method = showcase_storage_call_twin \<close>
+  unfolding showcase_storage_method_def showcase_storage_call_twin_def by (rule refl)
+
 end

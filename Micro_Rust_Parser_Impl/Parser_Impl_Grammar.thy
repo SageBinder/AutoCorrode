@@ -791,6 +791,7 @@ fun tok_signature_ident args =
     val token = tok_ident args
     val _ =
       if !signature_context = Function_Signature
+      orelse !signature_context = Impl_Signature
       then (last_token := "IDENT"; last_token_args := args)
       else ()
   in token end
@@ -804,7 +805,9 @@ fun impl_header_keyword construct args =
 
 (* A function clause starts outside parameter and retained-type groups. *)
 fun signature_where args =
-  if impl_header_top_level () then reject_impl_header "a where clause" args
+  if impl_header_top_level () then
+    (function_where_started := true;
+     tokF (#1 args, #2 args, Markup.keyword1, "TWHERE", Tokens.TWHERE))
   else if !signature_context = Function_Signature andalso !function_parameters_started andalso
       not (List.exists (fn token => token = !last_token)
         ["TTHINARROW", "TAMP", "TSTAR", "TMUT", "TCONST", "TIMPL", "TCOLONCOLON"]) andalso
@@ -817,7 +820,7 @@ fun signature_where args =
 (* Bound punctuation is new only in the function header's generic list or where clause.
    Other retained type positions, datatype/alias headers and impl targets keep their lexer. *)
 fun signature_bound_operator markup name constructor (yypos, text) =
-  if !signature_context = Function_Signature andalso
+  if (!signature_context = Function_Signature orelse !signature_context = Impl_Signature) andalso
       !signature_paren_depth = 0 andalso !signature_bracket_depth = 0 andalso
       ((not (!function_parameters_started) andalso !signature_angle_depth = 1) orelse
        (!function_where_started andalso !signature_angle_depth = 0))
@@ -863,7 +866,7 @@ fun signature_binder_follows (yypos, yytext) =
     (first >= stop orelse starts first "'" orelse starts first ">") end
 
 fun signature_for args =
-  if !signature_context = Function_Signature andalso
+  if (!signature_context = Function_Signature orelse !signature_context = Impl_Signature) andalso
       !signature_paren_depth = 0 andalso !signature_bracket_depth = 0 andalso
       ((!signature_angle_depth = 1 andalso not (!function_parameters_started)) orelse
        (!function_where_started andalso !signature_angle_depth = 0)) andalso
@@ -874,7 +877,7 @@ fun signature_for args =
   else impl_header_keyword "a trait impl (`impl Trait for T`)" args
 
 fun signature_equals args =
-  if !signature_context = Function_Signature andalso
+  if (!signature_context = Function_Signature orelse !signature_context = Impl_Signature) andalso
       not (!function_parameters_started) andalso
       !signature_angle_depth = 1 andalso !signature_paren_depth = 0 andalso
       !signature_bracket_depth = 0
@@ -1578,8 +1581,7 @@ lex_rules\<open>
 <FNSIG>".."     => (tokF (yypos, yytext, Markup.operator, "TDOTDOT", Tokens.TDOTDOT));
 <FNSIG>">>"     => (split_signature_right (yypos, yytext));
 <FNSIG>"<"      =>
-    (reject_impl_header_start "a generic parameter list (`impl<T>`)" (yypos, yytext);
-     signature_angle_open ();
+    (signature_angle_open ();
      tokF (yypos, yytext, Markup.delimiter, "TLT", Tokens.TLT));
 <FNSIG>">"      =>
     (signature_angle_close 1; tokF (yypos, yytext, Markup.delimiter, "TGT", Tokens.TGT));
@@ -2115,28 +2117,42 @@ type impl_member_syntax = item_annotation option * urust_function * Position.T
    envelopes; the item and expression grammars only reject the impl at its keyword. *)
 datatype impl_syntax =
   Impl_Syntax of
-    {layout: Parser_Lex_Util.source_layout, target: rust_type,
+    {layout: Parser_Lex_Util.source_layout, target: rust_type, generics: function_generics,
      members: impl_member_syntax list, source_layout: source_layout}
 
-fun impl_syntax ((layout, impl_pos, target), members, left_brace, right_brace, right_stop) =
-  Impl_Syntax
-    {layout = layout, target = target, members = members,
+fun impl_syntax ((layout, impl_pos, (parameters, generic_layout), target, (predicates, where_layout)),
+    members, left_brace, right_brace, right_stop) =
+  let
+    val _ = check_function_generics parameters
+    val _ = function_parameter_markup parameters
+    val generic_tokens = source_tokens generic_layout
+    val where_tokens = source_tokens where_layout
+    val header_layout = if null generic_tokens then where_layout
+      else if null where_tokens then generic_layout
+      else syntax_layout (source_span generic_layout) (source_span where_layout)
+        (generic_tokens @ where_tokens)
+    val generics = {parameters = parameters, where_clause = predicates,
+      layout = header_layout}: function_generics
+  in Impl_Syntax
+    {layout = layout, target = target, generics = generics, members = members,
      source_layout =
        syntax_layout impl_pos right_stop
          [(Keyword_Token "impl", impl_pos),
           (Delimiter_Token "{", left_brace),
-          (Delimiter_Token "}", right_brace)]}
+          (Delimiter_Token "}", right_brace)]} end
 
 fun impl_syntax_position (Impl_Syntax {source_layout, ...}) =
   the_source_token_position source_layout (Keyword_Token "impl")
 
-fun impl_item (Impl_Syntax {layout, target, members, source_layout}) =
-  Impl_Item
+fun impl_item (Impl_Syntax {layout, target, generics, members, source_layout}) =
+  let val item = Impl_Item
     (target,
      map (fn (annotation, function, span) =>
          Impl_Member (annotation, function, Parser_Lex_Util.range_source layout span))
        members,
      source_layout)
+  in if null (#parameters generics) andalso null (#where_clause generics) andalso
+      null (source_tokens (#layout generics)) then item else Generic_Impl (generics, item) end
 
 fun receiver_shorthand form (name, self_pos) start tokens =
   if name = "self"
@@ -2314,7 +2330,9 @@ yacc_definitions\<open>
        | ufn_parameters of URust_AST.function_parameter list
        | ufn_parameter of URust_AST.function_parameter
        | uimpl of impl_syntax
-       | uimpl_header of Parser_Lex_Util.source_layout * Position.T * URust_AST.rust_type
+       | uimpl_header of Parser_Lex_Util.source_layout * Position.T *
+           (URust_AST.function_generic list * URust_AST.source_layout) * URust_AST.rust_type *
+           (URust_AST.function_predicate list * URust_AST.source_layout)
        | uimpl_members of impl_member_syntax list
        | uimpl_member of impl_member_syntax
        | uimpl_non_fn of Position.T
@@ -2465,7 +2483,8 @@ yacc_rules\<open>
             (URust_Grammar.impl_dangling_annotation_error (annotation_position TANNOTATION))
         | uimpl_header TLBRACE TANNOTATION TRBRACE
             (URust_Grammar.impl_dangling_annotation_error (annotation_position TANNOTATION))
-  uimpl_header : TIMPL urust_type ((TIMPL, TIMPLleft, urust_type))
+  uimpl_header : TIMPL ufn_generics urust_type ufn_where
+                   ((TIMPL, TIMPLleft, ufn_generics, urust_type, ufn_where))
                | TUNSAFE TIMPL urust_type
                    (URust_Grammar.impl_header_error "`unsafe impl`" TUNSAFEleft)
   uimpl_members : uimpl_member ([uimpl_member])

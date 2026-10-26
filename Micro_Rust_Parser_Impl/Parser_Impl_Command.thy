@@ -1451,9 +1451,29 @@ datatype function_signature =
 fun function_parameter_types ctxt function =
   map (function_parameter_type ctxt) (URust_AST.function_parameters function)
 
+structure Impl_Header_Context = Proof_Data
+(
+  type T = URust_AST.function_generics option
+  fun init _ = NONE
+)
+
+structure Impl_Target_Context = Proof_Data
+(
+  type T = (Micro_Rust_Names.target_template * URust_Type_Mappings.generic_declaration_identity list) option
+  fun init _ = NONE
+)
+
+fun visible_function_lifetimes ctxt function =
+  let
+    fun lifetimes ({parameters, ...}: URust_AST.function_generics) =
+      map_filter (fn URust_AST.Generic_Lifetime lifetime => SOME lifetime
+        | URust_AST.Generic_Lifetime_Bounds (lifetime, _, _) => SOME lifetime | _ => NONE) parameters
+  in maps lifetimes (the_list (Impl_Header_Context.get ctxt)) @
+    URust_AST.function_lifetime_parameters function end
+
 (* The source parameters are signature-named HOL variables. Bounds are resolved once, retaining
    their declared Rust identities as well as their minimized HOL sort union. *)
-fun check_function_denotation function =
+fun check_function_denotation ctxt function =
   let
     open URust_AST
     val {parameters, where_clause, ...} = function_generics function
@@ -1475,7 +1495,10 @@ fun check_function_denotation function =
         Position.here pos)
     fun predicate (Rust_Type_Predicate
           (Path_Type ([Rust_Type_Path_Segment (name, pos, NONE, _)], _), _, _)) =
-          if exists (fn Generic_Type (rust, _, _) => rust = name | _ => false) parameters
+          if exists (fn Generic_Type (rust, _, _) => rust = name | _ => false) parameters orelse
+              exists (fn ({rust, kind, ...}: URust_Type_Mappings.generic_parameter) =>
+                rust = name andalso kind = Type_Parameter)
+                (maps #parameters (the_list (URust_Type_Mappings.generic_scope ctxt)))
           then () else unsupported pos
       | predicate (Rust_Type_Predicate (head, _, _)) = unsupported (head_position head)
       | predicate (Rust_Lifetime_Predicate (Rust_Lifetime (_, pos), _, _)) =
@@ -1500,6 +1523,32 @@ fun prepare_function_scope authoritative lthy overrides function =
     val names = URust_Type_Mappings.parameter_names lthy descriptors overrides
     val thy = Proof_Context.theory_of lthy
     val bounds = URust_AST.function_bounds function
+    val inherited = maps #parameters (the_list (URust_Type_Mappings.generic_scope lthy))
+    val _ = List.app (fn URust_AST.Generic_Parameter (name, pos, _) =>
+      case find_first (fn (parameter: URust_Type_Mappings.generic_parameter) => #rust parameter = name)
+          inherited of
+        NONE => () | SOME {pos = first, ...} => error
+          ("urust: member generic parameter " ^ quote name ^ " redeclares an impl parameter" ^
+            Position.here_list [first, pos])) descriptors
+    val _ = List.app (fn (URust_AST.Generic_Parameter (_, pos, _), (name, _)) =>
+      case find_first (fn (parameter: URust_Type_Mappings.generic_parameter) =>
+          fst (#hol parameter) = name) inherited of
+        NONE => () | SOME {pos = first, ...} => error
+          ("urust: member HOL parameter " ^ quote name ^ " redeclares an impl HOL parameter" ^
+            Position.here_list [first, pos])) (descriptors ~~ names)
+    fun inherited_bounds name =
+      maps (fn URust_AST.Rust_Type_Predicate
+          (URust_AST.Path_Type ([URust_AST.Rust_Type_Path_Segment (head, _, NONE, _)], _), bounds, _) =>
+            if head = name then bounds else [] | _ => [])
+        (#where_clause (URust_AST.function_generics function))
+    fun refine (parameter as {rust, pos, kind, hol = (name, sort), bounds, report_reference}
+        : URust_Type_Mappings.generic_parameter) =
+      let val mapped = if authoritative then
+        map (URust_Trait_Mappings.resolve_bound lthy) (inherited_bounds rust) else []
+      in {rust = rust, pos = pos, kind = kind,
+        hol = (name, Sign.minimize_sort thy (sort @ maps #sort mapped)),
+        bounds = distinct (op =) (bounds @ map #path mapped), report_reference = report_reference}
+        : URust_Type_Mappings.generic_parameter end
     fun parameter (URust_AST.Generic_Parameter (rust, pos, kind), (name, override_sort)) =
       let
         val _ =
@@ -1531,7 +1580,8 @@ fun prepare_function_scope authoritative lthy overrides function =
          report_declaration)
       end
     val prepared = map parameter (descriptors ~~ names)
-  in ({parameters = map fst prepared}, fn () => List.app (fn (_, report) => report ()) prepared) end
+  in ({parameters = map refine inherited @ map fst prepared},
+    fn () => List.app (fn (_, report) => report ()) prepared) end
 
 fun final_function_scope lthy unavailable source_only
     ({parameters}: URust_Type_Mappings.generic_scope) complete_type =
@@ -1558,7 +1608,10 @@ fun final_function_scope lthy unavailable source_only
 
 fun function_body_context unavailable source_only scope lthy =
   let
-    val ctxt = lthy |> URust_Type_Mappings.with_generic_scope scope
+    val install = case URust_Type_Mappings.generic_scope_identities lthy of
+        SOME identities => URust_Type_Mappings.with_identified_generic_scope scope identities
+      | NONE => URust_Type_Mappings.with_generic_scope scope
+    val ctxt = lthy |> install
       |> URust_Type_Mappings.with_source_only_parameters source_only
       |> (case unavailable of NONE => I
         | SOME names => URust_Type_Mappings.with_declared_body_parameters names)
@@ -1635,10 +1688,28 @@ fun prepare_function_signature lthy overrides signature_source function =
   let
     val authoritative = case signature_source of Declared_Signature _ => false | Rust_Signature _ => true
     val _ = URust_Type_Mappings.check_function_header lthy function
-    val _ = if authoritative then check_function_denotation function else ()
+    val _ = if authoritative then check_function_denotation lthy function else ()
     val (initial_scope, report_declarations) =
       prepare_function_scope authoritative lthy overrides function
-    val scoped = URust_Type_Mappings.with_generic_scope initial_scope lthy
+    val inherited_identities = the_default [] (URust_Type_Mappings.generic_scope_identities lthy)
+    val identities = inherited_identities @ map (fn _ => URust_Type_Mappings.fresh_generic_declaration_identity ())
+      (URust_AST.function_type_parameters function)
+    val scoped = URust_Type_Mappings.with_identified_generic_scope initial_scope identities lthy
+    val scoped = case URust_Type_Mappings.impl_self lthy of NONE => scoped
+      | SOME ({canonical_path, self_type, target_pos, report_reference}: URust_Type_Mappings.impl_self) =>
+          let
+            val inherited = maps #parameters (the_list (URust_Type_Mappings.generic_scope lthy))
+            val refined = take (length inherited) (#parameters initial_scope)
+            val replacements = map2 (fn old => fn current =>
+                (TFree (#hol old), TFree (#hol current))) inherited refined
+            val self = {canonical_path = canonical_path,
+              self_type = Term.typ_subst_atomic replacements self_type,
+              target_pos = target_pos, report_reference = report_reference}
+            val phi = Morphism.typ_morphism "urust inherited member bounds"
+              (Term.typ_subst_atomic replacements)
+          in URust_Type_Mappings.with_impl_self_identity
+            (self, Option.map (URust_Type_Mappings.morph_source_identity phi)
+              (URust_Type_Mappings.impl_source_identity lthy)) scoped end
     val arguments = function_arguments scoped function
     val (complete_type, type_pos, source_uses) =
       (case signature_source of
@@ -1649,7 +1720,7 @@ fun prepare_function_signature lthy overrides signature_source function =
             the_list (URust_AST.function_return_type function)
         val _ =
           URust_Type_Mappings.check_lifetimes
-            (URust_AST.function_lifetime_parameters function) rust_types
+            (visible_function_lifetimes lthy function) rust_types
         val _ = URust_Type_Mappings.check_signature_syntax scoped rust_types
         val (complete_type, type_pos) =
           URust_Report_Transaction.native scoped (fn read_ctxt =>
@@ -1671,7 +1742,7 @@ fun prepare_function_signature lthy overrides signature_source function =
         val (complete_type, {source_uses, ...}) =
           URust_Type_Mappings.capture_generic_use_events scoped (fn observed =>
             URust_Type_Mappings.resolve_function_signature observed channels
-              (URust_AST.function_lifetime_parameters function)
+              (visible_function_lifetimes lthy function)
               parameter_types return_type)
         (* An inherited default belongs to an earlier command; only authored channels position the
            declaration type. *)
@@ -1687,7 +1758,9 @@ fun prepare_function_signature lthy overrides signature_source function =
         (complete_type, type_pos, source_uses)
       end)
     val variables = map fst (Term.add_tfreesT complete_type [])
-    val source_only = filter_out (member (op =) variables) source_uses
+    val inherited_names = maps (map (fst o #hol) o #parameters)
+      (the_list (URust_Type_Mappings.generic_scope lthy))
+    val source_only = filter_out (member (op =) variables) (distinct (op =) (source_uses @ inherited_names))
     val unavailable = if authoritative then NONE else
       SOME (filter_out (member (op =) variables) (map (fst o #hol) (#parameters initial_scope)))
     val scope = final_function_scope lthy (the_default [] unavailable) source_only initial_scope complete_type
@@ -1744,27 +1817,27 @@ datatype function_registration =
     Free_Function
   | Impl_Function of
       {associated_key: string, method: bool, self_type: typ, identity: serial,
-       source_identity: URust_Type_Mappings.source_identity option}
+       source_identity: URust_Type_Mappings.source_identity option, template: Micro_Rust_Names.target_template}
 
 fun reject_function_item_conflict lthy registration (rust_name, rust_pos) =
   (case registration of
      Free_Function =>
        ignore (Micro_Rust_Names.reserve_declaration Micro_Rust_Names.Function_Declaration
          rust_name rust_pos (Context.Proof lthy))
-   | Impl_Function {associated_key, self_type, identity, source_identity, ...} =>
-       ignore (Micro_Rust_Names.reserve_associated_source_function
-         {name = associated_key, self_type = self_type, identity = identity, pos = rust_pos,
+   | Impl_Function {associated_key, self_type, identity, source_identity, template, ...} =>
+       ignore (Micro_Rust_Names.reserve_associated_template_function
+         {name = associated_key, target = template, identity = identity, pos = rust_pos,
           source_identity = Option.map URust_Type_Mappings.source_identity_name source_identity}
          (Context.Proof lthy)))
 
 (* Overlap is a property of the impl, not of its registrations: a member without registered
    notations still owns its associated path. *)
-fun reserve_impl_owner (Impl_Function {associated_key, self_type, identity, source_identity, ...}) (_, rust_pos)
+fun reserve_impl_owner (Impl_Function {associated_key, self_type, identity, source_identity, template, ...}) (_, rust_pos)
       lthy =
       Local_Theory.declaration {pervasive = false, syntax = true, pos = rust_pos}
         (fn phi =>
-          Micro_Rust_Names.reserve_associated_source_function
-            {name = associated_key, self_type = Morphism.typ phi self_type,
+          Micro_Rust_Names.reserve_associated_template_function
+            {name = associated_key, target = Micro_Rust_Names.map_target_types (Morphism.typ phi) template,
              identity = identity, pos = rust_pos,
              source_identity = Option.map (URust_Type_Mappings.morph_source_identity phi #>
                URust_Type_Mappings.source_identity_name) source_identity})
@@ -1794,7 +1867,7 @@ fun register_function_result target registration bare_name (rust_name, rust_pos)
                     register rust_name registration_serial phi,
                    [(rust_name, registration_serial)])
                 end
-            | Impl_Function {associated_key, method, self_type, identity, source_identity} =>
+            | Impl_Function {associated_key, method, self_type, identity, source_identity, template} =>
                 let
                   val method_serial = serial ()
                   fun method_entry phi =
@@ -1805,8 +1878,8 @@ fun register_function_result target registration bare_name (rust_name, rust_pos)
                     else I
                 in
                   (fn phi =>
-                    Micro_Rust_Names.reserve_associated_source_function
-                      {name = associated_key, self_type = Morphism.typ phi self_type,
+                    Micro_Rust_Names.reserve_associated_template_function
+                      {name = associated_key, target = Micro_Rust_Names.map_target_types (Morphism.typ phi) template,
                        identity = identity, pos = rust_pos,
                        source_identity = Option.map (URust_Type_Mappings.morph_source_identity phi #>
                          URust_Type_Mappings.source_identity_name) source_identity} #>
@@ -1892,17 +1965,39 @@ fun declare_urust_function_result pp_test render_pretty
             register_function_result target registration
               (#1 (URust_AST.function_name function)) rust_name declaration installed
           else ([], reserve_impl_owner registration rust_name installed)
-        val schemed = if null (#parameters scope) then registered
-          else URust_Type_Mappings.register_generic_source_scheme
+        fun slot (parameter as {rust, kind, hol, bounds, ...}: URust_Type_Mappings.generic_parameter) =
+          {rust = rust, kind = kind, sort = snd hol, bounds = bounds,
+           source_used = Option.map (fn uses => member (op =) uses (fst hol)) source_uses,
+           hol = if URust_Type_Mappings.parameter_has_witness body_lthy parameter
+             then SOME hol else NONE}: URust_Type_Mappings.generic_source_parameter
+        val owner_data = Impl_Target_Context.get body_lthy
+        val owner_count = case owner_data of NONE => 0 | SOME (_, identities) => length identities
+        val (inherited, locals) = chop owner_count (#parameters scope)
+        val owner = Option.map (fn (template: Micro_Rust_Names.target_template, identities) =>
+          let
+            val variables = #variables template
+            val replacements = map2 (fn {witness, ...}: Micro_Rust_Names.source_variable =>
+              fn parameter: URust_Type_Mappings.generic_parameter =>
+                (the witness, TFree (#hol parameter))) variables inherited
+            val updated = Micro_Rust_Names.map_target_types
+              (Term.typ_subst_atomic replacements) template
+            fun used (target: Micro_Rust_Names.target_template) typ = exists (fn T => Term.exists_subtype (fn subtype => subtype = typ) T)
+              [#self_type target]
+            val final_variables = map2 (fn (variable: Micro_Rust_Names.source_variable) =>
+              fn parameter => {name = #name variable, kind = #kind variable,
+                witness = if URust_Type_Mappings.parameter_has_witness body_lthy parameter orelse
+                    used template (the (#witness variable)) then SOME (TFree (#hol parameter)) else NONE})
+              variables inherited
+            val target = {self_type = #self_type updated, source = #source updated,
+              variables = final_variables, requires_source_identity = #requires_source_identity updated}
+          in {parameters = map slot inherited, declarations = identities, target = target}
+            : URust_Type_Mappings.impl_scheme end) owner_data
+        val schemed = if null locals andalso is_none owner then registered
+          else URust_Type_Mappings.register_scoped_generic_source_scheme
           {identity = function_scheme_identity abbreviation binding term
              backend_lthy installed declaration,
            backend = declaration_registered_term declaration, sources = sources,
-           parameters = map (fn parameter as {rust, kind, hol, bounds, ...} =>
-             {rust = rust, kind = kind, sort = snd hol, bounds = bounds,
-              source_used = Option.map (fn uses => member (op =) uses (fst hol)) source_uses,
-              hol = if URust_Type_Mappings.parameter_has_witness body_lthy parameter
-                then SOME hol else NONE}) (#parameters scope),
-           pos = #2 rust_name} registered
+           owner = owner, parameters = map slot locals, pos = #2 rust_name} registered
       in
         (declaration, schemed)
       end
@@ -2211,7 +2306,7 @@ datatype prepared_function =
      binding: binding, target: declaration_target, register_notation: bool,
      signature_source: function_signature, parameter_overrides: URust_Datatype.rename list,
      rust_name: string * Position.T, registration: function_registration,
-     impl_self: URust_Type_Mappings.impl_self option,
+     impl_self: URust_Type_Mappings.impl_self option, impl_context: Proof.context -> Proof.context,
      source: Input.source, function: URust_AST.urust_function, warnings: unit -> unit}
 
 (* A declared type supplies every channel, so an authored channel option beside it is rejected
@@ -2270,7 +2365,7 @@ fun prepare_function lthy
        parameter_overrides =
          (case Symtab.lookup options hol_type_parameters_option of
             SOME (Renames_Value renames, _) => renames | _ => []),
-       rust_name = rust_name, registration = Free_Function, impl_self = NONE,
+       rust_name = rust_name, registration = Free_Function, impl_self = NONE, impl_context = I,
        source = source, function = function, warnings = warnings}
   end
 
@@ -2335,7 +2430,7 @@ fun declare_prepared_function
     (Prepared_Function
       {interactive, pp_test, verbosity, pretty, render_pretty, abbreviation,
        application_definition, attributes, binding, target, register_notation, signature_source,
-       parameter_overrides, rust_name, registration, impl_self, source, function, warnings}) lthy =
+       parameter_overrides, rust_name, registration, impl_self, impl_context, source, function, warnings}) lthy =
   let
     val _ =
       check_registration_conflict lthy
@@ -2347,8 +2442,8 @@ fun declare_prepared_function
            signature_source = signature_source, rust_name = rust_name,
            parameter_overrides = parameter_overrides,
            registration = registration,
-           impl_self = impl_self, source = source, function = function, warnings = warnings})
-    val elaboration =
+           impl_self = impl_self, impl_context = impl_context, source = source, function = function, warnings = warnings})
+    val elaboration = impl_context #>
       (case impl_self of
          SOME self => (case registration of
            Impl_Function {source_identity, ...} =>
@@ -2628,7 +2723,7 @@ fun reject_annotation_option kind other_configs (name, pos) =
 (* An impl annotation supplies function defaults to every member; the HOL binding belongs to
    one member. *)
 fun reject_impl_option (name, pos) =
-  if name = name_option orelse name = hol_type_parameters_option then
+  if name = name_option then
     error
       ("urust: option " ^ quote name ^ " names one function; supply it in an " ^
         "\<omega> annotation on the member" ^ Position.here pos)
@@ -2648,7 +2743,7 @@ datatype option_schema =
 
 fun schema_configs Chunk_Defaults = (reject_chunk_option, chunk_option_configs)
   | schema_configs Impl_Annotation =
-      (reject_impl_option, Symtab.delete hol_type_parameters_option function_option_configs)
+      (reject_impl_option, function_option_configs)
   | schema_configs Impl_Member_Annotation =
       (reject_impl_member_option, Symtab.delete pp_test_option function_annotation_configs)
   | schema_configs Function_Annotation =
@@ -2706,7 +2801,8 @@ fun configured_pp_test lthy options =
 type prepared_impl_member = {prepared: prepared_function, method: bool, default_name: bool}
 
 datatype prepared_impl =
-  Prepared_Impl of {target: URust_AST.rust_type, members: prepared_impl_member list}
+  Prepared_Impl of {target: URust_AST.rust_type, generics: URust_AST.function_generics,
+    overrides: ((string * Position.T) * (string * Position.T)) list, members: prepared_impl_member list}
 
 fun is_self_parameter (URust_AST.Receiver_Parameter _) = true
   | is_self_parameter (URust_AST.Function_Parameter (_, URust_AST.P_Ident ("self", _), _, _)) =
@@ -2746,15 +2842,19 @@ fun prepare_impl_item lthy {interactive, options, impl} =
   let
     val target = URust_AST.impl_target impl
     val segment = URust_AST.rust_snake_case (impl_target_segment lthy target)
+    val generics = URust_AST.impl_generics impl
+    val overrides = case Symtab.lookup options hol_type_parameters_option of
+      SOME (Renames_Value renames, _) => renames | _ => []
+    val member_defaults = Symtab.delete_safe hol_type_parameters_option options
     fun prepare_member member =
       let
         val function = URust_AST.impl_member_function member
         val member_options =
           (case URust_AST.impl_member_annotation member of
-             NONE => options
+             NONE => member_defaults
            | SOME annotation =>
                override_options
-                 (read_annotation_options lthy Impl_Member_Annotation annotation) options)
+                 (read_annotation_options lthy Impl_Member_Annotation annotation) member_defaults)
         val _ = check_member_receiver function
         val (name, name_pos) = URust_AST.function_name function
         val default =
@@ -2771,7 +2871,7 @@ fun prepare_impl_item lthy {interactive, options, impl} =
          default_name = not (Symtab.defined member_options name_option)}
       end
   in
-    Prepared_Impl {target = target, members = map prepare_member (URust_AST.impl_members impl)}
+    Prepared_Impl {target = target, generics = generics, overrides = overrides, members = map prepare_member (URust_AST.impl_members impl)}
   end
 
 fun impl_member_function_of
@@ -2781,7 +2881,7 @@ fun impl_member_function_of
        warnings, ...}, method, ...}
      : prepared_impl_member)
     (self as {canonical_path, self_type, ...}: URust_Type_Mappings.impl_self)
-    source_identity =
+    source_identity template impl_context =
   let val associated_key = canonical_path ^ "::" ^ name in
     Prepared_Function
       {interactive = interactive, pp_test = pp_test, verbosity = verbosity, pretty = pretty,
@@ -2793,8 +2893,8 @@ fun impl_member_function_of
        registration =
          Impl_Function
            {associated_key = associated_key, method = method, self_type = self_type,
-            identity = serial (), source_identity = source_identity},
-       impl_self = SOME self, source = source, function = function, warnings = warnings}
+            identity = serial (), source_identity = source_identity, template = template},
+       impl_self = SOME self, impl_context = impl_context, source = source, function = function, warnings = warnings}
   end
 
 (* The default HOL name of a member (O3) does not distinguish the impls of different instances of
@@ -2855,24 +2955,73 @@ structure Checked_Impl_Sources = Proof_Data
   fun init _ = Inttab.empty
 )
 
-fun reserve_checked_owner ctxt ({name, self_type, identity, pos}: checked_owner) =
-  Micro_Rust_Names.reserve_associated_source_function
-    {name = name, self_type = self_type, identity = identity, pos = pos,
-     source_identity = the_default NONE (Inttab.lookup (Checked_Impl_Sources.get ctxt) identity)}
+structure Checked_Impl_Templates = Proof_Data
+(
+  type T = Micro_Rust_Names.target_template Inttab.table
+  fun init _ = Inttab.empty
+)
 
-fun declare_prepared_impl {enter, leave} (Prepared_Impl {target, members}) (lthy, checked0) =
+fun reserve_checked_owner ctxt ({name, self_type, identity, pos}: checked_owner) =
+  let val source_identity = the_default NONE (Inttab.lookup (Checked_Impl_Sources.get ctxt) identity)
+  in case Inttab.lookup (Checked_Impl_Templates.get ctxt) identity of
+      NONE => Micro_Rust_Names.reserve_associated_source_function
+        {name = name, self_type = self_type, identity = identity, pos = pos, source_identity = source_identity}
+    | SOME template => Micro_Rust_Names.reserve_associated_template_function
+        {name = name, target = template, identity = identity, pos = pos, source_identity = source_identity}
+  end
+
+fun declare_prepared_impl {enter, leave} (Prepared_Impl {target, generics, overrides, members}) (lthy, checked0) =
   let
-    val target_lthy = enter lthy
-    val (self, source_identity) =
+    val entered = enter lthy
+    val layout = #layout generics
+    val header = URust_AST.Function_Item ("_impl", URust_AST.source_span layout,
+      generics, [], SOME target, URust_AST.UE_Unit layout, layout)
+    val lifetimes = URust_AST.function_lifetime_parameters header
+    val target_lthy = URust_Type_Mappings.with_header_lifetimes lifetimes entered
+    val _ = URust_Type_Mappings.check_function_header target_lthy header
+    val _ = check_function_denotation target_lthy header
+    val (base_scope, report_declarations) = prepare_function_scope true target_lthy overrides header
+    val identities = map (fn _ => URust_Type_Mappings.fresh_generic_declaration_identity ())
+      (#parameters base_scope)
+    val target_lthy = URust_Type_Mappings.with_identified_generic_scope base_scope identities target_lthy
+    val _ = report_declarations ()
+    val (self, source_identity, selection) =
       URust_Report_Transaction.release_on_failure target_lthy
-        (fn () => URust_Type_Mappings.resolve_impl_target_identity target_lthy target)
+        (fn () => URust_Type_Mappings.resolve_impl_target_selection target_lthy target)
+    fun abstract (Micro_Rust_Names.Source_Rigid (identity, kind)) =
+          (case find_index (fn declared => declared = identity) identities of
+             ~1 => Micro_Rust_Names.Source_Rigid (identity, kind)
+           | index => Micro_Rust_Names.Source_Variable (("_urust_impl_source", index), kind))
+      | abstract (Micro_Rust_Names.Source_Node (head, children)) =
+          Micro_Rust_Names.Source_Node (head, map abstract children)
+      | abstract tree = tree
+    val template = {self_type = #self_type self, source = Option.map abstract (#source selection),
+      variables = map_index (fn (index, parameter: URust_Type_Mappings.generic_parameter) =>
+        {name = ("_urust_impl_source", index), kind = case #kind parameter of
+            URust_AST.Type_Parameter => Micro_Rust_Names.Type_Source
+          | URust_AST.Const_Parameter => Micro_Rust_Names.Const_Source,
+         witness = SOME (TFree (#hol parameter))}) (#parameters base_scope),
+      requires_source_identity = is_some source_identity}: Micro_Rust_Names.target_template
+    fun occurs name (Micro_Rust_Names.Source_Variable (other, _)) = name = other
+      | occurs name (Micro_Rust_Names.Source_Node (_, children)) = exists (occurs name) children
+      | occurs _ _ = false
+    val _ = List.app (fn (parameter: URust_Type_Mappings.generic_parameter,
+        variable: Micro_Rust_Names.source_variable) =>
+      if exists (occurs (#name variable)) (the_list (#source template)) then ()
+      else error ("urust: impl parameter " ^ quote (#rust parameter) ^
+        " is unconstrained by the implementing type" ^ Position.here (#pos parameter)))
+      (#parameters base_scope ~~ #variables template)
     (* A checked-only member (name = _) declares nothing, so later members of the impl see its
        owner only through this list. *)
     fun declare member (lthy', checked) =
       let
         val member_lthy = enter lthy'
+        val impl_context = URust_Type_Mappings.inherit_header_lifetimes target_lthy #>
+          URust_Type_Mappings.with_identified_generic_scope base_scope identities #>
+          Impl_Header_Context.put (SOME generics) #>
+          Impl_Target_Context.put (SOME (template, identities))
         val prepared as Prepared_Function {target = member_target, registration, rust_name, ...} =
-          impl_member_function_of member self source_identity
+          impl_member_function_of member self source_identity template impl_context
         val with_checked =
           Context.proof_of (fold (reserve_checked_owner member_lthy) checked
             (Context.Proof member_lthy))
@@ -2892,9 +3041,10 @@ fun declare_prepared_impl {enter, leave} (Prepared_Impl {target, members}) (lthy
                 pos = #2 rust_name} :: checked
            | _ => checked)
         val lthy'' = (case (member_target, registration) of
-           (Anonymous_Target _, Impl_Function {identity, source_identity, ...}) =>
-             Checked_Impl_Sources.map (Inttab.update (identity,
-               Option.map URust_Type_Mappings.source_identity_name source_identity)) lthy''
+           (Anonymous_Target _, Impl_Function {identity, source_identity, template, ...}) =>
+             Checked_Impl_Templates.map (Inttab.update (identity, template)) lthy''
+             |> Checked_Impl_Sources.map (Inttab.update (identity,
+               Option.map URust_Type_Mappings.source_identity_name source_identity))
          | _ => lthy'')
       in (output, (lthy'', checked')) end
     val (outputs, (lthy'', checked'')) = fold_map declare members (lthy, checked0)
@@ -2905,7 +3055,7 @@ fun prepared_impl_registrations (_: prepared_impl) = URust_Imports.no_registrati
 (* The associated paths an impl's members own, as far as they are known before it is
    declared: the target head resolves through registered aliases and imports, and a target that
    a later chunk member declares keeps its written path. *)
-fun prepared_impl_associated_keys ctxt (Prepared_Impl {target, members}) =
+fun prepared_impl_associated_keys ctxt (Prepared_Impl {target, members, ...}) =
   (case URust_Type_Mappings.impl_target_key ctxt target of
      NONE => []
    | SOME path =>

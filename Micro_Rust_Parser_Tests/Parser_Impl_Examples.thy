@@ -1245,4 +1245,356 @@ lemma impl_backend_share_twin:
   \<open> impl_backend_only_backend_share = impl_backend_share_escape \<close>
   unfolding impl_backend_only_backend_share_def impl_backend_share_escape_def by (rule refl)
 
+chapter\<open> Generic inherent impl scopes \<close>
+
+text\<open>
+Impl declarations contribute no callable arguments. Their parameters constrain the target,
+while each member adds its own declarations. These twins check the complete generated
+functions; call twins also check explicit target and local-member instantiation.
+\<close>
+
+urust \<open>
+  struct GenericPocket<T> { value: T }
+  struct GenericBuffer<T, const N: usize> { value: [T; N] }
+
+  impl<T> GenericPocket<T> {
+    fn retain(self) -> Self { self }
+    fn pass(value: T) -> T { value }
+    fn replace<U>(self, value: U) -> U { value }
+    fn relay<U>(self, value: U) -> U { Self::replace::<U>(self, value) }
+    fn irrelevant(value: u8) -> u8 { value }
+  }
+
+  impl<'a, T, const N: usize> GenericBuffer<T, N> {
+    fn retain(self) -> Self { self }
+    fn capacity(self) -> usize { N }
+    fn borrow(&'a mut self) -> &'a mut Self { self }
+    fn replace<'b, U>(&'b mut self, value: U) -> U { value }
+  }
+\<close>
+
+urust_fn [register_notation = false] generic_pocket_retain_twin \<open>
+  fn RetainTwin<T>(self: GenericPocket<T>) -> GenericPocket<T> { self }
+\<close>
+urust_fn [register_notation = false] generic_pocket_pass_twin \<open>
+  fn PassTwin<T>(value: T) -> T { value }
+\<close>
+urust_fn [register_notation = false] generic_pocket_replace_twin \<open>
+  fn ReplaceTwin<T, U>(self: GenericPocket<T>, value: U) -> U { value }
+\<close>
+urust_fn [register_notation = false] generic_pocket_relay_control \<open>
+  fn RelayControl<T, U>(self: GenericPocket<T>, value: U) -> U {
+    \<epsilon>\<open>generic_pocket_replace\<close>(self, value)
+  }
+\<close>
+urust_fn [register_notation = false] generic_pocket_irrelevant_twin \<open>
+  fn IrrelevantTwin(value: u8) -> u8 { value }
+\<close>
+urust_fn [register_notation = false] generic_buffer_retain_twin \<open>
+  fn BufferRetainTwin<T, const N: usize>(self: GenericBuffer<T, N>) -> GenericBuffer<T, N> { self }
+\<close>
+urust_fn [register_notation = false] generic_buffer_capacity_twin \<open>
+  fn BufferCapacityTwin<T, const N: usize>(self: GenericBuffer<T, N>) -> usize { N }
+\<close>
+urust_fn [register_notation = false] generic_buffer_borrow_twin \<open>
+  fn BufferBorrowTwin<'a, T, const N: usize>(self: &'a mut GenericBuffer<T, N>)
+    -> &'a mut GenericBuffer<T, N> { self }
+\<close>
+urust_fn [register_notation = false] generic_buffer_replace_twin \<open>
+  fn BufferReplaceTwin<'b, T, const N: usize, U>(self: &'b mut GenericBuffer<T, N>, value: U) -> U { value }
+\<close>
+
+lemma generic_pocket_retain_twin:
+  \<open> generic_pocket_retain = generic_pocket_retain_twin \<close>
+  unfolding generic_pocket_retain_def generic_pocket_retain_twin_def by (rule refl)
+lemma generic_pocket_pass_twin:
+  \<open> generic_pocket_pass = generic_pocket_pass_twin \<close>
+  unfolding generic_pocket_pass_def generic_pocket_pass_twin_def by (rule refl)
+lemma generic_pocket_replace_twin:
+  \<open> generic_pocket_replace = generic_pocket_replace_twin \<close>
+  unfolding generic_pocket_replace_def generic_pocket_replace_twin_def by (rule refl)
+lemma generic_pocket_relay_twin:
+  \<open> generic_pocket_relay = generic_pocket_relay_control \<close>
+  unfolding generic_pocket_relay_def generic_pocket_relay_control_def by (rule refl)
+lemma generic_pocket_irrelevant_twin:
+  \<open> generic_pocket_irrelevant = generic_pocket_irrelevant_twin \<close>
+  unfolding generic_pocket_irrelevant_def generic_pocket_irrelevant_twin_def by (rule refl)
+lemma generic_buffer_retain_twin:
+  \<open> generic_buffer_retain = generic_buffer_retain_twin \<close>
+  unfolding generic_buffer_retain_def generic_buffer_retain_twin_def by (rule refl)
+lemma generic_buffer_capacity_twin:
+  \<open> generic_buffer_capacity = generic_buffer_capacity_twin \<close>
+  unfolding generic_buffer_capacity_def generic_buffer_capacity_twin_def by (rule refl)
+lemma generic_buffer_borrow_twin:
+  \<open> generic_buffer_borrow = generic_buffer_borrow_twin \<close>
+  unfolding generic_buffer_borrow_def generic_buffer_borrow_twin_def by (rule refl)
+lemma generic_buffer_replace_twin:
+  \<open> generic_buffer_replace = generic_buffer_replace_twin \<close>
+  unfolding generic_buffer_replace_def generic_buffer_replace_twin_def by (rule refl)
+
+urust_fn generic_impl_selected_call \<open>
+  fn GenericImplSelectedCall(owner: GenericPocket<u8>, value: bool) -> bool {
+    GenericPocket::<u8>::replace::<bool>(owner, value)
+  }
+\<close>
+urust_fn generic_impl_inferred_call \<open>
+  fn GenericImplInferredCall(owner: GenericPocket<u8>, value: bool) -> bool {
+    GenericPocket::replace(owner, value)
+  }
+\<close>
+urust_fn generic_impl_method_call \<open>
+  fn GenericImplMethodCall(owner: GenericPocket<u8>, value: bool) -> bool {
+    owner.replace::<bool>(value)
+  }
+\<close>
+urust_fn [register_notation = false] generic_impl_call_twin \<open>
+  fn GenericImplCallTwin(owner: GenericPocket<u8>, value: bool) -> bool {
+    \<epsilon>\<open>generic_pocket_replace\<close>(owner, value)
+  }
+\<close>
+lemma generic_impl_selected_call_twin:
+  \<open> generic_impl_selected_call = generic_impl_call_twin \<close>
+  unfolding generic_impl_selected_call_def generic_impl_call_twin_def by (rule refl)
+lemma generic_impl_inferred_call_twin:
+  \<open> generic_impl_inferred_call = generic_impl_call_twin \<close>
+  unfolding generic_impl_inferred_call_def generic_impl_call_twin_def by (rule refl)
+lemma generic_impl_method_call_twin:
+  \<open> generic_impl_method_call = generic_impl_call_twin \<close>
+  unfolding generic_impl_method_call_def generic_impl_call_twin_def by (rule refl)
+
+section\<open> Erased target arguments and member witness demand \<close>
+
+urust_type [erase = \<open> 'tag \<close>] "ImplDemandBox<'tag>" = \<open> unit \<close>
+urust \<open>
+  impl<T> ImplDemandBox<T> {
+    fn pass(value: T) -> T { value }
+    fn irrelevant(value: u8) -> u8 { value }
+    fn local<U>(self, value: U) -> U { value }
+  }
+  fn ImplDemandSelected(value: u8) -> u8 { ImplDemandBox::<u8>::pass(value) }
+  fn ImplDemandOpaque(value: u8) -> u8 { ImplDemandBox::<UnmappedTag>::irrelevant(value) }
+  fn ImplDemandLocal(owner: ImplDemandBox<UnmappedTag>, value: bool) -> bool {
+    ImplDemandBox::<UnmappedTag>::local::<bool>(owner, value)
+  }
+  fn ImplDemandSelectedTwin(value: u8) -> u8 { \<epsilon>\<open>impl_demand_box_pass\<close>(value) }
+  fn ImplDemandOpaqueTwin(value: u8) -> u8 { \<epsilon>\<open>impl_demand_box_irrelevant\<close>(value) }
+  fn ImplDemandLocalTwin(owner: ImplDemandBox<UnmappedTag>, value: bool) -> bool {
+    \<epsilon>\<open>impl_demand_box_local\<close>(owner, value)
+  }
+\<close>
+lemma impl_demand_selected_twin:
+  \<open> impl_demand_selected = impl_demand_selected_twin \<close>
+  unfolding impl_demand_selected_def impl_demand_selected_twin_def by (rule refl)
+lemma impl_demand_opaque_twin:
+  \<open> impl_demand_opaque = impl_demand_opaque_twin \<close>
+  unfolding impl_demand_opaque_def impl_demand_opaque_twin_def by (rule refl)
+lemma impl_demand_local_twin:
+  \<open> impl_demand_local = impl_demand_local_twin \<close>
+  unfolding impl_demand_local_def impl_demand_local_twin_def by (rule refl)
+
+section\<open> Inherited member refinement and HOL parameter names \<close>
+
+urust_trait "impl_scope::Ordered" = \<open> ord \<close>
+urust \<open>
+  impl<T> GenericPocket<T> {
+    fn strengthened(self, value: T) -> T where T: impl_scope::Ordered { value }
+    fn unchanged(self, value: T) -> T { value }
+  }
+  \<omega>\<open>hol_type_parameters = ["T" \<rightarrow> \<open>'payload::ord\<close>]\<close>
+  impl<T> GenericPocket<T> {
+    fn named(self, value: T) -> T { value }
+    \<omega>\<open>name = "generic_pocket_named_local", hol_type_parameters = ["U" \<rightarrow> \<open>'local::type\<close>]\<close>
+    fn local_named<U>(self, value: U) -> U { value }
+  }
+  \<omega>\<open>name = "generic_pocket_strengthened_control", register_notation = false\<close>
+  fn StrengthenedControl<T: impl_scope::Ordered>(self: GenericPocket<T>, value: T) -> T { value }
+  \<omega>\<open>name = "generic_pocket_unchanged_control", register_notation = false\<close>
+  fn UnchangedControl<T>(self: GenericPocket<T>, value: T) -> T { value }
+  \<omega>\<open>name = "generic_pocket_named_control", register_notation = false, hol_type_parameters = ["T" \<rightarrow> \<open>'payload::ord\<close>]\<close>
+  fn NamedControl<T>(self: GenericPocket<T>, value: T) -> T { value }
+  \<omega>\<open>name = "generic_pocket_named_local_control", register_notation = false,
+    hol_type_parameters = ["T" \<rightarrow> \<open>'payload::ord\<close>, "U" \<rightarrow> \<open>'local::type\<close>]\<close>
+  fn NamedLocalControl<T, U>(self: GenericPocket<T>, value: U) -> U { value }
+\<close>
+lemma generic_pocket_strengthened_twin:
+  \<open> generic_pocket_strengthened = generic_pocket_strengthened_control \<close>
+  unfolding generic_pocket_strengthened_def generic_pocket_strengthened_control_def by (rule refl)
+lemma generic_pocket_unchanged_twin:
+  \<open> generic_pocket_unchanged = generic_pocket_unchanged_control \<close>
+  unfolding generic_pocket_unchanged_def generic_pocket_unchanged_control_def by (rule refl)
+lemma generic_pocket_named_twin:
+  \<open> generic_pocket_named = generic_pocket_named_control \<close>
+  unfolding generic_pocket_named_def generic_pocket_named_control_def by (rule refl)
+lemma generic_pocket_named_local_twin:
+  \<open> generic_pocket_named_local = generic_pocket_named_local_control \<close>
+  unfolding generic_pocket_named_local_def generic_pocket_named_local_control_def by (rule refl)
+
+section\<open> Canonical aliases and lazy target witnesses \<close>
+
+urust_type [erase = \<open> 'first, 'second \<close>]
+  "ImplDemandPair<'first, 'second>" = \<open> unit \<close>
+urust_type_alias \<open> type ImplDemandSwap<A, B> = ImplDemandPair<B, A>; \<close>
+urust_type_alias \<open> type ImplDemandNested<A, B> = ImplDemandSwap<B, A>; \<close>
+urust_type_alias \<open> type ImplDemandDiscard<const N: usize> = ImplDemandBox<u8>; \<close>
+urust_type_alias \<open> type ImplDemandPointerTag = *const u8; \<close>
+urust \<open>
+  impl<Right, Left> ImplDemandSwap<Left, Right> {
+    fn first(value: Right) -> Right { value }
+    fn second(value: Left) -> Left { value }
+  }
+  impl<T> ImplDemandPair<T, T> {
+    fn repeated(value: T) -> T { value }
+  }
+  impl<T: impl_scope::Ordered> GenericPocket<T> {
+    fn inline_bound(self, value: T) -> T { value }
+  }
+  impl<T> GenericPocket<T> where T: impl_scope::Ordered {
+    fn where_bound(self, value: T) -> T { value }
+  }
+  fn ImplDemandAliasFirst(value: u8) -> u8 { ImplDemandSwap::<bool, u8>::first(value) }
+  fn ImplDemandAliasSecond(value: bool) -> bool { ImplDemandSwap::<bool, u8>::second(value) }
+  fn ImplDemandNestedFirst(value: u8) -> u8 { ImplDemandNested::<u8, bool>::first(value) }
+  fn ImplDemandRepeated(value: u8) -> u8 { ImplDemandPair::<u8, u8>::repeated(value) }
+  fn ImplDemandLazy(value: u8) -> u8 { ImplDemandBox::<ImplDemandPointerTag>::irrelevant(value) }
+  fn ImplDemandPointer(value: *const u8) -> *const u8 {
+    ImplDemandBox::<ImplDemandPointerTag>::pass(value)
+  }
+  fn ImplDemandAliasFirstTwin(value: u8) -> u8 { \<epsilon>\<open>impl_demand_swap_first\<close>(value) }
+  fn ImplDemandAliasSecondTwin(value: bool) -> bool { \<epsilon>\<open>impl_demand_swap_second\<close>(value) }
+  fn ImplDemandNestedFirstTwin(value: u8) -> u8 { \<epsilon>\<open>impl_demand_swap_first\<close>(value) }
+  fn ImplDemandRepeatedTwin(value: u8) -> u8 { \<epsilon>\<open>impl_demand_pair_repeated\<close>(value) }
+  fn ImplDemandLazyTwin(value: u8) -> u8 { \<epsilon>\<open>impl_demand_box_irrelevant\<close>(value) }
+  fn ImplDemandPointerTwin(value: *const u8) -> *const u8 { \<epsilon>\<open>impl_demand_box_pass\<close>(value) }
+  \<omega>\<open>name = "generic_pocket_bound_control", register_notation = false\<close>
+  fn BoundControl<T: impl_scope::Ordered>(self: GenericPocket<T>, value: T) -> T { value }
+\<close>
+lemma impl_demand_alias_first_twin:
+  \<open> impl_demand_alias_first = impl_demand_alias_first_twin \<close>
+  unfolding impl_demand_alias_first_def impl_demand_alias_first_twin_def by (rule refl)
+lemma impl_demand_alias_second_twin:
+  \<open> impl_demand_alias_second = impl_demand_alias_second_twin \<close>
+  unfolding impl_demand_alias_second_def impl_demand_alias_second_twin_def by (rule refl)
+lemma impl_demand_nested_first_twin:
+  \<open> impl_demand_nested_first = impl_demand_nested_first_twin \<close>
+  unfolding impl_demand_nested_first_def impl_demand_nested_first_twin_def by (rule refl)
+lemma impl_demand_repeated_twin:
+  \<open> impl_demand_repeated = impl_demand_repeated_twin \<close>
+  unfolding impl_demand_repeated_def impl_demand_repeated_twin_def by (rule refl)
+lemma impl_demand_lazy_twin:
+  \<open> impl_demand_lazy = impl_demand_lazy_twin \<close>
+  unfolding impl_demand_lazy_def impl_demand_lazy_twin_def by (rule refl)
+lemma impl_demand_pointer_twin:
+  \<open> impl_demand_pointer = impl_demand_pointer_twin \<close>
+  unfolding impl_demand_pointer_def impl_demand_pointer_twin_def by (rule refl)
+lemma generic_pocket_inline_bound_twin:
+  \<open> generic_pocket_inline_bound = generic_pocket_bound_control \<close>
+  unfolding generic_pocket_inline_bound_def generic_pocket_bound_control_def by (rule refl)
+lemma generic_pocket_where_bound_twin:
+  \<open> generic_pocket_where_bound = generic_pocket_bound_control \<close>
+  unfolding generic_pocket_where_bound_def generic_pocket_bound_control_def by (rule refl)
+
+section\<open> Generic owner imports, explicit calls and locale transports \<close>
+
+urust \<open>
+  use GenericPocket as ImportedGenericPocket;
+  fn GenericImplImported(owner: GenericPocket<u8>, value: bool) -> bool {
+    ImportedGenericPocket::<u8>::replace::<bool>(owner, value)
+  }
+  impl<T> GenericPocket<T> {
+    fn notation_choice(self) -> Self { self }
+  }
+\<close>
+micro_rust_notation (call) generic_pocket_notation_choice ("notation_choice")
+urust \<open>
+  fn GenericImplExplicitNotation(owner: GenericPocket<u8>) -> GenericPocket<u8> {
+    owner.notation_choice()
+  }
+  fn GenericImplExplicitNotationTwin(owner: GenericPocket<u8>) -> GenericPocket<u8> {
+    \<epsilon>\<open>generic_pocket_notation_choice\<close>(owner)
+  }
+\<close>
+lemma generic_impl_imported_twin:
+  \<open> generic_impl_imported = generic_impl_call_twin \<close>
+  unfolding generic_impl_imported_def generic_impl_call_twin_def by (rule refl)
+lemma generic_impl_explicit_notation_twin:
+  \<open> generic_impl_explicit_notation = generic_impl_explicit_notation_twin \<close>
+  unfolding generic_impl_explicit_notation_def generic_impl_explicit_notation_twin_def by (rule refl)
+
+urust_type "ImplLocalePair<'payload, 'ambient>" = \<open> 'payload * 'ambient \<close>
+locale generic_impl_locale =
+  fixes generic_impl_seed :: 'ambient
+begin
+urust \<open>
+  impl<T> ImplLocalePair<T, \<tau>\<open>'ambient\<close>> {
+    fn locale_replace<U>(self, value: U) -> U { value }
+    fn ambient(self) -> \<tau>\<open>'ambient\<close> { generic_impl_seed }
+  }
+\<close>
+end
+interpretation generic_impl_nat: generic_impl_locale "0 :: nat" .
+interpretation generic_impl_bool: generic_impl_locale False .
+urust \<open>
+  fn GenericImplLocaleNat(owner: ImplLocalePair<u8, \<tau>\<open>nat\<close>>, value: bool) -> bool {
+    ImplLocalePair::<u8, \<tau>\<open>nat\<close>>::locale_replace::<bool>(owner, value)
+  }
+  fn GenericImplLocaleBool(owner: ImplLocalePair<u8, bool>, value: u8) -> u8 {
+    owner.locale_replace::<u8>(value)
+  }
+  fn GenericImplLocaleAmbient(owner: ImplLocalePair<u8, \<tau>\<open>nat\<close>>) -> \<tau>\<open>nat\<close> {
+    ImplLocalePair::<u8, \<tau>\<open>nat\<close>>::ambient(owner)
+  }
+  fn GenericImplLocaleNatTwin(owner: ImplLocalePair<u8, \<tau>\<open>nat\<close>>, value: bool) -> bool {
+    \<epsilon>\<open>generic_impl_locale.impl_locale_pair_locale_replace\<close>(owner, value)
+  }
+  fn GenericImplLocaleBoolTwin(owner: ImplLocalePair<u8, bool>, value: u8) -> u8 {
+    \<epsilon>\<open>generic_impl_locale.impl_locale_pair_locale_replace\<close>(owner, value)
+  }
+  fn GenericImplLocaleAmbientTwin(owner: ImplLocalePair<u8, \<tau>\<open>nat\<close>>) -> \<tau>\<open>nat\<close> {
+    \<epsilon>\<open>generic_impl_nat.impl_locale_pair_ambient\<close>(owner)
+  }
+\<close>
+lemma generic_impl_locale_nat_twin:
+  \<open> generic_impl_locale_nat = generic_impl_locale_nat_twin \<close>
+  unfolding generic_impl_locale_nat_def generic_impl_locale_nat_twin_def by (rule refl)
+lemma generic_impl_locale_bool_twin:
+  \<open> generic_impl_locale_bool = generic_impl_locale_bool_twin \<close>
+  unfolding generic_impl_locale_bool_def generic_impl_locale_bool_twin_def by (rule refl)
+lemma generic_impl_locale_ambient_twin:
+  \<open> generic_impl_locale_ambient = generic_impl_locale_ambient_twin \<close>
+  unfolding generic_impl_locale_ambient_def generic_impl_locale_ambient_twin_def by (rule refl)
+
+section\<open> Pure source forwarding in an irrelevant member \<close>
+
+text\<open>
+An authoritative Rust body may forward an inherited source tag to another erased slot without
+requesting its HOL witness. This member and its control have the same complete HOL type;
+a body read that needs the absent witness is separately rejected.
+\<close>
+urust \<open>
+  impl<T> ImplDemandBox<T> {
+    fn source_forward(value: u8) -> u8 { ImplDemandBox::<T>::irrelevant(value) }
+  }
+  \<omega>\<open>register_notation = false\<close>
+  fn ImplDemandSourceForwardTwin(value: u8) -> u8 { \<epsilon>\<open>impl_demand_box_irrelevant\<close>(value) }
+\<close>
+lemma impl_demand_source_forward_twin:
+  \<open> impl_demand_box_source_forward = impl_demand_source_forward_twin \<close>
+  unfolding impl_demand_box_source_forward_def impl_demand_source_forward_twin_def by (rule refl)
+
+section\<open> Concrete owner selection through equivalent HOL types \<close>
+
+urust \<open>
+  fn GenericConcreteHOLChoice(owner: Duo<u8>) -> u8 {
+    Duo::<\<tau>\<open>8 word\<close>>::sum(owner)
+  }
+  fn GenericConcreteHOLChoiceTwin(owner: Duo<u8>) -> u8 {
+    \<epsilon>\<open>duo_byte_sum\<close>(owner)
+  }
+\<close>
+
+lemma generic_concrete_hol_choice_twin:
+  \<open> generic_concrete_hol_choice = generic_concrete_hol_choice_twin \<close>
+  unfolding generic_concrete_hol_choice_def generic_concrete_hol_choice_twin_def
+  by (rule refl)
+
 end
