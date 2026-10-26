@@ -4917,7 +4917,9 @@ ML_val\<open>
     val ctxt = \<^context>
     val base = initial \<^theory>
     val recovery =
-      command "" "reference_failure" "fn ReferenceRecovery(value: &mut u32) -> u32 { *value }"
+      command ("[state = " ^ cartouche "unit" ^ ", abort = " ^ cartouche "unit" ^
+        ", input = " ^ cartouche "unit" ^ ", output = " ^ cartouche "unit" ^ "]")
+        "reference_failure" "fn ReferenceRecovery(value: &mut u32) -> u32 { *value }"
     fun reject (label, expected, text) =
       let
         val (result, reports) = Parser_Test_Reports.markup (fn () =>

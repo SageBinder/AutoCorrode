@@ -2187,9 +2187,9 @@ counts and receiver mutability.
 \<close>
 
 context
+  notes [[urust_state = "'state", urust_abort = "'abort",
+          urust_input = "'input", urust_output = "'output"]]
 begin
-
-declare [[urust_state = "'state", urust_abort = "'abort", urust_input = "'input", urust_output = "'output"]]
 
 urust_fn [pp_test, verbosity = 0] callable_apply \<open>
   fn CallableApply<F: Fn(bool) -> bool>(callback: F, value: bool) -> bool { callback(value) }
@@ -2231,7 +2231,9 @@ urust_fn [pp_test, verbosity = 0] callable_nested_closure \<open>
   }
 \<close>
 lemma callable_nested_closure_twin: \<open> callable_nested_closure = callable_apply \<close>
-  unfolding callable_nested_closure_def callable_apply_def by (rule refl)
+  unfolding callable_nested_closure_def callable_apply_def
+    funcall1_def bind1_def deep_compose1_def
+  by (simp only: bind_literal_unit no_return_call_inline[OF call_no_return, symmetric])
 
 urust_fn [pp_test, verbosity = 0] callable_array \<open>
   fn CallableArray<T, const N: usize, F: Fn([T; N]) -> T>(callback: F, values: [T; N]) -> T

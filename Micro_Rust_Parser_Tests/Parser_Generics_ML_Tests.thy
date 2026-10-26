@@ -1831,7 +1831,7 @@ struct
   val holder = "struct SyntaxOutputHolder { value: u8 }"
   val choice = "\<omega>" ^ cartouche "backend = \"hol\"" ^
     "\nenum SyntaxOutputChoice { Empty, Byte(u8) }"
-  val member = "impl SyntaxOutputHolder { fn member(self, value: u8) -> u8 { value } }"
+  val member_source = "impl SyntaxOutputHolder { fn member(self, value: u8) -> u8 { value } }"
 
   fun setting NONE thy = thy
     | setting (SOME value) thy = Config.put_global Proof_Display.show_results value thy
@@ -1924,7 +1924,7 @@ local
       val _ = require (label ^ ": original registry or theory artifacts changed")
         (snapshot (Proof_Context.init_global configured) = initial_snapshot)
       val (recovery, recovery_events) = capture (fn () =>
-        run_with true configured (label ^ "-recovery") (command verbosity (holder ^ "\n" ^ member)))
+        run_with true configured (label ^ "-recovery") (command verbosity (holder ^ "\n" ^ member_source)))
       val recovered = Exn.release recovery |> Toplevel.context_of
       val _ = require (label ^ ": failure leaked artifacts or blocked a later valid declaration")
         (is_some (Parser_Test_Calls.lookup recovered "SyntaxOutputHolder::member"))
@@ -2962,7 +2962,7 @@ local
         (snapshot (Proof_Context.init_global configured) = initial_snapshot andalso
          scheme_snapshot (Proof_Context.init_global configured) = initial_schemes)
       val (recovery, recovery_events) = capture (fn () =>
-        run_with true configured (label ^ "-recovery") (command verbosity (holder ^ "\n" ^ member)))
+        run_with true configured (label ^ "-recovery") (command verbosity (holder ^ "\n" ^ member_source)))
       val recovered = Exn.release recovery |> Toplevel.context_of
       val _ = require (label ^ ": failure blocked exact original monomorphic recovery")
         (is_some (Parser_Test_Calls.lookup recovered "SyntaxOutputHolder::member"))
@@ -3083,7 +3083,7 @@ local
      snapshot (Toplevel.context_of entered) = before_snapshot andalso
      scheme_snapshot (Toplevel.context_of entered) = before_schemes)
   val (recovery, recovery_events) = capture (fn () => continue true entered (label ^ "-recovery")
-    (command 2 (holder ^ "\n" ^ Generic_Syntax_Output_Atomicity.member)))
+    (command 2 (holder ^ "\n" ^ Generic_Syntax_Output_Atomicity.member_source)))
   val recovered = Exn.release recovery |> Toplevel.context_of
   val _ = require (label ^ ": exact monomorphic recovery failed")
     (is_some (Parser_Test_Calls.lookup recovered "SyntaxOutputHolder::member") andalso
@@ -3883,10 +3883,16 @@ local
       (fn child => routes child "'a32_foreign_t" "'a32_foreign_n"))
   val _ = require "foreign child captures itself while excluding parent"
     (sort_strings foreign_inner = ["'a32_foreign_n", "'a32_foreign_t"] andalso null foreign_outer)
-  val ((_, restored_inner), restored_outer) = M.capture_generic_uses scoped (fn parent =>
+  val ((_, redeclared_inner), redeclared_outer) = M.capture_generic_uses scoped (fn parent =>
     M.capture_generic_uses (foreign parent) (fn child =>
       routes (M.with_generic_scope {parameters = [t, n]} child) "'a32_t" "'a32_n"))
-  val _ = require "restoring actual original records reaches original parent only"
+  val _ = require "bare records re-declare without claiming an ancestor declaration"
+    (null redeclared_inner andalso null redeclared_outer)
+  val original_scope = the (M.binding_scope scoped)
+  val ((_, restored_inner), restored_outer) = M.capture_generic_uses scoped (fn parent =>
+    M.capture_generic_uses (foreign parent) (fn child =>
+      routes (M.with_binding_scope original_scope child) "'a32_t" "'a32_n"))
+  val _ = require "restoring the original declaration scope reaches original parent only"
     (null restored_inner andalso sort_strings restored_outer = ["'a32_n", "'a32_t"])
   val before_error = length (!calls)
   val bad = parameter "Bad" ("'a32_bad", \<^sort>\<open>type\<close>) Type_Parameter []
@@ -4744,8 +4750,8 @@ local
       "fn BoundProbe(owner: BoundOwner<bool>, value: bool) -> bool { owner.choose::<bool>(value) }", "choose", 0),
      ("wrong-shared-effect-shape", ", state = " ^ cartouche "nat", no_backend,
       "fn BoundProbe(owner: BoundOwner<u8>, value: bool) -> bool { owner.linked::<bool>(value) }", "linked", 0),
-     ("borrowed-owner-bound", "", "does not satisfy sort",
-      "fn BoundProbe(owner: &mut BoundOwner<u8>, value: bool) -> bool { owner.borrowed::<bool>(value) }", "bool", 2)]
+     ("borrowed-owner-bound", ", state = " ^ cartouche "bool", "does not satisfy sort",
+      "fn BoundProbe(owner: &mut BoundOwner<u8>, value: bool) -> bool { owner.borrowed::<bool>(value) }", "bool", 3)]
   fun check (label, options, expected, rust, token, occurrence) =
     let
       val text = "urust_fn [verbosity = 0" ^ options ^ "] " ^ cartouche (prefix ^ rust)
@@ -6287,8 +6293,8 @@ local
      ("different-results", "incompatible callable bounds", "fn CallableResults<F: Fn(bool) -> bool + Fn(bool) -> u8>(callback: F) -> bool { false }"),
      ("self-cycle", "recursive callable dependency", "fn CallableRecursive<F: Fn(F) -> bool>(callback: F) -> bool { false }"),
      ("mutual-cycle", "recursive callable dependency", "fn CallableMutual<F: Fn(G) -> bool, G: Fn(F) -> bool>(callback: F) -> bool { false }"),
-     ("body-only", "does not occur in the signature", "fn CallableBodyOnly<F: Fn(bool) -> bool>() { let value: F = " ^ "\<epsilon>" ^ cartouche "undefined" ^ "; () }"),
-     ("recipe-only-ordinary", "does not occur in the signature", "fn CallableRecipeOnly<T, F: Fn(T) -> T>(callback: F) { let value: T = " ^ "\<epsilon>" ^ cartouche "undefined" ^ "; () }"),
+     ("body-only", "does not occur in the signature", "fn CallableBodyOnly<F: Fn(bool) -> bool>() { let value = " ^ "\<llangle>undefined :: 'f\<rrangle>" ^ "; () }"),
+     ("recipe-only-ordinary", "does not occur in the signature", "fn CallableRecipeOnly<T, F: Fn(T) -> T>(callback: F) { let value = " ^ "\<llangle>undefined :: 't\<rrangle>" ^ "; () }"),
      ("whole-sort", "does not satisfy", "fn CallableSort<F: Fn(bool) -> bool>(callback: " ^ "\<tau>" ^ cartouche "'f::len0" ^ ") -> bool { callback(false) }"),
      ("shared-reference-limit", "shared", "fn CallableShared<F: Fn(&bool) -> bool>(callback: F) -> bool { false }"),
      ("custom-suffix", "unregistered callable trait", "fn CallableCustom<F: custom::Fn(bool) -> bool>(callback: F) -> bool { false }"),

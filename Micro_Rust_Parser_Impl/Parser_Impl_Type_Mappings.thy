@@ -2313,8 +2313,14 @@ struct
 
   fun consistent_binding_schemes [] = NONE
     | consistent_binding_schemes (entry :: entries: function_scheme list) =
-        if forall (fn other => binding_metadata other = binding_metadata entry) entries then SOME entry
-        else error "urust: inconsistent complete binding metadata for one source"
+        let
+          (* One source can have several locale interpretations. Only its source contract is
+             invariant; each candidate still carries and checks its exact transported types. *)
+          fun contract scheme = map_binding_metadata (K dummyT) (binding_metadata scheme)
+        in
+          if forall (fn other => contract other = contract entry) entries then SOME entry
+          else error "urust: inconsistent complete binding metadata for one source"
+        end
   fun binding_generic_scheme_for_source ctxt source =
     consistent_binding_schemes (schemes_for_source ctxt source)
   fun binding_generic_scheme ctxt backend =

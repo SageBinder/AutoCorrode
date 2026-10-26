@@ -3565,7 +3565,8 @@ local
   val ctxt = \<^context>
   val prior_registry = registry_snapshot ctxt
   val rows =
-    [("chunk-callable", "F: FnOnce(u8) -> u8", "Fn trait bounds are not supported"),
+    [("chunk-callable-wrapper", "F: [const] FnOnce(u8) -> u8",
+      "conditional-const trait bounds are not supported"),
      ("chunk-associated-bound", "T: Sequence<Item = u8>", "generic trait bounds are not supported"),
      ("chunk-const-type", "const N: char", "const parameters require usize")]
   val _ = List.app (fn (label, parameters, expected) =>

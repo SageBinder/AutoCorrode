@@ -1068,9 +1068,10 @@ struct
         in (Input.string_of source, Input.pos_of source) end) arguments
       (* Candidate-specific validation belongs after native receiver/full-type filtering. The
          pending carrier retains the original inputs and positions without inventing witnesses. *)
-      val instances = map (fn {serial, ...}: Micro_Rust_Names.entry =>
-        {source = serial, arguments = map (fn (_, pos) => (NONE, pos)) sources,
-         identities = replicate (length sources) ""}) generated
+      (* Interpretations retain distinct native candidates but share one authored source. *)
+      val instances = map #serial generated |> distinct (op =) |> map (fn source =>
+        {source = source, arguments = map (fn (_, pos) => (NONE, pos)) sources,
+         identities = replicate (length sources) ""})
     in Micro_Rust_Dispatch.with_sparse_generic_arguments
       {instances = instances, pos = pos, pending = SOME sources} function end
 
