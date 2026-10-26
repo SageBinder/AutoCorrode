@@ -275,10 +275,16 @@ Argument/result selections are member-local; impl annotations reject those slot 
 Inherited callable relations fixed by `Self` remain authoritative, so conflicting member bounds reject.
 The checked impl frame also retains roles established inside callback operands and nested target
 arguments. Members share those roles even with weak body inference, and a conflicting
-`model_parameters` override rejects at its authored position.
+`model_parameters` override rejects at its authored position. Checked header model bindings are
+inherited once; an explicit member list overlays only its own keys. Duplicate keys cite both authors.
 Aliases observe their expanded target's current policy. An identical mapping may acquire a policy
 through `urust_type`, including generated and primitive mappings, while keeping its registration
 identity and scheme. Conflicting policies fail at both authored positions.
+
+HOL escapes in callable bounds use native type-abbreviation expansion before sort checking.
+Independent inference holes remain fresh, and explicitly authored schematic variables retain the
+normal context policy even when an abbreviation erases an operand. Interpreted callable entries
+follow their local-theory scope; clients use them where the interpretations are visible.
 
 The AST, printer, lifetimes and body lowering retain the borrowing syntax. `&self` uses the same
 checked policy selection as an explicit receiver type. Existing modeled storage borrowing still

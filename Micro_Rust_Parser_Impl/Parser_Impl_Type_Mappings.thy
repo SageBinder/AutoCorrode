@@ -4191,9 +4191,15 @@ struct
         ignore (positioned_result kind (#cited read) (fn () =>
           Proof_Context.standard_typ_check ctxt (map TVar (Term.add_tvarsT typ [])))))
         (reads ~~ parsed)
+       (* Expand native HOL type abbreviations before callable sort constraints and
+          the signature codec inspect their structure. Keep the authored-variable
+          gate above: an abbreviation may erase an explicitly schematic operand. *)
+       val parsed = map (fn (read: signature_read, typ) =>
+         positioned_result kind (#cited read) (fn () =>
+           the_single (Proof_Context.standard_typ_check ctxt [typ]))) (reads ~~ parsed)
       val {fresh, normalize, check_sort, backend, backend_slots, unify, native, accept_native,
         parameterize} =
-        inference_state kind ctxt prepared
+         inference_state kind ctxt (seeds @ parsed)
       val named = Unsynchronized.ref (Symtab.make (map2 (fn binding => fn typ =>
         (binding_name binding,
           if Models.ambient_name ctxt (binding_name binding) then typ

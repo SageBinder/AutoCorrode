@@ -1729,4 +1729,60 @@ lemma showcase_model_parameters_twin:
   unfolding showcase_model_parameters_def showcase_model_parameters_escape_def by (rule refl)
 end
 
+
+section\<open> Shared representations with scoped model parameters \<close>
+
+urust_type [model = \<open>epoch = 'epoch\<close>, shared = \<open>value\<close>]
+  "ShowcaseSharedValueModel" = \<open>'epoch option\<close>
+urust_type [model = \<open>epoch = 'epoch\<close>, shared = \<open>readonly\<close>]
+  "ShowcaseSharedReadonlyModel" = \<open>'epoch option\<close>
+context notes [[urust_model_parameters = \<open>
+  ["address" \<rightarrow> \<open>nat\<close>, "global" \<rightarrow> \<open>unit\<close>,
+   "epoch" \<rightarrow> \<open>bool\<close>]
+\<close>]]
+begin
+urust_fn [pp_test] showcase_shared_representations \<open>
+  fn ShowcaseSharedRepresentations(value: &ShowcaseSharedValueModel,
+    storage: &mut ShowcaseSharedReadonlyModel, observed: &ShowcaseSharedReadonlyModel)
+    -> &ShowcaseSharedValueModel { value }
+\<close>
+urust_fn showcase_shared_representations_escape \<open>
+  fn ShowcaseSharedRepresentationsEscape(value: \<tau>\<open>bool option\<close>,
+    storage: \<tau>\<open>(nat, unit, bool option) ref\<close>,
+    observed: \<tau>\<open>(nat, unit, bool option) ro_ref\<close>) -> \<tau>\<open>bool option\<close> { value }
+\<close>
+lemma showcase_shared_representations_twin:
+  \<open> showcase_shared_representations = showcase_shared_representations_escape \<close>
+  unfolding showcase_shared_representations_def showcase_shared_representations_escape_def by (rule refl)
+urust_fn [pp_test, state = \<open>'state\<close>, abort = \<open>'abort\<close>,
+  input = \<open>'input\<close>, output = \<open>'output\<close>] showcase_shared_callback \<open>
+  fn ShowcaseSharedCallback<F: Fn(&ShowcaseSharedValueModel) -> &ShowcaseSharedValueModel>(
+    callback: F, value: &ShowcaseSharedValueModel) -> &ShowcaseSharedValueModel { callback(value) }
+\<close>
+urust_fn [state = \<open>'state\<close>, abort = \<open>'abort\<close>,
+  input = \<open>'input\<close>, output = \<open>'output\<close>] showcase_shared_callback_escape \<open>
+  fn ShowcaseSharedCallbackEscape(callback: \<tau>\<open>bool option \<Rightarrow>
+    ('state, bool option, 'abort, 'input, 'output) function_body\<close>,
+    value: \<tau>\<open>bool option\<close>) -> \<tau>\<open>bool option\<close> { callback(value) }
+\<close>
+lemma showcase_shared_callback_twin:
+  \<open> showcase_shared_callback = showcase_shared_callback_escape \<close>
+unfolding showcase_shared_callback_def showcase_shared_callback_escape_def by (rule refl)
+ML_val\<open>
+local
+  val ctxt = \<^context>
+  fun canonical typ = Term_Subst.instantiateT (TVars.make
+    (rev (Term.add_tvarsT typ []) |> map_index
+      (fn (index, variable as (_, sort)) => (variable, TVar (("shared_showcase", index), sort))))) typ
+  fun typ name = canonical (Sign.the_const_type (Proof_Context.theory_of ctxt)
+    (Proof_Context.intern_const ctxt name))
+in
+  val _ = List.app (fn (native, escaped) => if typ native = typ escaped then ()
+    else error "shared showcase changed full principal types, sorts or sharing")
+    [("showcase_shared_representations", "showcase_shared_representations_escape"),
+     ("showcase_shared_callback", "showcase_shared_callback_escape")]
+end
+\<close>
+end
+
 end

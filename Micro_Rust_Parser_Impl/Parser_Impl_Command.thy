@@ -3221,8 +3221,12 @@ fun prepare_impl_item lthy {interactive, options, impl} =
     val overrides = case Symtab.lookup options hol_type_parameters_option of
       SOME (Renames_Value renames, _) => renames | _ => []
     val member_defaults = options |> Symtab.delete_safe hol_type_parameters_option
+      |> Symtab.delete_safe model_parameters_option
       |> Symtab.delete_safe ambient_type_parameters_option
       |> Symtab.delete_safe shared_references_option
+    (* Checked header model bindings and policies travel in impl_context. Re-reading
+       their source as member options would publish header navigation on a later
+       member failure; only explicitly authored member overlays are read there. *)
     val layout = #layout generics
     val header = URust_AST.Function_Item ("_impl", URust_AST.source_span layout,
       generics, [], SOME target, URust_AST.UE_Unit layout, layout)

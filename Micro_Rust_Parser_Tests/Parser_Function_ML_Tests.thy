@@ -6515,4 +6515,44 @@ local
 in end
 \<close>
 
+
+section\<open> Native abbreviation expansion and authored holes \<close>
+
+ML_val\<open>
+local
+  open Parser_Function_Regression_Test
+  val ctxt = \<^context>
+  fun canonical typ = Term_Subst.instantiateT (TVars.make
+    (rev (Term.add_tvarsT typ []) |> map_index
+      (fn (index, variable as (_, sort)) => (variable, TVar (("shared_abbreviation", index), sort))))) typ
+  fun typ name = canonical (Sign.the_const_type (Proof_Context.theory_of ctxt)
+    (Proof_Context.intern_const ctxt name))
+  val _ = require "native abbreviation expansion changed full callable type or channels"
+    (typ "shared_abbreviated_callable" = typ "shared_abbreviated_callable_escape")
+  val [callback, left, right] = binder_types (typ "shared_abbreviated_holes")
+  val callback_input = the_single (binder_types callback)
+  val Type (_, [_, callback_output, _, _, _]) = body_type callback
+  val holes = map (fn Type (_, [variable]) => variable
+    | _ => error "abbreviated hole lost its option container")
+    [callback_input, callback_output, left, right]
+  val _ = require "native certification conflated independent authored holes"
+    (length (distinct (op =) holes) = 4 andalso forall Term.is_TVar holes)
+  val rust = "fn SharedErasedSchematic<F: Fn(" ^
+    "\<tau>" ^ cartouche "?'a.9999 shared_erased_abbreviation" ^ ") -> bool>(callback: F) -> bool { false }"
+  val text = "urust_fn " ^ cartouche rust
+  val label = "shared-erased-schematic-policy"
+  val diagnostic = message (Exn.result (fn () => run_from (initial \<^theory>) label text) ())
+  val _ = require "erased abbreviation operand bypassed authored schematic policy"
+    (String.isSubstring "Illegal schematic type variable" diagnostic)
+  val position = token_position text (start label) "?'a.9999 shared_erased_abbreviation" 0
+  val _ = require "erased abbreviation operand lost authored schematic diagnostic"
+    (member (op =) (diagnostic_ranges diagnostic)
+      (Value.print_int (the (Position.offset_of position)),
+       Value.print_int (the (Position.end_offset_of position))))
+
+in
+  val _ = writeln "native abbreviation expansion, independent holes and authored schematic policy PASS"
+end
+\<close>
+
 end

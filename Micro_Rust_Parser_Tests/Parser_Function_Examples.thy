@@ -2630,4 +2630,170 @@ by (rule ext; simp add: ro_dereference_fun_def dereference_fun_def
   no_return_call_inline[symmetric] no_return_intros split: option.splits)+
 end
 
+
+section\<open> Shared representation replay through locales \<close>
+
+urust_type [model = \<open>stamp = 'stamp\<close>, shared = \<open>readonly\<close>]
+  "SharedScopedPacket" = \<open>'stamp option\<close>
+urust_type_alias \<open> type SharedScopedAlias = SharedScopedPacket; \<close>
+locale shared_representation_locale =
+  fixes address_anchor :: \<open>'address itself\<close>
+    and global_anchor :: \<open>'global itself\<close>
+    and stamp_anchor :: \<open>'stamp itself\<close>
+begin
+urust_type [model = \<open>stamp = 'local_payload\<close>, shared = \<open>readonly\<close>]
+  "SharedLocalPacket" = \<open>'local_payload option\<close>
+urust_type_alias \<open> type SharedLocalAlias = SharedLocalPacket; \<close>
+context notes [[urust_model_parameters = \<open>
+  ["address" \<rightarrow> \<open>'address\<close>, "global" \<rightarrow> \<open>'global\<close>,
+   "stamp" \<rightarrow> \<open>'stamp\<close>]
+\<close>]]
+begin
+urust_fn shared_locale_inputs \<open>
+  fn SharedLocaleInputs(value: &SharedScopedAlias, storage: &mut SharedScopedPacket,
+    pointer: *const SharedScopedPacket) -> bool { false }
+\<close>
+urust_fn shared_locale_inputs_escape \<open>
+  fn SharedLocaleInputsEscape(value: \<tau>\<open>('address, 'global, 'stamp option) ro_ref\<close>,
+    storage: \<tau>\<open>('address, 'global, 'stamp option) ref\<close>,
+    pointer: \<tau>\<open>('address, 'global, 'stamp option) ref\<close>) -> bool { false }
+\<close>
+lemma shared_locale_inputs_twin:
+  \<open> shared_locale_inputs = shared_locale_inputs_escape \<close>
+unfolding shared_locale_inputs_def shared_locale_inputs_escape_def by (rule refl)
+urust_fn shared_locale_local_mapping \<open>
+  fn SharedLocaleLocalMapping(value: &SharedLocalAlias) -> bool { false }
+\<close>
+urust_fn shared_locale_local_mapping_escape \<open>
+  fn SharedLocaleLocalMappingEscape(value: \<tau>\<open>('address, 'global, 'stamp option) ro_ref\<close>) -> bool { false }
+\<close>
+lemma shared_locale_local_mapping_twin:
+  \<open> shared_locale_local_mapping = shared_locale_local_mapping_escape \<close>
+  unfolding shared_locale_local_mapping_def shared_locale_local_mapping_escape_def by (rule refl)
+urust_fn [ambient_type_parameters = ["T" \<rightarrow> \<open>'stamp\<close>],
+  shared_references = ["type:T" \<rightarrow> \<open>readonly\<close>],
+  state = \<open>'state\<close>, abort = \<open>'abort\<close>,
+  input = \<open>'input\<close>, output = \<open>'output\<close>]
+  shared_locale_callback \<open>
+  fn SharedLocaleCallback<T, F: Fn(&T) -> &T>(callback: F, value: &T,
+    pointer: *const SharedScopedAlias) -> bool { false }
+\<close>
+urust_fn [state = \<open>'state\<close>, abort = \<open>'abort\<close>,
+  input = \<open>'input\<close>, output = \<open>'output\<close>]
+  shared_locale_callback_escape \<open>
+  fn SharedLocaleCallbackEscape(
+    callback: \<tau>\<open>('address, 'global, 'stamp) ro_ref \<Rightarrow>
+      ('state, ('address, 'global, 'stamp) ro_ref, 'abort, 'input, 'output) function_body\<close>,
+    value: \<tau>\<open>('address, 'global, 'stamp) ro_ref\<close>,
+    pointer: \<tau>\<open>('address, 'global, 'stamp option) ref\<close>) -> bool { false }
+\<close>
+lemma shared_locale_callback_twin:
+  \<open> shared_locale_callback = shared_locale_callback_escape \<close>
+unfolding shared_locale_callback_def shared_locale_callback_escape_def by (rule refl)
+end
+end
+context
+begin
+interpretation shared_representation_first: shared_representation_locale
+  \<open>TYPE(nat)\<close> \<open>TYPE(unit)\<close> \<open>TYPE(bool)\<close> .
+interpretation shared_representation_second: shared_representation_locale
+  \<open>TYPE(bool)\<close> \<open>TYPE(nat)\<close> \<open>TYPE(int)\<close> .
+ML_val\<open>
+local
+  val ctxt = \<^context>
+  fun canonical typ = Term_Subst.instantiateT (TVars.make
+    (rev (Term.add_tvarsT typ []) |> map_index
+      (fn (index, variable as (_, sort)) => (variable, TVar (("shared_locale", index), sort))))) typ
+  fun instances rust = Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NFunction rust
+    |> map (canonical o fastype_of o #hol_term)
+  val native = instances "SharedLocaleInputs"
+  val escaped = instances "SharedLocaleInputsEscape"
+  val expected =
+    [[\<^typ>\<open>(nat, unit, bool option) ro_ref\<close>,
+      \<^typ>\<open>(nat, unit, bool option) ref\<close>, \<^typ>\<open>(nat, unit, bool option) ref\<close>],
+     [\<^typ>\<open>(bool, nat, int option) ro_ref\<close>,
+      \<^typ>\<open>(bool, nat, int option) ref\<close>, \<^typ>\<open>(bool, nat, int option) ref\<close>]]
+in
+  val _ = if length native = 2 andalso eq_set (op =) (map binder_types native, expected) andalso
+      eq_set (op =) (native, escaped) then ()
+    else error "shared alias/model locale replay widened types or lost role sharing"
+  val _ = if length (instances "SharedLocaleCallback") = 2 andalso
+      eq_set (op =) (instances "SharedLocaleCallback", instances "SharedLocaleCallbackEscape") then ()
+    else error "shared callback/ambient locale replay widened complete types or channels"
+  val _ = if length (instances "SharedLocaleLocalMapping") = 2 andalso
+      eq_set (op =) (instances "SharedLocaleLocalMapping", instances "SharedLocaleLocalMappingEscape") andalso
+      eq_set (op =) (map binder_types (instances "SharedLocaleLocalMapping"), map (single o hd) expected) then ()
+    else error "locale-local mapping/shared policy/alias replay widened its representation"
+end
+\<close>
+urust_type [shared = \<open>readonly\<close>] "SharedLocaleFirstScalar" = \<open>bool\<close>
+urust_type [shared = \<open>readonly\<close>] "SharedLocaleSecondScalar" = \<open>int\<close>
+context notes [[urust_model_parameters = \<open>["address" \<rightarrow> \<open>nat\<close>, "global" \<rightarrow> \<open>unit\<close>, "stamp" \<rightarrow> \<open>bool\<close>]\<close>]]
+begin
+urust_fn [state = \<open>'state\<close>, abort = \<open>'abort\<close>, input = \<open>'input\<close>, output = \<open>'output\<close>] shared_locale_first_client \<open>
+  fn SharedLocaleFirstClient<F: Fn(&SharedLocaleFirstScalar) -> &SharedLocaleFirstScalar>(callback: F, value: &SharedLocaleFirstScalar, pointer: *const SharedScopedAlias) -> bool { SharedLocaleCallback::<SharedLocaleFirstScalar, F>(callback, value, pointer) }
+\<close>
+urust_fn [state = \<open>'state\<close>, abort = \<open>'abort\<close>, input = \<open>'input\<close>, output = \<open>'output\<close>] shared_locale_first_client_escape \<open>
+  fn SharedLocaleFirstClientEscape<F: Fn(&SharedLocaleFirstScalar) -> &SharedLocaleFirstScalar>(callback: F, value: &SharedLocaleFirstScalar, pointer: *const SharedScopedAlias) -> bool { \<epsilon>\<open>shared_representation_first.shared_locale_callback\<close>(callback, value, pointer) }
+\<close>
+lemma shared_locale_first_client_twin:
+  \<open> shared_locale_first_client = shared_locale_first_client_escape \<close>
+  unfolding shared_locale_first_client_def shared_locale_first_client_escape_def by (rule refl)
+end
+context notes [[urust_model_parameters = \<open>["address" \<rightarrow> \<open>bool\<close>, "global" \<rightarrow> \<open>nat\<close>, "stamp" \<rightarrow> \<open>int\<close>]\<close>]]
+begin
+urust_fn [state = \<open>'state\<close>, abort = \<open>'abort\<close>, input = \<open>'input\<close>, output = \<open>'output\<close>] shared_locale_second_client \<open>
+  fn SharedLocaleSecondClient<F: Fn(&SharedLocaleSecondScalar) -> &SharedLocaleSecondScalar>(callback: F, value: &SharedLocaleSecondScalar, pointer: *const SharedScopedAlias) -> bool { SharedLocaleCallback::<SharedLocaleSecondScalar, F>(callback, value, pointer) }
+\<close>
+urust_fn [state = \<open>'state\<close>, abort = \<open>'abort\<close>, input = \<open>'input\<close>, output = \<open>'output\<close>] shared_locale_second_client_escape \<open>
+  fn SharedLocaleSecondClientEscape<F: Fn(&SharedLocaleSecondScalar) -> &SharedLocaleSecondScalar>(callback: F, value: &SharedLocaleSecondScalar, pointer: *const SharedScopedAlias) -> bool { \<epsilon>\<open>shared_representation_second.shared_locale_callback\<close>(callback, value, pointer) }
+\<close>
+lemma shared_locale_second_client_twin:
+  \<open> shared_locale_second_client = shared_locale_second_client_escape \<close>
+  unfolding shared_locale_second_client_def shared_locale_second_client_escape_def by (rule refl)
+end
+ML_val\<open>
+local
+  val ctxt = \<^context>
+  fun canonical typ = Term_Subst.instantiateT (TVars.make
+    (rev (Term.add_tvarsT typ []) |> map_index
+      (fn (index, variable as (_, sort)) => (variable, TVar (("shared_client", index), sort))))) typ
+  fun typ name = canonical (Sign.the_const_type (Proof_Context.theory_of ctxt)
+    (Proof_Context.intern_const ctxt name))
+in
+  val _ = List.app (fn (native, escaped) => if typ native = typ escaped then ()
+    else error "interpreted ambient Rust client changed its full principal type")
+    [("shared_locale_first_client", "shared_locale_first_client_escape"),
+     ("shared_locale_second_client", "shared_locale_second_client_escape")]
+end
+\<close>
+end
+
+section\<open> Native HOL abbreviations in callable carriers \<close>
+
+type_synonym 'a shared_erased_abbreviation = bool
+type_synonym 'a shared_option_abbreviation = "'a option"
+urust_fn [pp_test, state = \<open>'state\<close>, abort = \<open>'abort\<close>,
+  input = \<open>'input\<close>, output = \<open>'output\<close>]
+  shared_abbreviated_callable \<open>
+  fn SharedAbbreviatedCallable<F: Fn(\<tau>\<open>(nat, unit, bool) ro_ref\<close>) ->
+    \<tau>\<open>(nat, unit, bool) ro_ref\<close>>(
+    callback: F, value: \<tau>\<open>(nat, unit, bool) ro_ref\<close>) -> bool { false }
+\<close>
+urust_fn [state = \<open>'state\<close>, abort = \<open>'abort\<close>,
+  input = \<open>'input\<close>, output = \<open>'output\<close>]
+  shared_abbreviated_callable_escape \<open>
+  fn SharedAbbreviatedCallableEscape(
+    callback: \<tau>\<open>(nat, unit, bool) ro_ref \<Rightarrow>
+      ('state, (nat, unit, bool) ro_ref, 'abort, 'input, 'output) function_body\<close>,
+    value: \<tau>\<open>(nat, unit, bool) ro_ref\<close>) -> bool { false }
+\<close>
+lemma shared_abbreviated_callable_twin:
+  \<open> shared_abbreviated_callable = shared_abbreviated_callable_escape \<close>
+  unfolding shared_abbreviated_callable_def shared_abbreviated_callable_escape_def by (rule refl)
+urust_fn [pp_test] shared_abbreviated_holes \<open>
+  fn SharedAbbreviatedHoles<F: Fn(\<tau>\<open>_ shared_option_abbreviation\<close>) -> \<tau>\<open>_ shared_option_abbreviation\<close>>(
+    callback: F, left: \<tau>\<open>_ shared_option_abbreviation\<close>, right: \<tau>\<open>_ shared_option_abbreviation\<close>) -> bool { false }
+\<close>
+
 end

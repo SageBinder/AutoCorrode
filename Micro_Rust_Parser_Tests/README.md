@@ -237,7 +237,7 @@ with `self_value` versions for primitive/mapped types, a HOL reference escape, f
 direct/method calls, HOL value/expression escapes, closures and name collisions. Boundary
 and recovery probes cover the free-function rejections of shorthand receivers (`receiver shorthand
 is only allowed in impl members`) and untyped parameters, borrowed patterns, `Self` outside an
-impl member, unsupported shared references, duplicate names and incompatible bodies. Receiver
+impl member, shared references without a selected policy, duplicate names and incompatible bodies. Receiver
 shorthands and `Self` inside impl members are covered by `Parser_Impl_Examples` and
 `Parser_Impl_ML_Tests`.
 
@@ -245,9 +245,19 @@ shorthands and `Self` inside impl members are covered by `Parser_Impl_Examples` 
 erased lifetimes in function signatures: complete schemes shared with raw pointers, kernel equality
 with `τ‹… Global_Store.ref›` controls and lifetime-free versions, typed `self: &mut T`, nested and
 escaped targets, locale backends, exact lifetime ranges, markup and printing, reads and writes
-through references, `&mut local` call sites and chunk members. Rejections cover shared references,
+through references, `&mut local` call sites and chunk members. Rejections cover shared references without a selected policy,
 undeclared, duplicate and reserved lifetime parameters, bounds, lifetime arguments, reborrows and
 references outside function signatures, with rollback and recovery.
+
+Shared-reference tests in the Function and Impl owners select value, ordinary reference and
+read-only reference carriers explicitly. Kernel escape twins and complete type/sort comparisons
+cover nested slots, generic/callable operands, aliases, weak bodies and shared impl-header roles.
+Locale-local mappings, policies and aliases replay through two concrete interpretations, with
+actual interpreted Rust clients. Native report audits check generic-key declaration identity,
+policy tooltips, both duplicate author positions and failed-chunk rollback. Partial member model
+overlays and nested header holes retain their sharing; reference values gain no automatic read.
+Native HOL abbreviation controls preserve independent holes and reject even erased schematic
+operands. The combined examples also appear in `Parser_Showcase_Examples`.
 
 `Parser_Syntax_Examples` and `Parser_Syntax_ML_Tests` check source-spelled direct abstractions and
 valid, collision-free `application_def` argument names. Their audits cover shadowing, closures,
@@ -345,9 +355,8 @@ consumption counts and receiver mutability.
 
 Parameter defaults, const types other than `usize`, `?Sized`, generic trait arguments and
 projections, const bounds, conditional-const and higher-ranked denotation, and non-parameter
-ordinary-trait `where` heads remain unsupported. Shared references still require declared HOL
-signature types or explicit escapes;
-automatic reads are outside this feature.
+ordinary-trait `where` heads remain unsupported. Shared references use explicit checked representation policies, including callable operands;
+automatic reads remain separate.
 
 ## Rust use imports
 

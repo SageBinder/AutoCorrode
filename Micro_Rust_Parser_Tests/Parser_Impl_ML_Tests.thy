@@ -4417,4 +4417,172 @@ local
 in val _ = writeln "retained arguments, erased callable roles and impl-context exit PASS" end
 \<close>
 
+
+section\<open> Shared navigation and checked-header recovery \<close>
+
+ML_val\<open>
+local
+  open Chunk_Test
+  val thy = \<^theory>
+  val declaration = "urust_type [shared = " ^ cartouche "value" ^
+    "] \"SharedReportFlag\" = " ^ cartouche "bool"
+  val read_declarations =
+    "\nurust_type [shared = " ^ cartouche "reference" ^
+      "] \"SharedReportStorageFlag\" = " ^ cartouche "bool" ^
+    "\nurust_type [shared = " ^ cartouche "readonly" ^
+      "] \"SharedReportReadonlyFlag\" = " ^ cartouche "bool"
+  val success = declaration ^ read_declarations ^ "\nurust_fn [pp_test] " ^ command_source
+    "fn SharedReportIdentity<'a>(value: &'a SharedReportFlag) -> &'a SharedReportFlag { value }"
+  val {result, reports, ...} = capture true "shared-native-reports" thy success
+  val success_ctxt = result_context result
+  fun events (XML.Elem ((name, properties), body)) =
+        (name, properties, XML.content_of body) :: maps events body
+    | events (XML.Text _) = []
+  val all = maps events reports
+  val range = range_of success "&'a SharedReportFlag" 0
+  val _ = require "shared borrow lost positioned policy tooltip"
+    (exists (fn (name, properties, body) => name = Markup.typingN andalso
+      position_range (Position.of_properties properties) = range andalso
+      String.isSubstring "shared representation = value" body andalso
+      String.isSubstring "shared-native-reports" body) all)
+  val _ = require "shared nominal borrow lost native mapping reference"
+    (exists (fn (name, properties, _) => name = Markup.entityN andalso
+      position_range (Position.of_properties properties) = range andalso
+      Properties.get properties Markup.kindN = SOME "micro_rust_type_mapping" andalso
+      is_some (Properties.get properties Markup.refN)) all)
+  val _ = require "policy payload lost native semantic markup"
+    (exists (fn (name, properties, _) => name = (fst Markup.keyword2) andalso
+      position_range (Position.of_properties properties) = range_of success "value" 0) all)
+  val base = Proof_Context.theory_of success_ctxt
+  fun policy key mode = "shared_references = [" ^ quote key ^ " \<rightarrow> " ^ cartouche mode ^ "]"
+  val generic = "urust_fn [pp_test, " ^ policy "type:T" "readonly" ^ "] " ^ command_source
+    "fn SharedReportGeneric<T>(value: &T) -> bool { false }"
+  val {result = generic_result, reports = generic_reports, ...} =
+    capture true "shared-generic-native-reports" base generic
+  val _ = result_context generic_result
+  fun entity_ids range definition = reports_at range generic_reports |> map_filter
+    (fn (name, properties) => if name = Markup.entityN andalso
+      Properties.get properties Markup.kindN = SOME "urust_generic_parameter"
+    then Properties.get properties (if definition then Markup.defN else Markup.refN) else NONE)
+  val definitions = entity_ids (range_within generic "<T>" "T") true
+  val references = entity_ids (range_of generic "type:T" 0) false
+  val _ = require "generic override key did not reference the exact header declaration"
+    (length definitions = 1 andalso references = definitions)
+  val _ = require "generic borrow lost exact selected-policy tooltip"
+    (exists (fn (name, properties, body) => name = Markup.typingN andalso
+      position_range (Position.of_properties properties) = range_of generic "&T" 0 andalso
+      String.isSubstring "shared representation = readonly" body andalso
+      String.isSubstring "shared-generic-native-reports" body) (maps events generic_reports))
+  fun rejected label expected text = expect_failure label [expected]
+    (fn () => run_commands false label base text)
+  fun rejected_command options = "urust_fn [" ^ options ^ "] " ^ command_source
+    "fn SharedReportRejected(value: &SharedReportFlag) -> bool { false }"
+  val bad_key = rejected_command (policy "body" "value")
+  val _ = require "invalid shared key lost its exact authored range"
+    (message_range (rejected "shared-bad-key-range" "unknown shared-reference key" bad_key) =
+      range_of bad_key "body" 0)
+  val bad_mode = rejected_command (policy "arg:0" "implicit")
+  val _ = require "invalid shared mode lost its exact authored range"
+    (message_range (rejected "shared-bad-mode-range" "expects value, reference, or readonly" bad_mode) =
+      range_of bad_mode "implicit" 0)
+  val duplicate = rejected_command ("shared_references = [\"arg:0\" \<rightarrow> " ^ cartouche "value" ^
+    ", \"arg:0\" \<rightarrow> " ^ cartouche "readonly" ^ "]")
+  val duplicate_message = rejected "shared-duplicate-author-ranges" "duplicate shared-reference override" duplicate
+  val _ = require "duplicate override lost an author's source range"
+    (message_range duplicate_message = range_of duplicate "arg:0" 1 andalso
+      forall (fn range => exists (fn pos => position_range pos = range)
+        (message_positions duplicate_message))
+      [range_of duplicate "arg:0" 0, range_of duplicate "arg:0" 1])
+  fun annotation options = "\<omega>" ^ cartouche options ^ "\n"
+  val header = "struct SharedReportOwner<T, F> { value: T, callback: F }\n" ^
+    annotation (policy "type:T" "reference" ^
+      ", model_parameters = [\"address\" \<rightarrow> " ^ cartouche "nat" ^
+      ", \"global\" \<rightarrow> " ^ cartouche "unit" ^ "]") ^
+    "impl<T, F: Fn(&T) -> &T> SharedReportOwner<T, F> {\n"
+  val failed = "urust [pp_test] " ^ command_source (header ^
+    "fn earlier(self: Self, value: &T, pointer: &mut u8) -> bool { false }\n\
+    \fn invalid(self: Self, value: &bool) -> bool { false }\n}")
+  val callbacks = (!Private_Output.writeln_fn, !Private_Output.writeln_urgent_fn,
+    !Private_Output.warning_fn, !Private_Output.report_fn)
+  val {result = rejected_result, output, reports = rejected_reports, ...} =
+    capture true "shared-report-rollback" base failed
+  val message = failure_message "shared failed later member" ["require an explicit representation"] rejected_result
+  val _ = require "missing policy diagnostic lost exact borrow range"
+    (message_range message = range_of failed "&bool" 0)
+  val _ = require "failed later shared member emitted successful declarations"
+    (null output andalso null (semantic_entities rejected_reports) andalso
+      not (exists (fn (name, properties) => name = Markup.entityN andalso
+        member (op =) [SOME "urust_generic_parameter", SOME "urust_lifetime"]
+          (Properties.get properties Markup.kindN)) (report_events rejected_reports)))
+  val (w, u, n, r) = callbacks
+  val _ = require "failed shared impl changed callback objects"
+    (PolyML.pointerEq (w, !Private_Output.writeln_fn) andalso
+      PolyML.pointerEq (u, !Private_Output.writeln_urgent_fn) andalso
+      PolyML.pointerEq (n, !Private_Output.warning_fn) andalso
+      PolyML.pointerEq (r, !Private_Output.report_fn))
+  val recovered = run_commands false "shared-report-recovery" base
+    ("urust [pp_test] " ^ command_source (header ^
+      "fn recovered(self: Self, value: &T, pointer: &mut u8) -> bool { false }\n}") ^
+      "\nurust_fn [pp_test] " ^ command_source "fn SharedAfterReport(pointer: *const u8) -> bool { false }")
+  val recovered_ctxt = Toplevel.context_of recovered
+  val _ = require "shared recovery failed or retained an abandoned member"
+    (not (null (Micro_Rust_Names.lookups recovered_ctxt Micro_Rust_Names.NFunction
+        "SharedReportOwner::recovered")) andalso
+      null (Micro_Rust_Names.lookups recovered_ctxt Micro_Rust_Names.NFunction "SharedReportOwner::earlier") andalso
+      is_none (URust_Type_Mappings.generic_scope recovered_ctxt) andalso
+      is_none (URust_Type_Mappings.impl_self recovered_ctxt))
+  val later_type = Sign.the_const_type (Proof_Context.theory_of recovered_ctxt)
+    (Proof_Context.intern_const recovered_ctxt "shared_after_report")
+  val _ = require "successful or failed impl left a backend ledger in a subsequent free item"
+    (length (Term.add_tvarsT (the_single (binder_types later_type)) []) = 2)
+  val partial = run_commands false "shared-header-partial-model-overlay" base
+    ("urust " ^ command_source
+      ("struct SharedReportPartial<T> { value: T }\n" ^
+       annotation ("model_parameters = [\"address\" \<rightarrow> " ^ cartouche "nat" ^
+         ", \"global\" \<rightarrow> " ^ cartouche "unit" ^ "]") ^
+       "impl<T> SharedReportPartial<T> {\n" ^
+       annotation ("model_parameters = [\"global\" \<rightarrow> " ^ cartouche "bool" ^ "]") ^
+       "fn overlay(self: Self, pointer: &mut u8) -> bool { false }\n\
+       \fn inherited(self: Self, pointer: &mut u8) -> bool { false }\n}"))
+  val partial_ctxt = Toplevel.context_of partial
+  fun declared current name = Sign.the_const_type (Proof_Context.theory_of current)
+    (Proof_Context.intern_const current name)
+  val _ = require "partial member model overlay lost header address or leaked to the next member"
+    (nth (binder_types (declared partial_ctxt "shared_report_partial_overlay")) 1 =
+        \<^typ>\<open>(nat, bool, 8 word) ref\<close> andalso
+      nth (binder_types (declared partial_ctxt "shared_report_partial_inherited")) 1 =
+        \<^typ>\<open>(nat, unit, 8 word) ref\<close>)
+  val nested = run_commands false "shared-header-nested-model-holes" base
+    ("urust " ^ command_source
+      ("struct SharedReportHoles<T, F> { value: T, callback: F }\n" ^
+       annotation (policy "type:T" "reference" ^
+         ", model_parameters = [\"address\" \<rightarrow> " ^ cartouche "_ option" ^
+         ", \"global\" \<rightarrow> " ^ cartouche "_ list" ^ "]") ^
+       "impl<T, F: Fn(&T) -> &T> SharedReportHoles<T, F> {\n\
+       \fn first(self: Self, value: &T, pointer: &mut u8) -> bool { false }\n\
+       \fn second(self: Self, value: &T, pointer: &mut u8) -> bool { false }\n}"))
+  val nested_ctxt = Toplevel.context_of nested
+  fun check_nested name =
+    let
+      val [Type (_, [_, callback]), value, pointer] = binder_types (declared nested_ctxt name)
+      fun roles (Type (_, [Type (_, [address, global]), global', _])) =
+            (require "nested role lost the global sharing equation" (global = global'); (address, global))
+        | roles _ = error "nested header role lost its reference carrier"
+      val pair as (address, global) = roles value
+      val _ = require "nested header holes lost sharing through Self callback and member pointer"
+        (roles (the_single (binder_types callback)) = pair andalso roles pointer = pair)
+      val Type (_, [a]) = address
+      val Type (_, [g]) = global
+    in require "nested header holes were flattened, conflated or strengthened"
+      (Term.is_TVar a andalso Term.is_TVar g andalso a <> g andalso
+        address = Type (\<^type_name>\<open>option\<close>, [a]) andalso
+        global = Type (\<^type_name>\<open>list\<close>, [g])) end
+  val _ = List.app check_nested ["shared_report_holes_first", "shared_report_holes_second"]
+  val _ = List.app (fn nominal => ignore (rejected ("shared-no-auto-read-" ^ nominal)
+      "Type unification failed" ("urust_fn " ^ command_source
+        ("fn SharedNoAutomaticRead(value: &" ^ nominal ^ ") -> bool { value }"))))
+    ["SharedReportStorageFlag", "SharedReportReadonlyFlag"]
+in val _ = writeln "shared printer, nominal/generic navigation, exact diagnostics and generic ledger rollback/recovery PASS" end
+\<close>
+
 end

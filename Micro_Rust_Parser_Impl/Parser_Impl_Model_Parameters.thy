@@ -34,8 +34,10 @@ struct
 
   fun distinct_keys label renames =
     fold (fn ((key, pos), _) => fn seen =>
-      if member (op =) seen key then error_at ("duplicate " ^ label ^ " " ^ quote key) pos
-      else key :: seen) renames []
+       (case AList.lookup (op =) seen key of
+         SOME first => error ("urust: duplicate " ^ label ^ " " ^ quote key ^
+           Position.here_list [pos, first])
+       | NONE => (key, pos) :: seen)) renames []
     |> K ()
 
   fun read_type ctxt source =
