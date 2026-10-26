@@ -1364,11 +1364,9 @@ struct
              {target = NONE, arguments = SOME arguments}))
     end
 
-  fun callable_source_entry ctxt ({serial, ...}: Micro_Rust_Names.entry) =
+  fun canonical_source_entry ctxt ({serial, ...}: Micro_Rust_Names.entry) =
     case URust_Type_Mappings.binding_generic_scheme_for_source ctxt serial of NONE => false
-    | SOME scheme => exists (not o null o #callable_origins)
-        (URust_Type_Mappings.binding_scoped_parameters scheme @
-          maps #parameters (the_list (URust_Type_Mappings.binding_scoped_owner scheme)))
+    | SOME scheme => URust_Type_Mappings.binding_scheme_is_canonical scheme
 
   fun binding_candidate_effects ctxt action =
     let
@@ -1383,21 +1381,21 @@ struct
   fun sparse_candidate_transform ctxt
       (arguments as {instances, pos, pending}: Micro_Rust_Dispatch.sparse_generic_arguments)
       occurrence_type (sources as {name, eligible, maximal}: Micro_Rust_Dispatch.generic_candidate_sources) =
-    if not (exists (callable_source_entry ctxt) maximal) then
+    if not (exists (canonical_source_entry ctxt) maximal) then
       legacy_sparse_candidate_transform ctxt arguments occurrence_type sources
     else
       let
-        val ordinary = filter_out (callable_source_entry ctxt) maximal
+        val ordinary = filter_out (canonical_source_entry ctxt) maximal
         val legacy = if null ordinary then (fn _ => fn _ => NONE) else
           legacy_sparse_candidate_transform ctxt arguments occurrence_type
-            {name = name, eligible = filter_out (callable_source_entry ctxt) eligible, maximal = ordinary}
+            {name = name, eligible = filter_out (canonical_source_entry ctxt) eligible, maximal = ordinary}
         val remaining = Unsynchronized.ref (map #serial maximal)
         val errors = Unsynchronized.ref ([]: exn list)
         val successful = Unsynchronized.ref false
         fun apply (entry as {serial, ...}: Micro_Rust_Names.entry) candidate =
           let
             val result = Exn.capture0 (fn () =>
-              if not (callable_source_entry ctxt entry) then legacy entry candidate
+              if not (canonical_source_entry ctxt entry) then legacy entry candidate
               else if not (exists (fn {source, ...} => source = serial) instances) then NONE else
                 binding_candidate_effects ctxt (fn observed =>
                   let
@@ -1475,21 +1473,21 @@ struct
   fun scoped_sparse_candidate_transform ctxt
       (arguments as {instances, pos, pending}: Micro_Rust_Dispatch.scoped_sparse_arguments)
       occurrence_type (sources as {name, eligible, maximal}: Micro_Rust_Dispatch.generic_candidate_sources) =
-    if not (exists (callable_source_entry ctxt) maximal) then
+    if not (exists (canonical_source_entry ctxt) maximal) then
       legacy_scoped_sparse_candidate_transform ctxt arguments occurrence_type sources
     else
       let
-        val ordinary = filter_out (callable_source_entry ctxt) maximal
+        val ordinary = filter_out (canonical_source_entry ctxt) maximal
         val legacy = if null ordinary then (fn _ => fn _ => NONE) else
           legacy_scoped_sparse_candidate_transform ctxt arguments occurrence_type
-            {name = name, eligible = filter_out (callable_source_entry ctxt) eligible, maximal = ordinary}
+            {name = name, eligible = filter_out (canonical_source_entry ctxt) eligible, maximal = ordinary}
         val remaining = Unsynchronized.ref (map #serial maximal)
         val errors = Unsynchronized.ref ([]: exn list)
         val successful = Unsynchronized.ref false
         fun apply (entry as {serial, ...}: Micro_Rust_Names.entry) candidate =
           let
             val result = Exn.capture0 (fn () =>
-              if not (callable_source_entry ctxt entry) then legacy entry candidate else
+              if not (canonical_source_entry ctxt entry) then legacy entry candidate else
                 case find_first (fn {source, ...} => source = serial) instances of NONE => NONE
                 | SOME {target, arguments, ...} => binding_candidate_effects ctxt (fn observed =>
                     let

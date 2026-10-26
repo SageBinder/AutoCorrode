@@ -450,6 +450,8 @@ val attributes_option = "attrs"
 val register_notation_option = "register_notation"
 val hol_names_option = "hol_names"
 val hol_type_parameters_option = "hol_type_parameters"
+val model_parameters_option = "model_parameters"
+val ambient_type_parameters_option = "ambient_type_parameters"
 val state_option = "state"
 val abort_option = "abort"
 val input_option = "input"
@@ -486,6 +488,7 @@ datatype command_option_value =
   | Integer_Value of int
   | Attributes_Value of Token.src list
   | Renames_Value of URust_Datatype.rename list
+  | Type_Bindings_Value of URust_Model_Parameters.rename list
   | Type_Value of Input.source
   | Backend_Value of string
   | Plugins_Value of (Proof.context -> Plugin_Name.filter)
@@ -496,6 +499,7 @@ datatype command_option_config =
   | Integer_Config of int Config.T
   | Attributes_Config
   | Renames_Config
+  | Type_Bindings_Config
   | Type_Config of string
   | Backend_Config
   | Width_Config
@@ -519,6 +523,8 @@ val function_option_configs =
   fold Symtab.update
     [(register_notation_option, Boolean_Config urust_register_notation),
      (hol_type_parameters_option, Renames_Config),
+     (model_parameters_option, Type_Bindings_Config),
+     (ambient_type_parameters_option, Type_Bindings_Config),
      (state_option, Type_Config urust_state), (abort_option, Type_Config urust_abort),
      (input_option, Type_Config urust_input), (output_option, Type_Config urust_output)]
     declaration_option_configs
@@ -606,6 +612,8 @@ fun add_inline_option option_configs
                   option_type_error name "an Isabelle attribute list" name_pos
               | (Renames_Config, NONE) =>
                   option_type_error name rename_list_expectation name_pos
+              | (Type_Bindings_Config, NONE) =>
+                  option_type_error name "a list of positioned HOL type bindings" name_pos
               | (Type_Config _, NONE) =>
                   option_type_error name "a HOL type" name_pos
               | (Name_Config {anonymous}, NONE) =>
@@ -634,6 +642,8 @@ fun add_inline_option option_configs
                   Attributes_Value attributes
               | (Renames_Config, SOME (Renames_Value renames, _)) =>
                   Renames_Value renames
+              | (Type_Bindings_Config, SOME (Type_Bindings_Value bindings, _)) =>
+                  Type_Bindings_Value bindings
               | (Type_Config _, SOME (Type_Value source, _)) =>
                   Type_Value source
               | (Boolean_Config _, SOME (_, value_pos)) =>
@@ -644,6 +654,8 @@ fun add_inline_option option_configs
                   option_type_error name "an Isabelle attribute list" value_pos
               | (Renames_Config, SOME (_, value_pos)) =>
                   option_type_error name rename_list_expectation value_pos
+              | (Type_Bindings_Config, SOME (_, value_pos)) =>
+                  option_type_error name "a list of positioned HOL type bindings" value_pos
               | (Type_Config _, SOME (_, value_pos)) =>
                   option_type_error name "a HOL type" value_pos)
          in Symtab.update (name, (checked_value, name_pos)) options end)
@@ -1576,7 +1588,7 @@ fun check_function_denotation ctxt function =
 fun prepare_function_scope authoritative lthy overrides function =
   let
     val descriptors = URust_AST.function_type_parameters function
-    val names = URust_Type_Mappings.parameter_names lthy descriptors overrides
+    val names = URust_Type_Mappings.ambient_parameter_names lthy descriptors overrides
     val thy = Proof_Context.theory_of lthy
     val bounds = URust_AST.function_bounds function
     val inherited = context_binding_parameters lthy
@@ -1602,13 +1614,15 @@ fun prepare_function_scope authoritative lthy overrides function =
       let val mapped = if authoritative then
         map (URust_Trait_Mappings.resolve_bound lthy) (denoting_bounds (inherited_bounds rust)) else []
       in {rust = rust, pos = pos, kind = kind,
-        hol = (name, Sign.minimize_sort thy (sort @ maps #sort mapped)),
+        hol = (name, URust_Type_Mappings.ambient_parameter_sort lthy rust
+          (Sign.minimize_sort thy (sort @ maps #sort mapped))),
         bounds = distinct (op =) (bounds @ map #path mapped), report_reference = report_reference}
         : URust_Type_Mappings.generic_parameter end
     fun parameter (URust_AST.Generic_Parameter (rust, pos, kind), (name, override_sort)) =
       let
         val _ =
-          if is_some (Variable.def_sort lthy (name, ~1)) then
+          if is_some (Variable.def_sort lthy (name, ~1)) andalso
+              is_none (URust_Model_Parameters.ambient lthy rust) then
             error ("urust_fn: HOL parameter " ^ quote name ^
               " is fixed by the ambient context" ^ Position.here pos)
           else ()
@@ -1619,7 +1633,8 @@ fun prepare_function_scope authoritative lthy overrides function =
         val minimum =
           (case kind of URust_AST.Type_Parameter => \<^sort>\<open>type\<close>
            | URust_AST.Const_Parameter => \<^sort>\<open>len0\<close>)
-        val sort = Sign.minimize_sort thy (override_sort @ minimum @ maps #sort mapped)
+        val sort = URust_Type_Mappings.ambient_parameter_sort lthy rust
+          (Sign.minimize_sort thy (override_sort @ minimum @ maps #sort mapped))
         val identity = serial ()
         fun report_reference use_pos =
           Navigation.defer_report lthy use_pos
@@ -1764,7 +1779,7 @@ fun prepare_function_binding_scope lthy overrides function =
   let
 
     val descriptors = URust_AST.function_type_parameters function
-    val names = URust_Type_Mappings.parameter_names lthy descriptors overrides
+    val names = URust_Type_Mappings.ambient_parameter_names lthy descriptors overrides
     val thy = Proof_Context.theory_of lthy
     val bounds = URust_AST.function_bounds function
     val inherited = maps URust_Type_Mappings.scope_bindings (the_list (URust_Type_Mappings.binding_scope lthy))
@@ -1791,14 +1806,19 @@ fun prepare_function_binding_scope lthy overrides function =
             declaration, callables} = URust_Type_Mappings.binding_spec binding
           val (sorts, paths, recipes) = fold classify (denoting_bounds (inherited_bounds rust)) ([], [], [])
       in {parameter = {rust = rust, pos = pos, kind = kind,
-            hol = (name, Sign.minimize_sort thy (sort @ sorts)),
+            hol = (name, URust_Type_Mappings.ambient_parameter_sort lthy rust
+              (Sign.minimize_sort thy (sort @ sorts))),
             bounds = distinct (op =) (bounds @ rev paths), report_reference = report_reference},
           declaration = declaration, callables = callables @ recipes}: URust_Type_Mappings.binding_spec end
     fun parameter (URust_AST.Generic_Parameter (rust, pos, kind), (name, override_sort)) =
-      let val _ = if is_some (Variable.def_sort lthy (name, ~1)) then error
+      let val _ = if is_some (Variable.def_sort lthy (name, ~1)) andalso
+              is_none (URust_Model_Parameters.ambient lthy rust) then error
             ("urust_fn: HOL parameter " ^ quote name ^ " is fixed by the ambient context" ^ Position.here pos)
             else ()
           val (sorts, paths, recipes) = mapped rust
+          val _ = if null recipes orelse is_none (URust_Model_Parameters.ambient lthy rust)
+            then () else error ("urust: ambient callable specialization is not supported" ^
+              Position.here pos)
           val _ = if kind = URust_AST.Const_Parameter andalso not (null recipes) then error
             ("urust: callable bounds require a type parameter" ^ Position.here pos) else ()
           val minimum = case kind of URust_AST.Type_Parameter => \<^sort>\<open>type\<close>
@@ -1809,7 +1829,8 @@ fun prepare_function_binding_scope lthy overrides function =
           fun report () = Navigation.defer_report lthy pos
             (Position.make_entity_markup {def = true} declaration "urust_generic_parameter" (rust, pos))
       in ({parameter = {rust = rust, pos = pos, kind = kind,
-          hol = (name, Sign.minimize_sort thy (override_sort @ minimum @ sorts)),
+          hol = (name, URust_Type_Mappings.ambient_parameter_sort lthy rust
+            (Sign.minimize_sort thy (override_sort @ minimum @ sorts))),
           bounds = distinct (op =) (rev paths), report_reference = reference},
           declaration = declaration, callables = recipes}: URust_Type_Mappings.binding_spec, report) end
     val prepared = map parameter (descriptors ~~ names)
@@ -2172,8 +2193,28 @@ fun declare_urust_function_result pp_test render_pretty
         fun canonical_registration () =
           let
 
+            (* Ordinary signatures leave omitted channels as native dummy types. They
+               constrain neither the body nor the canonical source templates. Give each
+               dummy its own matching variable; retain every authored variable, including
+               rigid ambient types, exactly as checked. *)
+            val signature_type = #1 (the declared_type)
+            val next_channel = Unsynchronized.ref
+              (Term.maxidx_of_typs [signature_type, fastype_of term] + 1)
+            fun matchable typ =
+              if typ = dummyT then
+                let val index = !next_channel
+                    val _ = next_channel := index + 1
+                in TVar (("_urust_body_channel", index), \<^sort>\<open>type\<close>) end
+              else case typ of Type (name, arguments) => Type (name, map matchable arguments)
+                | _ => typ
             val alignment = Sign.typ_match (Proof_Context.theory_of body_lthy)
-              (#1 (the declared_type), fastype_of term) Vartab.empty
+              (matchable signature_type, fastype_of term) Vartab.empty
+              handle Type.TYPE_MATCH => error
+                ("urust_fn: checked body type does not match the resolved signature\n  signature: " ^
+                  Syntax.string_of_typ (Config.put show_sorts true body_lthy)
+                    (#1 (the declared_type)) ^ "\n  body: " ^
+                  Syntax.string_of_typ (Config.put show_sorts true body_lthy) (fastype_of term) ^
+                  Position.here (#2 rust_name))
             val transport = Envir.subst_type alignment
             val phi = Morphism.typ_morphism "urust checked callable body channels" transport
             fun relation ({inputs, result, channels}: URust_Type_Mappings.callable_relation) =
@@ -2210,12 +2251,21 @@ fun declare_urust_function_result pp_test render_pretty
             fun actual_template binding =
               let val {declaration, ...} = URust_Type_Mappings.binding_spec binding
               in (declaration, transport (the (URust_Type_Mappings.binding_template binding))) end
-          in URust_Type_Mappings.register_binding_generic_source_scheme_with_templates
+            val ambient = map_filter (fn binding =>
+              let val {parameter, declaration, ...} = URust_Type_Mappings.binding_spec binding
+              in if is_some (URust_Model_Parameters.ambient body_lthy (#rust parameter))
+                then SOME declaration else NONE end) (URust_Type_Mappings.scope_bindings scope)
+          in URust_Type_Mappings.register_binding_generic_source_scheme_with_ambient_templates
             {identity = function_scheme_identity abbreviation binding term backend_lthy installed declaration,
              backend = declaration_registered_term declaration, sources = sources,
              owner = owner, parameters = map slot locals, pos = #2 rust_name}
-            {owner = map actual_template inherited, parameters = map actual_template locals} registered end
-        val schemed = if scope_has_callables scope then canonical_registration () else
+            {owner = map actual_template inherited, parameters = map actual_template locals,
+             ambient = ambient} registered end
+        val schemed = if scope_has_callables scope orelse
+            exists (fn binding => is_some (URust_Model_Parameters.ambient body_lthy
+              (#rust (#parameter (URust_Type_Mappings.binding_spec binding)))))
+              (URust_Type_Mappings.scope_bindings scope)
+          then canonical_registration () else
           let
         fun slot (parameter as {rust, kind, hol, bounds, ...}: URust_Type_Mappings.generic_parameter) =
           {rust = rust, kind = kind, sort = snd hol, bounds = bounds,
@@ -2584,6 +2634,25 @@ fun configured_signature lthy rust_name options NONE =
                " cannot be combined with a declared type, which supplies every channel" ^
                Position.here pos))
 
+fun option_renames options name =
+  case Symtab.lookup options name of SOME (Type_Bindings_Value renames, _) => renames | _ => []
+
+fun configured_model_context options function =
+  let
+    val model = option_renames options model_parameters_option
+    val ambient = option_renames options ambient_type_parameters_option
+  in
+    (if null model then I else URust_Type_Mappings.with_model_parameters model) #>
+    (if null ambient then I else URust_Type_Mappings.with_ambient_type_parameters
+      (URust_AST.function_type_parameters function) ambient)
+  end
+
+fun configured_function_context options function signature_source =
+  case signature_source of Rust_Signature _ => configured_model_context options function
+  | Declared_Signature _ =>
+      URust_Type_Mappings.without_model_parameters #>
+      configured_model_context (Symtab.delete_safe model_parameters_option options) function
+
 fun prepare_function lthy
     {interactive, roundtrip, options, target, declared_type, source, function} =
   let
@@ -2610,6 +2679,7 @@ fun prepare_function lthy
     val attributes =
       declaration_attributes lthy "urust_fn" target abbreviation options
     val rust_name = URust_AST.function_name function
+    val signature_source = configured_signature lthy rust_name options declared_type
   in
     Prepared_Function
       {interactive = interactive, pp_test = pp_test, verbosity = verbosity, pretty = pretty,
@@ -2617,11 +2687,12 @@ fun prepare_function lthy
        application_definition = application_definition, attributes = attributes,
        binding = target_binding Function target, target = target,
        register_notation = register_notation,
-       signature_source = configured_signature lthy rust_name options declared_type,
+        signature_source = signature_source,
        parameter_overrides =
          (case Symtab.lookup options hol_type_parameters_option of
             SOME (Renames_Value renames, _) => renames | _ => []),
-       rust_name = rust_name, registration = Free_Function, impl_self = NONE, impl_context = I,
+        rust_name = rust_name, registration = Free_Function, impl_self = NONE,
+        impl_context = configured_function_context options function signature_source,
        source = source, function = function, warnings = warnings}
   end
 
@@ -2885,6 +2956,36 @@ val parse_renames =
       (Parse.string_position --| Parse.$$$ "\<rightarrow>" -- parse_rename_target)
       --| Parse.$$$ "]")
 
+val parse_type_bindings =
+  Parse.$$$ "[" |--
+    Parse.!!! (Parse.enum ","
+      (Parse.string_position --| Parse.$$$ "\<rightarrow>" --
+        (Parse.token Parse.cartouche >> Parser_Lex_Util.cartouche_source))
+      --| Parse.$$$ "]")
+
+fun model_default_declaration ctxt source =
+  let
+    val keywords = Thy_Header.get_keywords' ctxt
+    val tokens = Token.tokenize keywords {strict = true} (Input.source_explode source)
+      |> filter Token.is_proper
+    val bindings = (case Scan.read Token.stopper
+        (Parse.!!! (parse_type_bindings --| Scan.ahead Parse.eof)) tokens of
+      SOME bindings => bindings
+    | NONE => error ("urust_model_parameters: expected a type-binding list" ^
+        Position.here (Input.pos_of source)))
+    val (declaration, reports) = URust_Report_Transaction.capture (fn () =>
+      URust_Type_Mappings.model_parameters_declaration ctxt bindings)
+    val _ = URust_Report_Transaction.replay ctxt reports
+  in declaration end
+
+val _ =
+  Theory.setup (Attrib.setup \<^binding>\<open>urust_model_parameters\<close>
+    ((Scan.state :|-- (fn context =>
+      Scan.lift (Parse.$$$ "=" |-- Args.embedded_declaration
+        (model_default_declaration (Context.proof_of context))))) >>
+      (fn declaration => Thm.declaration_attribute (K (Morphism.form declaration))))
+    "explicit contextual bindings for value/reference representation parameters")
+
 fun parse_option_value config =
   Parse.position (Parse.reserved "true") >>
     (fn (_, pos) => (Boolean_Value true, pos)) ||
@@ -2899,6 +3000,9 @@ fun parse_option_value config =
    | SOME Renames_Config =>
        Parse.position parse_renames >>
          (fn (renames, pos) => (Renames_Value renames, pos))
+   | SOME Type_Bindings_Config =>
+       Parse.position parse_type_bindings >>
+         (fn (bindings, pos) => (Type_Bindings_Value bindings, pos))
    | SOME Backend_Config =>
        Parse.position Parse.name >>
          (fn (backend, pos) => (Backend_Value backend, pos))
@@ -3055,7 +3159,8 @@ type prepared_impl_member = {prepared: prepared_function, method: bool, default_
 
 datatype prepared_impl =
   Prepared_Impl of {target: URust_AST.rust_type, generics: URust_AST.function_generics,
-    overrides: ((string * Position.T) * (string * Position.T)) list, members: prepared_impl_member list}
+    overrides: ((string * Position.T) * (string * Position.T)) list,
+    model_context: local_theory -> local_theory, members: prepared_impl_member list}
 
 fun is_self_parameter (URust_AST.Receiver_Parameter _) = true
   | is_self_parameter (URust_AST.Function_Parameter (_, URust_AST.P_Ident ("self", _), _, _)) =
@@ -3098,7 +3203,11 @@ fun prepare_impl_item lthy {interactive, options, impl} =
     val generics = URust_AST.impl_generics impl
     val overrides = case Symtab.lookup options hol_type_parameters_option of
       SOME (Renames_Value renames, _) => renames | _ => []
-    val member_defaults = Symtab.delete_safe hol_type_parameters_option options
+    val member_defaults = options |> Symtab.delete_safe hol_type_parameters_option
+      |> Symtab.delete_safe ambient_type_parameters_option
+    val layout = #layout generics
+    val header = URust_AST.Function_Item ("_impl", URust_AST.source_span layout,
+      generics, [], SOME target, URust_AST.UE_Unit layout, layout)
     fun prepare_member member =
       let
         val function = URust_AST.impl_member_function member
@@ -3124,13 +3233,16 @@ fun prepare_impl_item lthy {interactive, options, impl} =
          default_name = not (Symtab.defined member_options name_option)}
       end
   in
-    Prepared_Impl {target = target, generics = generics, overrides = overrides, members = map prepare_member (URust_AST.impl_members impl)}
+    Prepared_Impl {target = target, generics = generics, overrides = overrides,
+      model_context = configured_model_context options header,
+      members = map prepare_member (URust_AST.impl_members impl)}
   end
 
 fun impl_member_function_of
     ({prepared = Prepared_Function {interactive, pp_test, verbosity, pretty, render_pretty,
        abbreviation, application_definition, attributes, binding, target, register_notation,
-       signature_source, parameter_overrides, rust_name = (name, pos), source, function,
+       signature_source, parameter_overrides, rust_name = (name, pos),
+       impl_context = member_context, source, function,
        warnings, ...}, method, ...}
      : prepared_impl_member)
     (self as {canonical_path, self_type, ...}: URust_Type_Mappings.impl_self)
@@ -3147,7 +3259,8 @@ fun impl_member_function_of
          Impl_Function
            {associated_key = associated_key, method = method, self_type = self_type,
             identity = serial (), source_identity = source_identity, template = template},
-       impl_self = SOME self, impl_context = impl_context, source = source, function = function, warnings = warnings}
+       impl_self = SOME self, impl_context = impl_context #> member_context,
+       source = source, function = function, warnings = warnings}
   end
 
 (* The default HOL name of a member (O3) does not distinguish the impls of different instances of
@@ -3223,9 +3336,10 @@ fun reserve_checked_owner ctxt ({name, self_type, identity, pos}: checked_owner)
         {name = name, target = template, identity = identity, pos = pos, source_identity = source_identity}
   end
 
-fun declare_prepared_impl {enter, leave} (Prepared_Impl {target, generics, overrides, members}) (lthy, checked0) =
+fun declare_prepared_impl {enter, leave}
+    (Prepared_Impl {target, generics, overrides, model_context, members}) (lthy, checked0) =
   let
-    val entered = enter lthy
+    val entered = model_context (enter lthy)
     val layout = #layout generics
     val header = URust_AST.Function_Item ("_impl", URust_AST.source_span layout,
       generics, [], SOME target, URust_AST.UE_Unit layout, layout)
@@ -3296,6 +3410,7 @@ fun declare_prepared_impl {enter, leave} (Prepared_Impl {target, generics, overr
       let
         val member_lthy = enter lthy'
         val impl_context = URust_Type_Mappings.inherit_header_lifetimes target_lthy #>
+          URust_Type_Mappings.inherit_model_parameters target_lthy #>
           URust_Type_Mappings.with_binding_scope base_scope #>
           URust_Type_Mappings.with_binding_availability
             {source_only = source_only, unavailable = [], declared_body = false} #>

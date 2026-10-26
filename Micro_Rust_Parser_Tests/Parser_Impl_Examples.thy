@@ -1763,4 +1763,80 @@ lemma callable_holder_local_inferred_twin:
   \<open> callable_holder_local_inferred = callable_holder_local_plain \<close>
   unfolding callable_holder_local_inferred_def callable_holder_local_plain_def by (rule refl)
 
+
+section\<open> Scoped representation parameters in checked Self \<close>
+
+urust_type [implicit = \<open>address = 'a, global = 'g\<close>,
+  model = \<open>epoch = 'epoch\<close>]
+  "ScopedOwner" = \<open>('a, 'g, 'epoch option) ref\<close>
+context notes [[urust_model_parameters = \<open>
+  ["address" \<rightarrow> \<open>nat\<close>, "global" \<rightarrow> \<open>unit\<close>,
+   "epoch" \<rightarrow> \<open>bool\<close>]
+\<close>]]
+begin
+urust \<open>
+  impl ScopedOwner {
+    fn ignored(self: Self, pointer: *const u32) -> u32 { 0 }
+    \<omega>\<open>model_parameters = ["address" \<rightarrow> \<open>_\<close>]\<close>
+    fn retained(self: Self, pointer: *const u32) -> u32 { 0 }
+  }
+\<close>
+urust_fn scoped_owner_ignored_escape \<open>
+  fn ScopedOwnerIgnoredEscape(owner: \<tau>\<open>(nat, unit, bool option) ref\<close>,
+    pointer: \<tau>\<open>(nat, unit, 32 word) ref\<close>) -> u32 { 0 }
+\<close>
+lemma scoped_owner_ignored_twin:
+  \<open> scoped_owner_ignored = scoped_owner_ignored_escape \<close>
+  unfolding scoped_owner_ignored_def scoped_owner_ignored_escape_def by (rule refl)
+lemma scoped_owner_retained_twin:
+  \<open> scoped_owner_retained = scoped_owner_ignored_escape \<close>
+  unfolding scoped_owner_retained_def scoped_owner_ignored_escape_def by (rule refl)
+end
+
+ML_val\<open>
+local
+  fun canonical typ =
+    Term_Subst.instantiateT (TVars.make (rev (Term.add_tvarsT typ []) |> map_index
+      (fn (index, variable as (_, sort)) => (variable, TVar (("scoped_owner", index), sort))))) typ
+  fun typ name = Sign.the_const_type \<^theory> name |> canonical
+  val expected = typ \<^const_name>\<open>scoped_owner_ignored_escape\<close>
+in
+  val _ = if typ \<^const_name>\<open>scoped_owner_ignored\<close> = expected andalso
+      typ \<^const_name>\<open>scoped_owner_retained\<close> = expected then ()
+    else error "checked Self lost a concrete model role or allowed a removal to erase it"
+end
+\<close>
+
+
+urust_type [implicit = \<open>address = 'a\<close>]
+  "NestedScopedOwner" = \<open>'a option\<close>
+urust \<open>
+  \<omega>\<open>model_parameters = ["address" \<rightarrow> \<open>_ option\<close>,
+    "global" \<rightarrow> \<open>unit\<close>]\<close>
+  impl NestedScopedOwner {
+    fn ignored(self: Self, pointer: *const u8) -> bool { false }
+  }
+\<close>
+urust_fn nested_scoped_owner_ignored_escape \<open>
+  fn NestedScopedOwnerIgnoredEscape(owner: \<tau>\<open>('address option) option\<close>,
+    pointer: \<tau>\<open>('address option, unit, 8 word) ref\<close>) -> bool { false }
+\<close>
+lemma nested_scoped_owner_ignored_twin:
+  \<open> nested_scoped_owner_ignored = nested_scoped_owner_ignored_escape \<close>
+  unfolding nested_scoped_owner_ignored_def nested_scoped_owner_ignored_escape_def by (rule refl)
+
+ML_val\<open>
+local
+  fun canonical typ = Term_Subst.instantiateT (TVars.make
+    (rev (Term.add_tvarsT typ []) |> map_index
+      (fn (index, variable as (_, sort)) => (variable, TVar (("nested_owner", index), sort))))) typ
+in
+  val _ = if canonical (Sign.the_const_type \<^theory>
+      \<^const_name>\<open>nested_scoped_owner_ignored\<close>) =
+      canonical (Sign.the_const_type \<^theory>
+        \<^const_name>\<open>nested_scoped_owner_ignored_escape\<close>) then ()
+    else error "nested impl role holes widened a complete type or lost sharing"
+end
+\<close>
+
 end

@@ -1293,4 +1293,37 @@ urust_datatype \<open>
   }
 \<close>
 
+
+section\<open> Scoped concrete field representations \<close>
+
+urust_type [model = \<open>epoch = 'epoch\<close>]
+  "ScopedEpochModel" = \<open>'epoch option\<close>
+context notes [[urust_model_parameters = \<open>
+  ["address" \<rightarrow> \<open>nat\<close>, "global" \<rightarrow> \<open>unit\<close>,
+   "epoch" \<rightarrow> \<open>bool\<close>]
+\<close>]]
+begin
+urust_datatype \<open>
+  struct ScopedConcreteFields {
+    pointer: *const u8,
+    repeated: *mut u16,
+    model: ScopedEpochModel,
+  }
+\<close>
+end
+
+ML_val\<open>
+local
+  val ctxt = \<^context>
+  val packet = \<^typ>\<open>scoped_concrete_fields\<close>
+  fun require name expected =
+    if Sign.the_const_type \<^theory> (Proof_Context.intern_const ctxt name) = packet --> expected
+    then () else error ("scoped field representation differs for " ^ name)
+in
+  val _ = require "scoped_concrete_fields_pointer" \<^typ>\<open>(nat, unit, 8 word) ref\<close>
+  val _ = require "scoped_concrete_fields_repeated" \<^typ>\<open>(nat, unit, 16 word) ref\<close>
+  val _ = require "scoped_concrete_fields_model" \<^typ>\<open>bool option\<close>
+end
+\<close>
+
 end

@@ -1293,4 +1293,62 @@ urust_fn [pp_test, verbosity = 0, state = "nat"] callable_locale_client \<open>
   { CallableLocaleFunction::<bool, F>(callback, value) }
 \<close>
 
+section\<open> Explicit ambient generic connections \<close>
+
+locale scoped_parameter_locale =
+  fixes scoped_parameter_anchor :: \<open>'element itself\<close>
+begin
+
+urust_fn [ambient_type_parameters = ["T" \<rightarrow> \<open>'element\<close>]]
+  ambient_parameter_identity \<open>
+  fn AmbientParameterIdentity<T>(value: T) -> T { value }
+\<close>
+urust_fn ambient_parameter_identity_escape \<open>
+  fn AmbientParameterIdentityEscape(value: \<tau>\<open>'element\<close>) ->
+    \<tau>\<open>'element\<close> { value }
+\<close>
+
+lemma ambient_parameter_identity_twin:
+  \<open> ambient_parameter_identity = ambient_parameter_identity_escape \<close>
+  unfolding ambient_parameter_identity_def ambient_parameter_identity_escape_def by (rule refl)
+
+urust_fn [ambient_type_parameters = ["T" \<rightarrow> \<open>'element\<close>]]
+  ambient_parameter_callback \<open>
+  fn AmbientParameterCallback<T, F: Fn(T) -> T>(callback: F, value: T) -> T
+  { callback(value) }
+\<close>
+urust_fn ambient_parameter_callback_escape \<open>
+  fn AmbientParameterCallbackEscape(
+    callback: \<tau>\<open>'element \<Rightarrow> ('ambient, 'element, 'abort, 'input, 'output) function_body\<close>,
+    value: \<tau>\<open>'element\<close>) -> \<tau>\<open>'element\<close>
+  { callback(value) }
+\<close>
+
+lemma ambient_parameter_callback_twin:
+  \<open> ambient_parameter_callback = ambient_parameter_callback_escape \<close>
+  unfolding ambient_parameter_callback_def ambient_parameter_callback_escape_def by (rule refl)
+
+end
+
+interpretation scoped_parameter_nat: scoped_parameter_locale \<open>TYPE(nat)\<close> .
+interpretation scoped_parameter_bool: scoped_parameter_locale \<open>TYPE(bool)\<close> .
+
+
+text\<open> Explicit ambient source connections survive even when every native witness is erased. \<close>
+urust_type [erase = \<open>'element, 'callback\<close>]
+  "ScopedAmbientErased<'element, 'callback>" = \<open>unit\<close>
+locale scoped_erased_locale = fixes scoped_erased_anchor :: \<open>'element itself\<close>
+begin
+urust_fn [ambient_type_parameters = ["T" \<rightarrow> \<open>'element\<close>]]
+  scoped_ambient_erased \<open>
+  fn ScopedAmbientErasedFunction<T, F: Fn(T) -> T>(tag: ScopedAmbientErased<T, F>) -> bool { false }
+\<close>
+urust_fn [ambient_type_parameters = ["T" \<rightarrow> \<open>'element\<close>]]
+  scoped_ambient_erased_plain \<open>
+  fn ScopedAmbientErasedPlain<T>(tag: ScopedAmbientErased<T, bool>) -> bool { false }
+\<close>
+end
+interpretation scoped_erased_nat: scoped_erased_locale \<open>TYPE(nat)\<close> .
+interpretation scoped_erased_bool: scoped_erased_locale \<open>TYPE(bool)\<close> .
+
 end

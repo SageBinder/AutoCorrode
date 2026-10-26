@@ -137,6 +137,7 @@ struct
       (if null constants then "" else
         " urust_consts " ^ space_implode " and "
           (map (fn (name, rhs) => quote name ^ " = " ^ cartouche rhs) constants))
+
 end
 \<close>
 
@@ -6390,6 +6391,162 @@ local
   val _ = scopes_closed "authored channel hole" (run thy "callable-genuine-authored-hole" holes |> Toplevel.context_of)
   val _ = writeln "S4 one native candidate environment, erased source templates/kinds/lengths, opaque and role boundaries, masks and ordinary inference PASS"
 in end
+\<close>
+
+section\<open> Ambient parameter rigidity and interpreted types \<close>
+
+ML_val\<open>
+local
+  open Parser_Trait_Test
+  structure M = URust_Type_Mappings
+  val ctxt = \<^context>
+  val thy = \<^theory>
+  fun canonical typ =
+    let val variables = rev (Term.add_tvarsT typ [])
+    in Term_Subst.instantiateT (TVars.make (map_index
+      (fn (index, variable as (_, sort)) => (variable, TVar (("ambient", index), sort)))
+      variables)) typ end
+  fun constant name = Sign.the_const_type thy (Proof_Context.intern_const ctxt name) |> canonical
+  val _ = List.app (fn name => require (name ^ ": full locale type differs from escape twin")
+    (constant ("scoped_parameter_locale." ^ name) =
+      constant ("scoped_parameter_locale." ^ name ^ "_escape")))
+    ["ambient_parameter_identity", "ambient_parameter_callback"]
+  fun instances rust = Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NFunction rust
+    |> map (canonical o fastype_of o #hol_term)
+  val identity = instances "AmbientParameterIdentity"
+  val callback = instances "AmbientParameterCallback"
+  val _ = require "interpreted identity has exactly the two concrete ambient input types"
+    (length identity = 2 andalso eq_set (op =) (map (the_single o binder_types) identity,
+      [HOLogic.natT, HOLogic.boolT]))
+  val _ = require "interpreted callback keeps the same concrete type in callback and value"
+    (length callback = 2 andalso forall (fn typ =>
+      case binder_types typ of [function, value] =>
+        binder_types function = [value] andalso
+          (case body_type function of Type (_, [_, result, _, _, _]) => result = value | _ => false)
+      | _ => false) callback)
+  val _ = require "all interpreted complete types and sorts agree with their escape twins"
+    (eq_set (op =) (identity, instances "AmbientParameterIdentityEscape") andalso
+      eq_set (op =) (callback, instances "AmbientParameterCallbackEscape"))
+  fun reject label expected body =
+    let
+      val source = "context scoped_parameter_locale begin\n" ^ body
+      val {result, ...} = capture (fn () => run thy label source)
+    in ignore (error_message label expected result) end
+  val ambient = "[ambient_type_parameters = [\"T\" \<rightarrow> " ^ cartouche "'element" ^ "]] "
+  val _ = reject "ambient-bound-sort" "ambient type parameter"
+    ("urust_fn " ^ ambient ^ "_ " ^ cartouche
+      "fn AmbientSorted<T: Scale>(value: T) -> T { value }")
+  val _ = reject "ambient-concrete-specialization" "fixed HOL type variable"
+    ("urust_fn [ambient_type_parameters = [\"T\" \<rightarrow> " ^ cartouche "nat" ^ "]] _ " ^
+      cartouche "fn AmbientConcrete<T>(value: T) -> T { value }")
+  val _ = reject "ambient-ordinary-turbofish" "no backend matches"
+    ("urust_fn " ^ ambient ^ cartouche
+      "fn AmbientOnly<T>(value: T) -> T { value }" ^ "\n" ^
+      "urust_fn _ " ^ cartouche
+      "fn AmbientMismatch(value: bool) -> bool { AmbientOnly::<bool>(value) }")
+  val _ = reject "ambient-callable-turbofish" "no backend matches"
+    ("urust_fn " ^ ambient ^ cartouche
+      "fn AmbientOnlyCallback<T, F: Fn(T) -> T>(callback: F, value: T) -> T { callback(value) }" ^
+      "\n" ^ "urust_fn _ " ^ cartouche
+      ("fn AmbientCallbackMismatch<F: Fn(bool) -> bool>(callback: F, value: bool) -> bool " ^
+       "{ AmbientOnlyCallback::<bool, F>(callback, value) }"))
+  val _ = require "ambient item bindings do not leak into the enclosing context"
+    (is_none (URust_Model_Parameters.ambient ctxt "T") andalso
+      is_none (M.generic_scope ctxt))
+in
+  val _ = writeln "ambient rigidity, sort bounds, full locale/interpretation types and incompatible turbofish PASS"
+end
+\<close>
+
+
+ML_val\<open>
+local
+  open Parser_Trait_Test
+  val thy = \<^theory>
+  val fixed = "[state = " ^ cartouche "unit" ^ ", abort = " ^ cartouche "unit" ^
+    ", input = " ^ cartouche "unit" ^ ", output = " ^ cartouche "unit" ^ "] "
+  val prefix =
+    "urust_type \"ScopedNativeNat\" = " ^ cartouche "nat" ^ "\n" ^
+    "urust_type \"ScopedNativeBool\" = " ^ cartouche "bool" ^ "\n" ^
+    "urust_type \"ScopedNativeInt\" = " ^ cartouche "int" ^ "\n" ^
+    "urust_type \"ScopedNativeNatCallback\" = " ^
+      cartouche "nat => (unit, nat, unit, unit, unit) function_body" ^ "\n" ^
+    "urust_type \"ScopedNativeBoolCallback\" = " ^
+      cartouche "bool => (unit, bool, unit, unit, unit) function_body" ^ "\n"
+  val base = run thy "ambient-erased-native-models" prefix
+  fun client rust = "urust_fn " ^ fixed ^ "_ " ^ cartouche rust
+  val _ = List.app (fn (label, rust) => ignore (run_from base label (client rust)))
+    [("ambient-erased-native-nat",
+       "fn AmbientErasedNat(tag: ScopedAmbientErased<ScopedNativeNat, ScopedNativeNatCallback>) -> bool " ^
+       "{ ScopedAmbientErasedFunction::<ScopedNativeNat, ScopedNativeNatCallback>(tag) }"),
+     ("ambient-erased-native-bool",
+       "fn AmbientErasedBool(tag: ScopedAmbientErased<ScopedNativeBool, ScopedNativeBoolCallback>) -> bool " ^
+       "{ ScopedAmbientErasedFunction::<ScopedNativeBool, ScopedNativeBoolCallback>(tag) }"),
+     ("ambient-erased-ordinary-nat",
+       "fn AmbientErasedPlainNat(tag: ScopedAmbientErased<ScopedNativeNat, bool>) -> bool " ^
+       "{ ScopedAmbientErasedPlain::<ScopedNativeNat>(tag) }"),
+     ("ambient-erased-ordinary-bool",
+       "fn AmbientErasedPlainBool(tag: ScopedAmbientErased<ScopedNativeBool, bool>) -> bool " ^
+       "{ ScopedAmbientErasedPlain::<ScopedNativeBool>(tag) }")]
+  val {result, ...} = capture (fn () => run_from base "ambient-erased-unmatched-native" (client
+    ("fn AmbientErasedMismatch(tag: ScopedAmbientErased<ScopedNativeInt, bool>) -> bool " ^
+     "{ ScopedAmbientErasedPlain::<ScopedNativeInt>(tag) }")))
+  val _ = ignore (error_message "ambient-erased-unmatched-native" "no backend matches" result)
+in val _ = writeln "erased ambient evidence selects exact native instance bundles without runtime witnesses PASS" end
+\<close>
+
+ML_val\<open>
+local
+  open Parser_Trait_Test
+  structure M = URust_Type_Mappings
+  val declaration = M.fresh_generic_declaration_identity ()
+  val source = serial ()
+  val backend = Free ("ambient_mask_probe", HOLogic.boolT -->
+    \<^typ>\<open>(unit, bool, unit, unit, unit) function_body\<close>)
+  fun parameter used: M.binding_scheme_parameter =
+    {rust = "T", kind = URust_AST.Type_Parameter, declaration = declaration,
+     hol_name = "'t", witness = NONE, sort = \<^sort>\<open>type\<close>, bounds = [],
+     callable_origins = [], callable_relation = NONE, source_used = SOME used}
+  fun register_source ambient used template lthy =
+    M.register_binding_generic_source_scheme_with_ambient_templates
+      {identity = backend, backend = backend, sources = [source], owner = NONE,
+       parameters = [parameter used], pos = Position.none}
+      {owner = [], parameters = [(declaration, template)],
+       ambient = if ambient then [declaration] else []} lthy
+  fun register ambient = register_source ambient true HOLogic.natT
+  val fresh = Named_Target.theory_init \<^theory>
+  val plain = register false fresh
+  val linked = register true fresh
+  fun reject label action =
+    let val {result, ...} = capture action
+    in ignore (error_message label "conflicting generic schemes" result) end
+  val _ = reject "ambient-mask-registration-forward" (fn () => register true plain)
+  val _ = reject "ambient-mask-registration-reverse" (fn () => register false linked)
+  val contradictory = register_source true false HOLogic.boolT fresh
+  val _ = reject "ambient-source-use-registration-forward"
+    (fn () => register_source true false HOLogic.boolT linked)
+  val _ = reject "ambient-source-use-registration-reverse"
+    (fn () => register true contradictory)
+  val parent = Theory.end_theory \<^theory>
+  fun branch name ambient = Theory.begin_theory (name, Position.none) [parent]
+    |> Named_Target.theory_init |> register ambient
+    |> Local_Theory.exit_global |> Theory.end_theory
+  val left = branch "Ambient_Mask_Merge_Plain" false
+  val right = branch "Ambient_Mask_Merge_Linked" true
+  val _ = List.app (fn (label, parents) => reject label (fn () =>
+      Theory.begin_theory (label, Position.none) parents))
+    [("Ambient_Mask_Merge_Forward", [left, right]),
+     ("Ambient_Mask_Merge_Reverse", [right, left])]
+  val inconsistent = Theory.begin_theory ("Ambient_Use_Merge_Unused", Position.none) [parent]
+    |> Named_Target.theory_init |> register_source true false HOLogic.boolT
+    |> Local_Theory.exit_global |> Theory.end_theory
+  val _ = List.app (fn (label, parents) => reject label (fn () =>
+      Theory.begin_theory (label, Position.none) parents))
+    [("Ambient_Use_Merge_Forward", [right, inconsistent]),
+     ("Ambient_Use_Merge_Reverse", [inconsistent, right])]
+in
+  val _ = writeln "ambient source constraints reject conflicting registration and both native merge orders PASS"
+end
 \<close>
 
 end

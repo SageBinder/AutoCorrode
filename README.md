@@ -134,7 +134,7 @@ The implementation session provides the production `urust_expr`, `urust_fn`, `ur
 ```isabelle
 urust_expr [OPTIONS] NAME [:: TYPE] [(ARG|_, ...)] ‹ body ›
 urust_fn [OPTIONS] [HOL_NAME|_] [:: TYPE] ‹ fn RustName[<'LIFETIME, T: TRAIT, const N: usize, ...>](PARAMETER: RUST_TYPE, ...) [-> RUST_TYPE] [where T: TRAIT, ...] { body } ›
-urust_type [implicit = ‹address = 'addr, global = 'store›, erase = ‹'tag, ...›] "RUST_TYPE['PARAMETER, ...]" = ‹HOL_TYPE›
+urust_type [implicit = ‹address = 'addr, global = 'store›, model = ‹epoch = 'epoch›, erase = ‹'tag, ...›] "RUST_TYPE['PARAMETER, ...]" = ‹HOL_TYPE›
 urust_type_alias ["QUALIFIED_PATH"] ‹ type RustName<T, ...> = RUST_TYPE; ›
 urust_datatype [OPTIONS] [HOL_NAME] ‹ struct-or-enum ›
 urust_trait "PATH" = ‹SORT› [urust_consts "NAME" = ‹TERM› and ...]
@@ -210,6 +210,43 @@ rejected. Lifetime bounds and lifetime generic arguments are not interpreted by 
 a declared HOL signature retains literal Rust types under the rules above. Shared
 references `&T` and slices still require an explicit HOL escape to supply semantics, and references
 are not supported in datatype fields, aliases or casts.
+
+Representation parameters may instead be bound explicitly in the surrounding context:
+
+```isabelle
+urust_type [model = ‹epoch = 'epoch›] "Snapshot" = ‹'epoch option›
+context notes [[urust_model_parameters =
+  ‹["address" → ‹nat›, "global" → ‹unit›, "epoch" → ‹bool›]›]]
+begin
+urust_fn ‹ fn Keep(value: Snapshot, ignored: *const u8) -> Snapshot { value } ›
+urust_fn [model_parameters = ["address" → ‹int›]]
+  ‹ fn Ignore(ignored: *const u8) -> u8 { 0 } ›
+end
+```
+
+`address` and `global` are the existing reference roles. A mapping's `model` list declares
+additional named HOL-only families; each family has one checked type throughout a signature.
+These families are separate from Rust generic arguments and computation channels. Every HOL
+template variable must belong to a retained Rust slot or an explicitly declared representation
+role. Erased slots retain source metadata and contribute no HOL template variables.
+The scoped attribute checks and stores native HOL types, including rigid
+locale-fixed types, and transports them through interpretations. An inline `model_parameters`
+list overrides only its listed families. `‹_›` removes a default and restores inference for that
+role. Unbound roles infer lazily; unused mappings impose no sort constraints. Aliases retain their
+abstract role schemes and consume the bindings at each use.
+
+An impl target fixes its `Self` representation before member preparation. A member override must
+agree with that representation; removing a default does not erase `Self`'s checked roles.
+Structured bindings with inference holes are supported in function and impl signatures. Generated
+datatype fields accept ground role bindings or single role variables/holes; structured bindings
+containing free variables or holes receive a positioned error. Complete HOL function signatures
+ignore representation defaults and inline model bindings.
+
+`ambient_type_parameters = ["T" → ‹'element›]` explicitly connects a Rust type parameter to an
+already fixed HOL type variable. It preserves the variable and its existing sort, and does not add
+a hidden witness argument or generalize the variable. Ordinary `hol_type_parameters` remains the
+option for fresh generic names. A representation binding cannot capture such a fresh generic
+merely because its HOL variable has the same spelling.
 
 Function items declare type and const parameters in any order after their lifetimes. An empty
 `<>` and a trailing comma are accepted. A type parameter resolves before type mappings, aliases,

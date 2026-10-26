@@ -6120,4 +6120,245 @@ local
 in end
 \<close>
 
+section\<open> Scoped model parameter boundaries \<close>
+
+ML_val\<open>
+local
+  structure M = URust_Type_Mappings
+  structure P = URust_Model_Parameters
+  val ctxt = \<^context>
+  fun require label condition = if condition then () else error ("scoped model parameters: " ^ label)
+  fun source text = Input.string text
+  fun binding key text = ((key, Position.none), source text)
+  fun rejects expected action =
+    case Exn.capture0 action () of
+      Exn.Exn exn => if Exn.is_interrupt exn then Exn.reraise exn else
+        require expected (String.isSubstring expected (Runtime.exn_message exn))
+    | Exn.Res _ => error ("scoped model parameters accepted " ^ expected)
+  val requirements = M.model_parameter_requirements ctxt
+  val fixed = M.with_model_parameters [binding "address" "nat", binding "global" "unit"] ctxt
+  val _ = require "bindings retain concrete types"
+    (#typ (the (P.lookup fixed M.Address)) = HOLogic.natT andalso
+      #typ (the (P.lookup fixed M.Global)) = HOLogic.unitT)
+  val _ = require "the caller context is unchanged" (is_none (P.lookup ctxt M.Address))
+  val removed = M.with_model_parameters [binding "address" "_"] fixed
+  val _ = require "removal leaves other selected roles intact"
+    (#typ (the (P.lookup removed M.Address)) = dummyT andalso
+      #typ (the (P.lookup removed M.Global)) = HOLogic.unitT)
+  val _ = rejects "unknown model parameter" (fn () =>
+    M.with_model_parameters [binding "unregistered_family" "nat"] ctxt)
+  val _ = rejects "duplicate model parameter" (fn () =>
+    M.with_model_parameters [binding "address" "nat", binding "address" "int"] ctxt)
+  val _ = rejects "conflicting model parameter" (fn () =>
+    P.merge_bindings (Symtab.make [("address", {typ = HOLogic.natT, pos = Position.none})],
+      Symtab.make [("address", {typ = \<^typ>\<open>int\<close>, pos = Position.none})]))
+  val _ = rejects "conflicting model parameter" (fn () =>
+    P.merge_bindings (Symtab.make [("address", {typ = \<^typ>\<open>int\<close>, pos = Position.none})],
+      Symtab.make [("address", {typ = HOLogic.natT, pos = Position.none})]))
+  val _ = require "named families use independent canonical slots"
+    (P.canonical (M.Model "stamp") <> P.canonical M.Address andalso
+      P.canonical (M.Model "stamp") <> P.canonical M.Global)
+  val _ = require "canonical family order is stable"
+    (P.order [M.Model "z", M.Global, M.Model "a", M.Address] =
+      [M.Address, M.Global, M.Model "a", M.Model "z"])
+  val holder = the (M.lookup ctxt "ScopedParameterHolder")
+  val alias = the (M.lookup ctxt "ScopedParameterAlias")
+  val inner_alias = the (M.lookup ctxt "ScopedParameterInnerAlias")
+  val _ = require "aliases retain complete model-family metadata"
+    (M.entry_backend_roles holder = [M.Model "stamp"] andalso
+      M.entry_backend_roles alias = [M.Model "stamp"] andalso
+      M.entry_backend_roles inner_alias = [M.Model "stamp"] andalso
+      M.entry_template holder = M.entry_template inner_alias)
+  val _ = require "all model template variables have canonical family identities"
+    (map fst (Term.add_tvarsT (M.entry_template holder) []) = [P.canonical (M.Model "stamp")])
+  val probe = TFree ("'scoped_morphism_probe", \<^sort>\<open>type\<close>)
+  val probe_context = Variable.declare_typ probe ctxt
+  val morph = Morphism.typ_morphism "scoped model test"
+    (Term.typ_subst_atomic [(probe, \<^typ>\<open>int\<close>)])
+  val declaration = M.model_parameters_declaration probe_context
+    [binding "address" "'scoped_morphism_probe"]
+  val moved = Context.proof_of (Morphism.form (Morphism.transform morph declaration)
+    (Context.Proof ctxt))
+  val _ = require "checked default values are morphism transported"
+    (#typ (the (P.lookup moved M.Address)) = \<^typ>\<open>int\<close>)
+  fun canonical typ =
+    let val variables = rev (Term.add_tvarsT typ [])
+    in Term_Subst.instantiateT (TVars.make (map_index
+      (fn (index, variable as (_, sort)) => (variable, TVar (("scoped", index), sort)))
+      variables)) typ end
+  fun constant name = Sign.the_const_type \<^theory>
+    (Proof_Context.intern_const ctxt name) |> canonical
+  val _ = List.app (fn name => require (name ^ ": full installed type/sort differs from twin")
+      (constant name = constant (name ^ "_escape")))
+    ["scoped_parameter_ignored", "scoped_parameter_alias", "scoped_parameter_override",
+     "scoped_parameter_removed", "scoped_parameter_outside", "scoped_parameter_fresh_model",
+     "scoped_parameter_inner_alias_reused"]
+  fun cartouche text = Symbol.open_ ^ " " ^ text ^ " " ^ Symbol.close
+  fun run base label text =
+    Outer_Syntax.parse_text base (K base)
+      (Position.make0 1 1 0 "" label "" |> Position.copy_id (Position.thread_data ())) text
+    |> (fn transitions => fold (Toplevel.command_exception false) transitions
+      (Toplevel.make_state (SOME base))) |> Toplevel.context_of
+  fun captured action = #1 (URust_Report_Transaction.capture action)
+  val merge_parent = Theory.end_theory \<^theory>
+  fun branch name text =
+    let
+      val pos = Position.of_properties [(Markup.fileN, name), (Markup.lineN, "1")]
+      val source = Input.source false text (pos, pos)
+      val declaration = captured (fn () =>
+        M.model_parameters_declaration ctxt [(("address", pos), source)])
+    in Theory.begin_theory (name, Position.none) [merge_parent]
+      |> Context.Theory |> Morphism.form declaration
+      |> Context.the_theory |> Theory.end_theory end
+  val left = branch "Scoped_Model_Merge_Nat" "nat"
+  val same = branch "Scoped_Model_Merge_Nat_Again" "nat"
+  val right = branch "Scoped_Model_Merge_Int" "int"
+  fun merge name parents = Theory.begin_theory (name, Position.none) parents
+    |> Proof_Context.init_global
+  val _ = List.app (fn (label, parents) =>
+    require "native compatible merge lost the selected role"
+      (#typ (the (P.lookup (merge label parents) M.Address)) = HOLogic.natT))
+    [("Scoped_Model_Merge_Same_Left", [left, same]),
+     ("Scoped_Model_Merge_Same_Right", [same, left])]
+  val _ = List.app (fn (label, parents) =>
+    let
+      val result = Exn.capture0 (fn () => merge label parents) ()
+      val message = case result of Exn.Exn exn =>
+          if Exn.is_interrupt exn then Exn.reraise exn else Runtime.exn_message exn
+        | Exn.Res _ => error "native conflicting model-default merge was accepted"
+    in require "native merge conflict lost its family or either authored position"
+      (String.isSubstring "conflicting model parameter" message andalso
+       String.isSubstring "Scoped_Model_Merge_Nat" message andalso
+       String.isSubstring "Scoped_Model_Merge_Int" message) end)
+    [("Scoped_Model_Merge_Different_Left", [left, right]),
+     ("Scoped_Model_Merge_Different_Right", [right, left])]
+  val sorted = captured (fn () => run \<^theory> "scoped-lazy-sort-fixture"
+    ("urust_type [implicit = " ^ cartouche "address = 'a" ^ "] \"ScopedFiniteAddress\" = " ^
+      cartouche "'a::finite function_address_model"))
+  val infinite = M.with_model_parameters [binding "address" "int"] sorted
+  val layout = URust_AST.make_source_layout Position.none []
+  val pointer = URust_AST.Raw_Pointer_Type (URust_AST.RPM_Const,
+    URust_AST.Primitive_Type (URust_AST.DPT_U8, Position.none), layout)
+  val holes = M.with_model_parameters
+    [binding "address" "_ option", binding "global" "_ option"] ctxt
+  val [hole_first, hole_repeated] = captured (fn () => M.resolve_signature holes [pointer, pointer])
+  val hole_again = the_single (captured (fn () => M.resolve_signature holes [pointer]))
+  val _ = require "nested contextual holes are shared per role but fresh per resolution"
+    (hole_first = hole_repeated andalso hole_first <> hole_again andalso
+      length (Term.add_tvarsT hole_first []) = 2)
+  val borrow_probe = TFree ("'scoped_borrow_probe", \<^sort>\<open>type\<close>)
+  val declaration = M.model_parameters_declaration (Variable.declare_typ borrow_probe ctxt)
+    [binding "address" "'scoped_borrow_probe"]
+  val borrowed = TVar (("'scoped_borrowed", 9000), \<^sort>\<open>type\<close>)
+  val phi = Morphism.typ_morphism "borrowed model slot"
+    (Term.typ_subst_atomic [(borrow_probe, borrowed)])
+  val imported = Context.proof_of (Morphism.form (Morphism.transform phi declaration)
+    (Context.Proof ctxt)) |> M.with_model_parameters [binding "global" "_ option"]
+  val result = the_single (#1 (URust_Report_Transaction.capture
+    (fn () => M.resolve_signature imported [pointer])))
+  val variables = Term.add_tvarsT result []
+  val expected = (("?'scoped_borrowed", 9000), \<^sort>\<open>type\<close>)
+  val _ = if member (op =) variables expected andalso
+      forall (fn ((_, index), _) => index >= 9000) variables
+    then writeln "imported variable keeps established parameterization PASS"
+    else error ("borrowed variable was renamed: " ^ ML_Syntax.print_typ result)
+  val spec: M.binding_spec =
+    {parameter = {rust = "F", pos = Position.none, kind = URust_AST.Type_Parameter,
+      hol = ("'f", \<^sort>\<open>type\<close>), bounds = ["Fn"], report_reference = K ()},
+     declaration = M.fresh_generic_declaration_identity (),
+     callables = [{origin = {path = "Fn", identity = serial (), declaration_pos = Position.none,
+       bound_pos = Position.none}, inputs = [pointer, pointer],
+       output = SOME (URust_AST.HOL_Type_Source (Input.string "bool"))}]}
+  val scoped = M.with_binding_scope (M.prepare_binding_scope [spec] holes) holes
+  val callback = URust_AST.Path_Type
+    ([URust_AST.Rust_Type_Path_Segment ("F", Position.none, NONE, layout)], layout)
+  fun resolve () = #1 (URust_Report_Transaction.capture (fn () =>
+    M.resolve_function_signature_with_bindings scoped
+      {state = NONE, abort = NONE, input = NONE, output = NONE} [] [callback]
+      (URust_AST.HOL_Type_Source (Input.string "bool"))))
+  fun role_variables result =
+    let
+      val relation = M.scope_bindings (#scope result) |> the_single
+        |> M.binding_callable_relation |> the
+      val [(first, _), (repeated, _)] = #inputs relation
+      val _ = if first = repeated then () else error "callable repeated roles lost sharing"
+    in map fst (Term.add_tvarsT first []) end
+  val first_callable = role_variables (resolve ())
+  val second_callable = role_variables (resolve ())
+  val _ = if length first_callable = 2 andalso length second_callable = 2 andalso
+      null (inter (op =) first_callable second_callable)
+    then writeln "callable nested roles fresh per resolution PASS"
+    else error "callable nested role freshness failed"
+
+  val recipe = the_single (#callables spec)
+  val schematic_spec: M.binding_spec =
+    {parameter = #parameter spec, declaration = M.fresh_generic_declaration_identity (),
+     callables = [{origin = #origin recipe,
+       inputs = [URust_AST.HOL_Type_Source (Input.string "?'a.9999")],
+       output = #output recipe}]}
+  val schematic_context = M.with_binding_scope
+    (M.prepare_binding_scope [schematic_spec] holes) holes
+  val schematic_result = Exn.capture0 (fn () =>
+    #1 (URust_Report_Transaction.capture (fn () =>
+      M.resolve_function_signature_with_bindings schematic_context
+        {state = NONE, abort = NONE, input = NONE, output = NONE} [] [callback]
+        (URust_AST.HOL_Type_Source (Input.string "bool"))))) ()
+  val _ = case schematic_result of Exn.Exn exn =>
+      if Exn.is_interrupt exn then Exn.reraise exn
+      else if String.isSubstring "Illegal schematic type variable" (Runtime.exn_message exn)
+        then writeln "authored schematic callable source remains rejected PASS"
+      else Exn.reraise exn
+    | Exn.Res _ => error "authored schematic callable source was accepted"
+
+  val combined = M.with_binding_scope (M.prepare_binding_scope [spec] imported) imported
+  fun resolve_combined context = #1 (URust_Report_Transaction.capture (fn () =>
+    M.resolve_function_signature_with_bindings context
+      {state = NONE, abort = NONE, input = NONE, output = NONE} [] [callback]
+      (URust_AST.HOL_Type_Source (Input.string "bool"))))
+  val combined_first = resolve_combined combined
+  val combined_again = resolve_combined combined
+  val _ = if eq_set (op =) (inter (op =) (role_variables combined_first)
+        (role_variables combined_again), [fst expected]) then
+      writeln "callable imported role preserved and local hole fresh PASS"
+    else error "callable import lost its variable or shared independent holes"
+  val inherited = M.with_binding_scope (#scope combined_first) imported
+  val inherited_result = resolve_combined inherited
+  val _ = if member (op =) (role_variables inherited_result) (fst expected) then
+      writeln "inherited callable high-index model variable preserved PASS"
+    else error "inherited callable variable was renamed"
+
+
+
+  val _ = require "unused sorted mapping restricted an ordinary pointer"
+    (null (Term.add_tvarsT (the_single (captured (fn () =>
+        M.resolve_signature (M.with_model_parameters [binding "global" "unit"] infinite)
+          [pointer]))) []))
+  val finite = URust_AST.Path_Type
+    ([URust_AST.Rust_Type_Path_Segment ("ScopedFiniteAddress", Position.none, NONE, layout)], layout)
+  val _ = rejects "does not satisfy" (fn () =>
+    captured (fn () => M.resolve_signature infinite [finite]))
+  fun collision parameters =
+    captured (fn () => run \<^theory> "scoped-generic-collision"
+      ("urust_fn [model_parameters = [\"address\" \<rightarrow> " ^ cartouche "'t" ^
+        "], register_notation = false] _ " ^ cartouche
+        ("fn ScopedCollision<" ^ parameters ^ ">(value: T, pointer: &mut u32) -> T { value }")))
+  val _ = rejects "collides with a Rust generic" (fn () => collision "T")
+  val _ = rejects "collides with a Rust generic" (fn () => collision "T, F: Fn(T) -> T")
+in
+  val _ = writeln "scoped model defaults, removal, context isolation, family identity, alias transport and both conflict orders PASS"
+end
+\<close>
+
+
+ML_val\<open>
+local
+  val ctxt = \<^context>
+in
+  val _ = if forall (is_none o URust_Model_Parameters.lookup ctxt)
+      [URust_Model_Parameters.Address, URust_Model_Parameters.Global,
+       URust_Model_Parameters.Model "stamp"] then ()
+    else error "scoped attribute bindings escaped the locale context"
+end
+\<close>
+
 end

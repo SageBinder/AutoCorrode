@@ -4,6 +4,7 @@ theory Parser_Impl_Type_Mappings
     Parser_Impl_Grammar
     Parser_Impl_Printer
     Parser_Utils
+    Parser_Impl_Model_Parameters
     Parser_Impl_Import_Scope
     Shallow_Micro_Rust.Semantic_Navigation
     Shallow_Micro_Rust.Micro_Rust_Notations
@@ -114,7 +115,22 @@ ML\<open>
 signature URUST_TYPE_MAPPINGS =
 sig
   type entry
-  datatype backend_role = Address | Global
+  datatype backend_role = datatype URust_Model_Parameters.role
+  val model_parameter_requirements: Proof.context -> (backend_role * sort) list
+  val with_model_parameters:
+    URust_Model_Parameters.rename list -> Proof.context -> Proof.context
+  val model_parameters_declaration:
+    Proof.context -> URust_Model_Parameters.rename list ->
+      (Context.generic -> Context.generic) Morphism.entity
+  val inherit_model_parameters: Proof.context -> Proof.context -> Proof.context
+  val without_model_parameters: Proof.context -> Proof.context
+  val with_ambient_type_parameters:
+    URust_AST.generic_parameter list -> URust_Model_Parameters.rename list ->
+      Proof.context -> Proof.context
+  val ambient_parameter_names:
+    Proof.context -> URust_AST.generic_parameter list ->
+      ((string * Position.T) * (string * Position.T)) list -> (string * sort) list
+  val ambient_parameter_sort: Proof.context -> string -> sort -> sort
 
   val resolve: Proof.context -> URust_AST.rust_type -> typ
   val resolve_signature:
@@ -387,6 +403,7 @@ sig
   val register_binding_generic_source_scheme:
     binding_scheme_registration -> local_theory -> local_theory
   val binding_generic_scheme_for_source: Proof.context -> serial -> binding_generic_scheme option
+  val binding_scheme_is_canonical: binding_generic_scheme -> bool
   val binding_generic_scheme: Proof.context -> term -> binding_generic_scheme option
   val binding_scoped_owner: binding_generic_scheme -> binding_impl_scheme option
   val binding_scoped_parameters: binding_generic_scheme -> binding_scheme_parameter list
@@ -407,6 +424,11 @@ sig
     binding_scheme_registration ->
       {owner: (generic_declaration_identity * typ) list,
        parameters: (generic_declaration_identity * typ) list} -> local_theory -> local_theory
+  val register_binding_generic_source_scheme_with_ambient_templates:
+    binding_scheme_registration ->
+      {owner: (generic_declaration_identity * typ) list,
+       parameters: (generic_declaration_identity * typ) list,
+       ambient: generic_declaration_identity list} -> local_theory -> local_theory
   val instantiate_binding_source_arguments_for_source:
     Proof.context -> serial -> term -> typ ->
       {target: Micro_Rust_Names.target_selection option,
@@ -421,12 +443,10 @@ struct
 
   val mappingN = "micro_rust_type_mapping"
 
-  datatype backend_role = Address | Global
-
-  fun role_index Address = 0 | role_index Global = 1
-  fun role_name Address = "address" | role_name Global = "global"
-  val backend_roles = [Address, Global]
-  fun role_order roles = filter (member (op =) roles) backend_roles
+  datatype backend_role = datatype URust_Model_Parameters.role
+  structure Models = URust_Model_Parameters
+  val role_name = Models.name
+  val role_order = Models.order
 
   datatype origin =
       Manual
@@ -561,6 +581,30 @@ struct
 
   fun dump ctxt =
     Symtab.dest (Data.get (Context.Proof ctxt))
+
+  fun model_parameter_requirements ctxt =
+    maps (fn (_, entry: entry) =>
+      #backend_roles entry ~~ #backend_parameter_sorts entry) (dump ctxt)
+
+  fun with_model_parameters renames ctxt =
+    Models.with_bindings (model_parameter_requirements ctxt) renames ctxt
+
+  fun model_parameters_declaration ctxt =
+    Models.declaration (model_parameter_requirements ctxt) ctxt
+
+  fun inherit_model_parameters ctxt =
+    Models.inherit ctxt #> Models.inherit_ambient ctxt
+  val without_model_parameters = Models.without_bindings
+
+  val with_ambient_type_parameters = Models.with_ambient
+
+  fun ambient_parameter_sort ctxt rust required =
+    (case Models.ambient ctxt rust of
+      NONE => required
+    | SOME {typ = TFree (_, sort), pos} =>
+        (Models.satisfies ctxt ("ambient type parameter " ^ quote rust)
+          (TFree ("'ambient", sort)) required pos; sort)
+    | SOME _ => raise Fail "checked ambient parameter is not a free type")
 
   fun add_entry base entry =
     Data.map
@@ -763,8 +807,8 @@ struct
   fun canonical_parameter index sort =
     TVar (("_urust_type", index), sort)
 
-  fun canonical_backend_parameter index sort =
-    TVar (("_urust_backend", index), sort)
+  fun canonical_backend_parameter role sort =
+    TVar (Models.canonical role, sort)
 
   (* A native locale export may rename schematic indexes and basenames. Transport the
      template and all slot witnesses as one type, then restore canonical identities from
@@ -774,7 +818,7 @@ struct
       val retained = map_index I parameter_sorts
         |> filter_out (fn (index, _) => member (op =) erased_parameters index)
       val parameters = map (fn (index, sort) => canonical_parameter index sort) retained
-      val roles = map (fn (role, sort) => canonical_backend_parameter (role_index role) sort)
+      val roles = map (fn (role, sort) => canonical_backend_parameter role sort)
         role_sorts
       val transported =
         Morphism.typ phi ((template :: parameters @ roles) ---> propT)
@@ -796,7 +840,7 @@ struct
       val role_sorts' = map fst role_sorts ~~ backend_sorts'
       val restored =
         map (fn (index, sort) => canonical_parameter index sort) transported_sorts @
-        map (fn (role, sort) => canonical_backend_parameter (role_index role) sort) role_sorts'
+        map (fn (role, sort) => canonical_backend_parameter role sort) role_sorts'
     in
       (Term.typ_subst_atomic (witnesses ~~ restored) transformed,
        parameter_sorts', role_sorts')
@@ -975,7 +1019,7 @@ struct
         | finish_source meaning = meaning
     in finish_source end
 
-  fun read_implicit_roles lthy source =
+  fun read_role_variables lthy source role =
     let
       fun read ctxt =
         let
@@ -994,9 +1038,6 @@ struct
            | NONE => mapping_error "malformed implicit role bindings" (Input.pos_of source))
         end
       val bindings = URust_Report_Transaction.native lthy read
-      fun role (name, pos) =
-        (case name of "address" => Address | "global" => Global
-         | _ => mapping_error ("unknown implicit role " ^ quote name) pos)
       val roles = map (fn (name, variable) => (role name, variable, snd name)) bindings
       fun distinct_binding (role, (name, pos), role_pos) (seen_roles, seen_names) =
         if member (op =) seen_roles role then
@@ -1006,6 +1047,19 @@ struct
         else (role :: seen_roles, name :: seen_names)
       val _ = fold distinct_binding roles ([], [])
     in map (fn (role, variable, _) => (role, variable)) roles end
+
+  fun read_implicit_roles lthy source =
+    read_role_variables lthy source (fn (name, pos) =>
+      case name of "address" => Address | "global" => Global
+      | _ => mapping_error ("unknown implicit role " ^ quote name) pos)
+
+  fun read_model_roles lthy source =
+    read_role_variables lthy source (fn (name, pos) =>
+      if member (op =) ["address", "global"] name then
+        mapping_error ("model family " ^ quote name ^ " is a reserved backend role") pos
+      else if name <> "" andalso identifier_start (String.sub (name, 0)) andalso
+          forall identifier_rest (String.explode name) then Model name
+      else mapping_error ("invalid model family " ^ quote name) pos)
 
   fun read_erased_parameters lthy source =
     let
@@ -1049,6 +1103,10 @@ struct
       val tfrees = Term.add_tfreesT typ []
       val tfree_names = map fst tfrees
       val role_variables = map (fst o snd) roles
+      val _ = fold (fn (_, (name, pos)) => fn seen =>
+        if member (op =) seen name then
+          mapping_error ("duplicate implicit template variable " ^ quote name) pos
+        else name :: seen) roles []
       val erased_names = map (nth parameters) erased
       val retained_names = filter_out (member (op =) erased_names) parameters
       val _ = List.app (fn name =>
@@ -1094,7 +1152,7 @@ struct
           (TFree (name, sort), canonical_parameter index sort))
       val canonical = canonical @
         map (fn (role, (name, sort)) =>
-          (TFree (name, sort), canonical_backend_parameter (role_index role) sort))
+          (TFree (name, sort), canonical_backend_parameter role sort))
           role_parameters
       val normalized = Term.typ_subst_atomic canonical typ
     in
@@ -1250,7 +1308,7 @@ struct
         map_index (fn (index, parameter as (_, sort)) =>
           (TFree parameter, canonical_parameter index sort)) source_parameters @
         map (fn (role, parameter as (_, sort)) =>
-          (TFree parameter, canonical_backend_parameter (role_index role) sort)) role_parameters
+          (TFree parameter, canonical_backend_parameter role sort)) role_parameters
       val template = Term.typ_subst_atomic substitutions hol_type
       val arities = take (length segment_arities - 1) segment_arities @ [length source_parameters]
     in
@@ -1397,7 +1455,7 @@ struct
              val substitution = Sign.typ_match (Proof_Context.theory_of ctxt)
                (#template entry, self_type) Vartab.empty
            in map2 (fn role => fn sort =>
-             (role, Envir.subst_type substitution (canonical_backend_parameter (role_index role) sort)))
+             (role, Envir.subst_type substitution (canonical_backend_parameter role sort)))
              (#backend_roles entry) (#backend_parameter_sorts entry) end)
 
   fun with_impl_self self ctxt =
@@ -1785,7 +1843,8 @@ struct
      parameters: binding_scheme_parameter list, pos: Position.T}
   type binding_scheme_metadata =
     {owner: binding_impl_scheme option, parameters: binding_scheme_parameter list,
-     source_templates: (generic_declaration_identity * typ option) list}
+     source_templates: (generic_declaration_identity * typ option) list,
+     ambient_declarations: generic_declaration_identity list}
   type function_scheme =
     {terms: term list, sources: serial list, owner: impl_scheme option,
      parameters: generic_source_parameter list, pos: Position.T,
@@ -1824,12 +1883,36 @@ struct
     {rust = rust, kind = kind, declaration = declaration, hol_name = hol_name,
      witness = witness, sort = sort, bounds = bounds, callable_origins = callable_origins,
      callable_relation = callable_relation, source_used = used}: binding_scheme_parameter
-  fun binding_metadata_core ({owner, parameters, source_templates}: binding_scheme_metadata) =
+  fun binding_metadata_core ({owner, parameters, source_templates, ambient_declarations}: binding_scheme_metadata) =
     {parameters = map (binding_slot_usage NONE) parameters,
      owner = Option.map (fn ({parameters, declarations, target}: binding_impl_scheme) =>
        {parameters = map (binding_slot_usage NONE) parameters, declarations = declarations,
         target = target}: binding_impl_scheme) owner,
-     source_templates = source_templates}: binding_scheme_metadata
+     source_templates = source_templates, ambient_declarations = ambient_declarations}: binding_scheme_metadata
+
+  (* One deterministic traversal is the codec for all checked relation and witness types. It
+     transports the whole bundle through native generalization, morphisms and caller freshening. *)
+  fun map_binding_metadata transform
+      ({owner, parameters, source_templates, ambient_declarations}: binding_scheme_metadata) =
+    let
+      fun relation ({inputs, result, channels}: callable_relation) =
+        let fun leaf (typ, source) = (transform typ, finish_meaning (map transform) source)
+        in {inputs = map leaf inputs, result = leaf result,
+          channels = {state = transform (#state channels), abort = transform (#abort channels),
+            input = transform (#input channels), output = transform (#output channels)}}: callable_relation end
+      fun slot ({rust, kind, declaration, hol_name, witness, sort, bounds, callable_origins,
+          callable_relation, source_used}: binding_scheme_parameter) =
+        {rust = rust, kind = kind, declaration = declaration, hol_name = hol_name,
+         witness = Option.map transform witness, sort = sort, bounds = bounds,
+         callable_origins = callable_origins, callable_relation = Option.map relation callable_relation,
+         source_used = source_used}: binding_scheme_parameter
+      val owner = Option.map (fn ({parameters, declarations, target}: binding_impl_scheme) =>
+        let val target = Micro_Rust_Names.map_target_types transform target
+        in {parameters = map slot parameters, declarations = declarations, target = target}
+          : binding_impl_scheme end) owner
+    in {owner = owner, parameters = map slot parameters,
+      source_templates = map (apsnd (Option.map transform)) source_templates,
+      ambient_declarations = ambient_declarations}: binding_scheme_metadata end
 
   fun same_function_scheme (left: function_scheme, right: function_scheme) =
     eq_list (op aconv) (#terms left, #terms right) andalso
@@ -1861,7 +1944,8 @@ struct
         | (NONE, NONE) => NONE
         | _ => raise Fail "uRust joint binding scheme: incompatible merged owner"
     in {parameters = map slot (#parameters left ~~ #parameters right),
-      owner = owner, source_templates = #source_templates left}: binding_scheme_metadata end
+      owner = owner, source_templates = #source_templates left,
+      ambient_declarations = #ambient_declarations left}: binding_scheme_metadata end
 
   fun add_function_scheme (candidate: function_scheme) entries =
     (case find_first (fn entry => same_function_scheme (entry, candidate)) entries of
@@ -1879,8 +1963,15 @@ struct
       (case find_first (fn (entry: function_scheme) =>
           hd (#terms entry) aconv hd (#terms candidate) andalso
           nth (#terms entry) 1 aconv nth (#terms candidate) 1 andalso
-          not (eq_list (op aconv) (#terms entry, #terms candidate) andalso
-            #parameters entry = #parameters candidate)) entries of
+          (case (#bindings entry, #bindings candidate) of
+            (SOME left, SOME right) =>
+              map_binding_metadata (K dummyT) left <>
+                map_binding_metadata (K dummyT) right orelse
+              (#sources entry <> #sources candidate andalso
+                not (eq_list (op aconv) (#terms entry, #terms candidate) andalso
+                  #parameters entry = #parameters candidate))
+          | _ => not (eq_list (op aconv) (#terms entry, #terms candidate) andalso
+              #parameters entry = #parameters candidate))) entries of
          NONE => candidate :: entries
        | SOME entry =>
            error ("urust_fn: conflicting generic schemes for one source" ^
@@ -2198,32 +2289,13 @@ struct
                declarations = declarations, target = target}: binding_impl_scheme) (#owner entry)
             val templates = map (fn slot => (#declaration slot, #witness slot))
               (parameters @ maps #parameters (the_list owner))
-        in {parameters = parameters, owner = owner, source_templates = templates}
+        in {parameters = parameters, owner = owner, source_templates = templates,
+          ambient_declarations = []}
           : binding_scheme_metadata end
   fun binding_scoped_parameters entry = #parameters (binding_metadata entry)
   fun binding_scoped_owner entry = #owner (binding_metadata entry)
+  fun binding_scheme_is_canonical (entry: binding_generic_scheme) = is_some (#bindings entry)
 
-  (* One deterministic traversal is the codec for all checked relation and witness types. It
-     transports the whole bundle through native generalization, morphisms and caller freshening. *)
-  fun map_binding_metadata transform ({owner, parameters, source_templates}: binding_scheme_metadata) =
-    let
-      fun relation ({inputs, result, channels}: callable_relation) =
-        let fun leaf (typ, source) = (transform typ, finish_meaning (map transform) source)
-        in {inputs = map leaf inputs, result = leaf result,
-          channels = {state = transform (#state channels), abort = transform (#abort channels),
-            input = transform (#input channels), output = transform (#output channels)}}: callable_relation end
-      fun slot ({rust, kind, declaration, hol_name, witness, sort, bounds, callable_origins,
-          callable_relation, source_used}: binding_scheme_parameter) =
-        {rust = rust, kind = kind, declaration = declaration, hol_name = hol_name,
-         witness = Option.map transform witness, sort = sort, bounds = bounds,
-         callable_origins = callable_origins, callable_relation = Option.map relation callable_relation,
-         source_used = source_used}: binding_scheme_parameter
-      val owner = Option.map (fn ({parameters, declarations, target}: binding_impl_scheme) =>
-        let val target = Micro_Rust_Names.map_target_types transform target
-        in {parameters = map slot parameters, declarations = declarations, target = target}
-          : binding_impl_scheme end) owner
-    in {owner = owner, parameters = map slot parameters,
-      source_templates = map (apsnd (Option.map transform)) source_templates}: binding_scheme_metadata end
   fun binding_metadata_types metadata =
     let val types = Unsynchronized.ref []
         fun collect typ = (types := typ :: !types; typ)
@@ -2239,7 +2311,7 @@ struct
 
   fun register_binding_scheme_full
       ({identity, backend, sources, owner, parameters, pos}: binding_scheme_registration)
-      source_templates lthy =
+      source_templates ambient_declarations lthy =
     if null parameters andalso is_none owner then lthy else
     let
       fun validate (slot: binding_scheme_parameter) =
@@ -2274,9 +2346,15 @@ struct
       val _ = if map fst source_templates = map #declaration slots andalso
           length (distinct (op =) (map fst source_templates)) = length slots then ()
         else error "urust: source templates have inconsistent declaration identities or order"
+      val _ = if length ambient_declarations = length (distinct (op =) ambient_declarations) andalso
+          forall (fn declaration => exists (fn slot: binding_scheme_parameter =>
+            #declaration slot = declaration andalso #kind slot = Type_Parameter andalso
+            is_some (Option.join (AList.lookup (op =) source_templates declaration))) slots)
+            ambient_declarations then ()
+        else error "urust: ambient templates do not belong to registered type declarations"
       val _ = List.app validate slots
       val metadata = {owner = owner, parameters = parameters,
-        source_templates = source_templates}: binding_scheme_metadata
+        source_templates = source_templates, ambient_declarations = ambient_declarations}: binding_scheme_metadata
       val types = binding_metadata_types metadata
       val terms = Variable.polymorphic lthy (backend :: identity :: map Logic.mk_type types)
       fun install phi =
@@ -2297,10 +2375,10 @@ struct
                 [#state channels, #1 result, #abort channels, #input channels, #output channels]))
               (#callable_relation slot))
     in register_binding_scheme_full registration
-      (map template (parameters @ maps #parameters (the_list owner))) lthy end
-  fun register_binding_generic_source_scheme_with_templates
+      (map template (parameters @ maps #parameters (the_list owner))) [] lthy end
+  fun register_binding_generic_source_scheme_with_ambient_templates
       (registration as {parameters, owner, ...}: binding_scheme_registration)
-      {owner = owner_templates, parameters = local_templates} lthy =
+      {owner = owner_templates, parameters = local_templates, ambient} lthy =
     let
       val inherited = maps #parameters (the_list owner)
       val _ = if map fst owner_templates = map #declaration inherited andalso
@@ -2309,7 +2387,10 @@ struct
             #declarations data = map #declaration inherited) then ()
         else error "urust: explicit source templates do not belong to the registered owner/local declarations"
     in register_binding_scheme_full registration
-      (map (apsnd SOME) (local_templates @ owner_templates)) lthy end
+      (map (apsnd SOME) (local_templates @ owner_templates)) ambient lthy end
+  fun register_binding_generic_source_scheme_with_templates registration {owner, parameters} =
+    register_binding_generic_source_scheme_with_ambient_templates registration
+      {owner = owner, parameters = parameters, ambient = []}
 
   fun consistent_binding_schemes [] = NONE
     | consistent_binding_schemes (entry :: entries: function_scheme list) =
@@ -2567,16 +2648,48 @@ struct
   (* One inference environment and one lazy role table belong to a complete
      signature or field batch. Canonical registry slots are never reused as
      flexible variables by two independent resolutions. *)
+  structure Declaration_Parameter_Names = Proof_Data
+  (
+    type T = string list
+    fun init _ = []
+  )
+
   fun inference_state kind ctxt initial_types =
     let
       val instance_name = "_urust_inference_" ^ string_of_int (serial ())
+      fun binding_types binding =
+        the_list (binding_template binding) @
+          (case binding_callable_relation binding of NONE => []
+           | SOME {inputs, result, channels} =>
+               map #1 inputs @ [#1 result, #state channels, #abort channels,
+                 #input channels, #output channels])
+      val model_types = map_filter (fn role =>
+        Option.map #typ (Models.lookup ctxt role))
+        (Models.order (Address :: Global :: map fst (model_parameter_requirements ctxt)))
+      val imported_types = initial_types @ model_types @
+        maps binding_types (installed_bindings ctxt) @
+        map #self_type (the_list (impl_self ctxt))
+      val initial_maxidx =
+        fold Term.maxidx_typ imported_types (Variable.maxidx_of ctxt)
+      (* Already checked imports use the existing parameter codec before intermediate
+         callable validation. Source-variable policy has been checked before this frame. *)
+      val imported_variables = fold Term.add_tvarsT imported_types []
+      val imported_environment = Vartab.build (fold
+        (fn (variable as (name, index), sort) =>
+          if Type_Infer.is_param variable then I
+          else Vartab.update_new
+            (variable, (sort, Type_Infer.param index (name, sort))))
+        imported_variables)
       val unification: (Type.tyenv * int) Unsynchronized.ref =
         Unsynchronized.ref
-          (Vartab.empty,
-           fold Term.maxidx_typ initial_types (Variable.maxidx_of ctxt))
+          (imported_environment, initial_maxidx)
       val backend_slots: (backend_role * typ) list Unsynchronized.ref =
         Unsynchronized.ref
           (case impl_self ctxt of NONE => [] | SOME self => impl_backend_parameters ctxt self)
+      (* An alias is a transparent source scheme. Capture its declared role variables, then
+         instantiate them with the caller's context at use, just like its nominal target. *)
+      fun model_binding role =
+        if kind = Alias_Declaration then NONE else Models.lookup ctxt role
 
       fun fresh sort =
         let
@@ -2588,6 +2701,34 @@ struct
       fun normalize typ =
         Envir.norm_type (#1 (!unification)) typ
 
+      (* Sort unification can replace our named inference parameters with ordinary
+         native TVars. Keep those newly allocated variables in this frame's namespace;
+         imported caller variables keep their established parameterization, and
+         authored/fixed types remain unchanged. *)
+      fun parameterize (typ as TVar ((name, index), sort)) =
+            if Type_Infer.is_param (name, index) then typ
+            else Type_Infer.param index
+              (if index > initial_maxidx then instance_name else name, sort)
+        | parameterize typ = typ
+
+      (* Preserve that namespace as soon as native sort unification creates a variable,
+         including during intermediate callable validation. Aliases retain the native
+         environment's keys and constraints; no authored schematic type is admitted. *)
+      fun retain_native_variables (environment, maxidx) =
+        let
+          val variables = fold (fn (_, (_, typ)) => Term.add_tvarsT typ)
+            (Vartab.dest environment) []
+          val generated = filter (fn (variable as (name, index), _) =>
+            name = Name.aT andalso index > initial_maxidx andalso
+              not (Vartab.defined environment variable)) variables
+          val environment = fold (fn (variable, sort) =>
+            Vartab.update_new (variable, (sort, parameterize (TVar (variable, sort)))))
+            generated environment
+        in (environment, maxidx) end
+
+      fun commit_environment proposed =
+        unification := retain_native_variables proposed
+
       fun check_sort base argument sort pos =
         let
           val constraint = fresh sort
@@ -2596,14 +2737,35 @@ struct
               (argument, constraint) (!unification)
             handle Type.TUNIFY =>
               sort_error kind ctxt base (normalize argument) sort pos
-        in unification := environment end
+        in commit_environment environment end
 
       fun unify pairs =
         let val proposed = fold (fn pair => fn environment =>
           Sign.typ_unify (Proof_Context.theory_of ctxt) pair environment) pairs (!unification)
-        in unification := proposed end
+        in commit_environment proposed end
       fun native () = !unification
-      fun accept_native proposed = unification := proposed
+      val accept_native = commit_environment
+
+      fun import_binding pos (typ as Type (name, types)) =
+            if typ = dummyT then fresh [] else Type (name, map (import_binding pos) types)
+        | import_binding _ (TFree ("'_dummy_", sort)) = fresh sort
+        | import_binding pos (typ as TFree (name, _)) =
+            if (exists (fn parameter => fst (#hol parameter) = name) (scope_parameters ctxt)
+                orelse member (op =) (Declaration_Parameter_Names.get ctxt) name)
+                andalso not (Models.ambient_name ctxt name) then
+              Models.error_at ("model parameter HOL variable " ^ quote name ^
+                " collides with a Rust generic; use an explicit ambient_type_parameters binding") pos
+            else typ
+        | import_binding _ typ = typ
+
+      (* A checked Self role is already rigid. Defaults may agree with it, but cannot replace it. *)
+      val _ = List.app (fn (role, slot) =>
+        case model_binding role of NONE => ()
+        | SOME {typ, pos} => if typ = dummyT then () else
+            (unify [(slot, import_binding pos typ)]
+              handle Type.TUNIFY => Models.error_at
+                ("model parameter " ^ quote (role_name role) ^ " conflicts with checked Self") pos))
+        (!backend_slots)
 
       fun backend role_sorts pos =
         let
@@ -2612,22 +2774,35 @@ struct
                SOME slot => slot
              | NONE =>
                  let
-                   val slot = fresh []
+                    val slot = (case model_binding role of
+                      SOME {typ, pos} =>
+                        let
+                          val _ = if kind <> Datatype_Fields orelse typ = dummyT orelse
+                              (case typ of TFree _ => true | _ =>
+                                null (Term.add_tfreesT typ []) andalso
+                                not (Term.exists_subtype (fn T => T = dummyT) typ)) then ()
+                            else Models.error_at
+                              "structured free/hole model bindings are not supported in datatype fields" pos
+                        in if typ = dummyT then fresh [] else import_binding pos typ end
+                    | NONE => fresh [])
                    val _ = backend_slots := (role, slot) :: !backend_slots
                  in slot end)
           (* Allocate the whole request before adding constraints, retaining the established
              pair's fresh-variable order while allowing a later request to add one role. *)
           val slots = map allocated role_sorts
           val _ = List.app (fn (slot, (role, sort)) =>
-            check_sort ("implicit " ^ role_name role ^ " backend") slot sort pos)
+            check_sort ("implicit " ^ role_name role ^ " backend") slot sort
+              (case model_binding role of SOME {pos, ...} => pos | NONE => pos))
             (slots ~~ role_sorts)
         in map normalize slots end
     in
       {fresh = fresh, normalize = normalize, check_sort = check_sort,
        backend = backend, unify = unify, native = native, accept_native = accept_native,
+       parameterize = parameterize,
        backend_slots = fn () =>
          map_filter (fn role =>
-           Option.map (pair role) (AList.lookup (op =) (!backend_slots) role)) backend_roles}
+            Option.map (pair role) (AList.lookup (op =) (!backend_slots) role))
+            (role_order (map fst (!backend_slots)))}
     end
 
   fun resolve_value_operations kind ctxt read_escape check_sort normalize backend
@@ -2878,7 +3053,7 @@ struct
                      ((("_urust_type", index), sort), argument)) retained @
                  map
                    (fn (role, (sort, argument)) =>
-                     ((("_urust_backend", role_index role), sort), argument))
+                     ((Models.canonical role, sort), argument))
                    (roles ~~ (backend_sorts ~~ backend_types))
                val result =
                  Term_Subst.instantiateT
@@ -3065,18 +3240,24 @@ struct
 
   fun finish_backend ctxt normalize slots types =
     let
+      val roles = role_order (map fst slots)
+      val all_roles = role_order ([Address, Global] @ roles)
       val names =
         Name.variants (Variable.names_of ctxt)
-          ["'urust_address", "'urust_global"]
+          (map (fn Address => "'urust_address" | Global => "'urust_global"
+            | Model family => "'urust_model_" ^ family) all_roles)
       fun parameter (typ as TVar (_, sort)) =
             (typ, sort)
         | parameter (typ as TFree (_, sort)) = (typ, sort)
         | parameter _ =
             raise Fail
               "uRust type registry: backend parameter became a concrete type"
-      val normalized = map (apsnd (parameter o normalize)) slots
+      val normalized = map (apsnd normalize) slots
+        |> filter (fn (_, TVar _) => true | (_, TFree _) => true | _ => false)
+        |> map (apsnd parameter)
       val parameters = map (fn (role, (TFree parameter, _)) => (role, parameter)
-        | (role, (_, sort)) => (role, (nth names (role_index role), sort))) normalized
+        | (role, (_, sort)) => (role,
+            (the (AList.lookup (op =) (all_roles ~~ names) role), sort))) normalized
       val substitutions =
         map2 (fn (_, (typ, _)) => fn (_, parameter) => (typ, TFree parameter))
           normalized parameters
@@ -3090,9 +3271,43 @@ struct
       {types = result, backend_parameters = parameters}
     end
 
+  (* An impl target needs names for every role-owned hole, including holes nested inside an
+     explicitly selected representation. Its source/escape holes remain untouched and rigid
+     context types retain their identity. Datatype schemes use the atomic-role codec above. *)
+  fun finish_impl_backend ctxt normalize slots types =
+    let
+      val normalized = map (apsnd normalize) slots
+      val nested = exists (fn (_, Type (_, children)) =>
+            not (null (fold Term.add_tvarsT children [])) | _ => false) normalized
+    in
+      if not nested then #types (finish_backend ctxt normalize slots types)
+      else
+        let
+          val roles = role_order ([Address, Global] @ map fst normalized)
+          val names = Name.variants (Variable.names_of ctxt)
+            (map (fn Address => "'urust_address" | Global => "'urust_global"
+              | Model family => "'urust_model_" ^ family) roles)
+          val reserved = fold Name.declare names (Variable.names_of ctxt)
+          fun role (role, typ) (substitutions, used) =
+            let
+              val primary = the (AList.lookup (op =) (roles ~~ names) role)
+              fun variable (index, variable as (_, sort)) (substitutions, used) =
+                if exists (fn (T, _) => T = TVar variable) substitutions
+                then (substitutions, used)
+                else
+                  let val (name, used) = if index = 0 then (primary, used)
+                        else Name.variant (primary ^ string_of_int index) used
+                  in ((TVar variable, TFree (name, sort)) :: substitutions, used) end
+            in fold variable (map_index I (rev (Term.add_tvarsT typ [])))
+              (substitutions, used) end
+          val (substitutions, _) = fold role normalized ([], reserved)
+        in map (normalize #> Term.typ_subst_atomic substitutions #>
+          Proof_Context.cert_typ ctxt) types end
+    end
+
   (* Datatypes and functions share the positioned override reader and name checks. Sort
      inference remains with each declaration's existing resolution environment. *)
-  fun read_parameter_names ctxt parameters overrides =
+  fun read_parameter_names_with checked ctxt parameters overrides =
     let
       fun descriptor (Generic_Parameter (name, pos, kind)) = (name, pos, kind)
       val descriptors = map descriptor parameters
@@ -3112,7 +3327,7 @@ struct
           val minimum = case kind of Type_Parameter => \<^sort>\<open>type\<close>
             | Const_Parameter => \<^sort>\<open>len0\<close>
           val explicit = AList.lookup (op =) (map (apfst fst) overrides) name
-          val declared = case explicit of NONE => NONE | SOME (raw, override_pos) =>
+          val declared = case explicit of NONE => checked name | SOME (raw, override_pos) =>
             SOME (Syntax.read_typ ctxt raw handle ERROR message => mapping_error message override_pos)
           val (hol_name, sort) = case declared of NONE =>
               ("'" ^ String.map Char.toLower name, minimum)
@@ -3125,8 +3340,21 @@ struct
           (#pos (hd names))
     in names end
 
+  fun read_parameter_names ctxt parameters overrides =
+    read_parameter_names_with (K NONE) ctxt parameters overrides
+
   fun parameter_names ctxt parameters overrides =
     map #hol (read_parameter_names ctxt parameters overrides)
+
+  fun ambient_parameter_names ctxt parameters overrides =
+    let
+      val _ = List.app (fn ((rust, pos), _) =>
+        if is_some (Models.ambient ctxt rust) then
+          Models.error_at ("ambient and HOL-name overrides both bind " ^ quote rust) pos else ()) overrides
+      (* Ambient connections already contain checked rigid types. Keep their identity directly;
+         pretty-printed types contain markup and are neither source nor an inference seam. *)
+      fun checked rust = Option.map #typ (Models.ambient ctxt rust)
+    in map #hol (read_parameter_names_with checked ctxt parameters overrides) end
 
   fun resolve_declaration_roles ctxt parameters overrides rust_types =
     let
@@ -3135,7 +3363,7 @@ struct
       val names = map (fn {hol = (name, _), declared, pos} => (name, declared, pos))
         (read_parameter_names ctxt parameters overrides)
       val {fresh, normalize, check_sort, backend, backend_slots, ...} =
-        inference_state Datatype_Fields ctxt []
+        inference_state Datatype_Fields (Declaration_Parameter_Names.put (map #1 names) ctxt) []
       fun parameter_type ((name, pos, kind), (_, declared, _)) =
         let
           val minimum = case kind of Type_Parameter => \<^sort>\<open>type\<close>
@@ -3685,10 +3913,21 @@ struct
       val prepared = #2 (Proof_Context.prepare_sortsT ctxt
         (map (TFree o #hol o binding_parameter) ordinary @ raw))
       val (seeds, parsed) = chop (length ordinary) prepared
-      val {fresh, normalize, check_sort, backend, backend_slots, unify, native, accept_native} =
+      (* Check the authored schematic-variable policy before internal sort inference
+         can replace a source variable. Use the native context policy on variable
+         leaves; ordinary source holes and callable aliases still follow their
+         established preparation phases. *)
+      val _ = List.app (fn (read: signature_read, typ) =>
+        ignore (positioned_result kind (#cited read) (fn () =>
+          Proof_Context.standard_typ_check ctxt (map TVar (Term.add_tvarsT typ [])))))
+        (reads ~~ parsed)
+      val {fresh, normalize, check_sort, backend, backend_slots, unify, native, accept_native,
+        parameterize} =
         inference_state kind ctxt prepared
       val named = Unsynchronized.ref (Symtab.make (map2 (fn binding => fn typ =>
-        (binding_name binding, fresh (Type.sort_of_atyp typ))) ordinary seeds))
+        (binding_name binding,
+          if Models.ambient_name ctxt (binding_name binding) then typ
+          else fresh (Type.sort_of_atyp typ))) ordinary seeds))
       val templates = Unsynchronized.ref ([]: (serial * (typ * callable_relation)) list)
       val visiting = Unsynchronized.ref ([]: serial list)
       val channel_types = Unsynchronized.ref (NONE: computation_channels option)
@@ -3858,12 +4097,9 @@ struct
         in if kind = Impl_Target then
           let val named_context = fold (fn (name, slot) => Variable.declare_typ
                 (TFree (name, Type.sort_of_atyp slot))) (Symtab.dest (!named)) ctxt
-          in #types (finish_backend named_context normalize (backend_slots ()) types) end
+          in finish_impl_backend named_context normalize (backend_slots ()) types end
           else
-          let fun inference_parameter (typ as TVar ((name, index), sort)) =
-                if Type_Infer.is_param (name, index) then typ else Type_Infer.param index (name, sort)
-                | inference_parameter typ = typ
-          in map (Term.map_atyps inference_parameter #> Proof_Context.cert_typ ctxt) types end end
+          map (Term.map_atyps parameterize #> Proof_Context.cert_typ ctxt) types end
       fun finish_relation ({inputs, result, channels}: callable_relation) =
         let fun leaf (typ, source) = (the_single (restore [typ]), finish_meaning restore source)
             val [state, abort, input, output] = restore
@@ -3960,12 +4196,13 @@ struct
 
       (* Keep sort inference shared across the whole signature. Only fresh
          signature variables are flexible; ambient variables remain rigid. *)
-      val {fresh, normalize, check_sort, backend, backend_slots, ...} =
+      val {fresh, normalize, check_sort, backend, backend_slots, parameterize, ...} =
         inference_state kind ctxt checked_all
       val named_parameters: typ Symtab.table Unsynchronized.ref =
         Unsynchronized.ref (Symtab.make (map2
           (fn {hol = (name, _), ...}: generic_parameter => fn typ =>
-            (name, fresh (Type.sort_of_atyp typ))) parameters parameter_types))
+            (name, if Models.ambient_name ctxt name then typ
+              else fresh (Type.sort_of_atyp typ))) parameters parameter_types))
 
       fun import_typ (typ as Type (name, types)) =
             if typ = dummyT then fresh []
@@ -4007,15 +4244,11 @@ struct
              A name specialized to a concrete type needs no restoration. *)
           val names =
             TVars.make (map_filter named (Symtab.dest (!named_parameters)))
-          fun inference_parameter (typ as TVar ((name, index), sort)) =
-                if Type_Infer.is_param (name, index) then typ
-                else Type_Infer.param index (name, sort)
-            | inference_parameter typ = typ
         in
           map
             (normalize #>
               Term_Subst.instantiateT names #>
-              Term.map_atyps inference_parameter #>
+              Term.map_atyps parameterize #>
               Proof_Context.cert_typ ctxt)
             types
         end
@@ -4030,7 +4263,11 @@ struct
               val named_context = fold (fn (name, slot) =>
                 Variable.declare_typ (TFree (name, Type.sort_of_atyp slot)))
                 (Symtab.dest (!named_parameters)) ctxt
-            in #types (finish_backend named_context normalize (backend_slots ()) finished) end
+              (* Authored restoration also turns native unification variables into inference
+                 parameters. Apply that same codec to role slots before matching their holes. *)
+              val finished_slots = map
+                (apsnd (the_single o finish_authored o single)) (backend_slots ())
+            in finish_impl_backend named_context normalize finished_slots finished end
           else finished
         end
 
@@ -4582,6 +4819,7 @@ struct
               (map #1 inputs @ [#1 result, #state channels, #abort channels, #input channels, #output channels])) relations
           fun required (slot: binding_scheme_parameter) =
             is_some (#witness slot) orelse not (null (#callable_origins slot)) orelse
+            member (op =) (#ambient_declarations original) (#declaration slot) orelse
             member (op =) relation_declarations (#declaration slot) orelse
             (case Option.join (AList.lookup (op =) (#source_templates original) (#declaration slot)) of
                NONE => false
@@ -4889,7 +5127,7 @@ struct
           normalized_parameters @
         map
           (fn (role, (parameter, sort)) =>
-            (parameter, canonical_backend_parameter (role_index role) sort))
+            (parameter, canonical_backend_parameter role sort))
           normalized_backend
       val template =
         normalize (#typ result)
@@ -4898,7 +5136,7 @@ struct
       val expected_variables =
         map_index (fn (index, sort) => canonical_parameter index sort)
           parameter_sorts @
-        map (fn (role, sort) => canonical_backend_parameter (role_index role) sort)
+        map (fn (role, sort) => canonical_backend_parameter role sort)
           role_sorts
       val _ =
         if null (Term.add_tfreesT template []) andalso
@@ -4971,7 +5209,7 @@ struct
   fun unknown_mapping_option (name, pos) =
     mapping_error ("unknown option " ^ quote name) pos
 
-  val mapping_option_configs = Symtab.make [("implicit", ()), ("erase", ())]
+  val mapping_option_configs = Symtab.make [("implicit", ()), ("erase", ()), ("model", ())]
 
   fun add_mapping_option ((name, pos), value) options =
     if Symtab.defined options name then mapping_error ("duplicate option " ^ quote name) pos
@@ -4988,8 +5226,10 @@ struct
   fun declare_manual (options, payload) lthy =
     let
       val (result, reports) = URust_Report_Transaction.capture (fn () =>
-        let val roles = case Symtab.lookup options "implicit" of
-          NONE => [] | SOME source => read_implicit_roles lthy source
+        let val roles = (case Symtab.lookup options "implicit" of
+          NONE => [] | SOME source => read_implicit_roles lthy source) @
+          (case Symtab.lookup options "model" of
+            NONE => [] | SOME source => read_model_roles lthy source)
             val erased = case Symtab.lookup options "erase" of
               NONE => [] | SOME source => read_erased_parameters lthy source
         in declare_mapping Manual roles erased payload lthy end)

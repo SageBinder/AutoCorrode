@@ -4260,4 +4260,42 @@ local
 in end
 \<close>
 
+
+section\<open> Scoped Self conflicts and option positions \<close>
+
+ML_val\<open>
+local
+  open Impl_Syntax_Test
+  val thy = \<^theory>
+  fun representation key typ = "[\"" ^ key ^ "\" \<rightarrow> " ^ cartouche typ ^ "]"
+  val block = "impl ScopedOwner {\n" ^
+    "  fn earlier(self: Self) -> bool { false }\n" ^
+    "  \<omega>" ^ cartouche ("model_parameters = " ^ representation "address" "int") ^ "\n" ^
+    "  fn conflict(self: Self, pointer: *const u8) -> bool { false }\n}"
+  val annotation = "\<omega>" ^ cartouche ("model_parameters = [\"address\" \<rightarrow> " ^ cartouche "nat" ^
+    ", \"global\" \<rightarrow> " ^ cartouche "unit" ^
+    ", \"epoch\" \<rightarrow> " ^ cartouche "bool" ^ "]")
+  val command = "urust " ^ command_source (annotation ^ "\n" ^ block)
+  val _ = ignore (expect_failure "scoped Self conflict" ["conflicts with checked Self"]
+    (fn () => run_commands false "scoped-self-conflict" thy command))
+  fun unrelated_hole hole =
+    "urust_type [implicit = " ^ cartouche "address = 'a" ^
+      "] \"ScopedUnrelatedHoleOwner<'value>\" = " ^ cartouche "'a option * 'value" ^ "\n" ^
+    "urust " ^ command_source
+      ("\<omega>" ^ cartouche ("model_parameters = " ^ representation "address" "_ option") ^
+       "\nimpl ScopedUnrelatedHoleOwner<\<tau>" ^ cartouche hole ^
+       "> { fn ignored(self: Self) -> bool { false } }")
+  val _ = List.app (fn hole =>
+    ignore (expect_failure "unrelated scoped impl hole"
+      ["an impl target must not contain inference holes"]
+      (fn () => run_commands false "scoped-unrelated-hole" thy (unrelated_hole hole))))
+    ["_", "_ option"]
+  val recovered = run_commands false "scoped-self-recovery" thy
+    ("urust_fn _ " ^ cartouche "fn ScopedRecovery(value: bool) -> bool { value }")
+  val _ = require "failed scoped impl changed the original theory"
+    (is_none (Parser_Test_Calls.lookup (Toplevel.context_of recovered) "ScopedOwner::earlier") andalso
+     is_none (URust_Type_Mappings.lookup (Toplevel.context_of recovered) "ScopedUnrelatedHoleOwner"))
+in val _ = writeln "scoped Self conflict and subsequent recovery PASS" end
+\<close>
+
 end

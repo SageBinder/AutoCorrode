@@ -10,6 +10,7 @@ session Micro_Rust_Parser_Impl = HOL +
     Parser_Utils
     Parser_Impl_AST
     Parser_Impl_Import_Scope
+    Parser_Impl_Model_Parameters
     Parser_Impl_Type_Mappings
     Parser_Impl_Type_Mappings_Builtins
     Parser_Impl_Trait_Mappings

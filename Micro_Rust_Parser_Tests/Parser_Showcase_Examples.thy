@@ -1707,4 +1707,26 @@ lemma showcase_callable_method_twin:
   \<open> showcase_callable_method = showcase_callable_call_twin \<close>
   unfolding showcase_callable_method_def showcase_callable_call_twin_def by (rule refl)
 
+
+subsection\<open> Explicit scoped representation choices \<close>
+
+urust_type [model = \<open>epoch = 'epoch\<close>]
+  "ShowcaseModel" = \<open>'epoch option\<close>
+context notes [[urust_model_parameters = \<open>
+  ["address" \<rightarrow> \<open>nat\<close>, "global" \<rightarrow> \<open>unit\<close>,
+   "epoch" \<rightarrow> \<open>bool\<close>]
+\<close>]]
+begin
+urust_fn showcase_model_parameters \<open>
+  fn ShowcaseModelParameters(value: ShowcaseModel, pointer: &mut u32) -> ShowcaseModel { value }
+\<close>
+urust_fn showcase_model_parameters_escape \<open>
+  fn ShowcaseModelParametersEscape(value: \<tau>\<open>bool option\<close>,
+    pointer: \<tau>\<open>(nat, unit, 32 word) ref\<close>) -> \<tau>\<open>bool option\<close> { value }
+\<close>
+lemma showcase_model_parameters_twin:
+  \<open> showcase_model_parameters = showcase_model_parameters_escape \<close>
+  unfolding showcase_model_parameters_def showcase_model_parameters_escape_def by (rule refl)
+end
+
 end

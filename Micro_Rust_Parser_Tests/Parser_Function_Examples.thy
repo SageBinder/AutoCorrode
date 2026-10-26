@@ -2255,4 +2255,179 @@ urust_fn [pp_test, verbosity = 0] callable_mutable_input \<open>
 
 end
 
+section\<open> Explicit representation parameters \<close>
+
+urust_type [model = \<open>stamp = 'stamp\<close>]
+  "ScopedParameterHolder" = \<open>'stamp option\<close>
+urust_type_alias \<open> type ScopedParameterAlias = ScopedParameterHolder; \<close>
+
+context notes [[urust_model_parameters = \<open>
+  ["address" \<rightarrow> \<open>nat\<close>, "global" \<rightarrow> \<open>unit\<close>,
+   "stamp" \<rightarrow> \<open>bool\<close>]
+\<close>]]
+begin
+
+urust_type_alias \<open> type ScopedParameterInnerAlias = ScopedParameterHolder; \<close>
+
+urust_fn scoped_parameter_ignored \<open>
+  fn ScopedParameterIgnored(pointer: &mut u32) -> u32 { 0 }
+\<close>
+urust_fn scoped_parameter_ignored_escape \<open>
+  fn ScopedParameterIgnoredEscape(pointer: \<tau>\<open>(nat, unit, 32 word) ref\<close>) -> u32 { 0 }
+\<close>
+
+lemma scoped_parameter_ignored_twin:
+  \<open> scoped_parameter_ignored = scoped_parameter_ignored_escape \<close>
+  unfolding scoped_parameter_ignored_def scoped_parameter_ignored_escape_def by (rule refl)
+
+urust_fn scoped_parameter_alias \<open>
+  fn ScopedParameterAliasUse(first: ScopedParameterHolder, second: ScopedParameterAlias,
+    third: ScopedParameterInnerAlias) -> bool
+  { false }
+\<close>
+urust_fn scoped_parameter_alias_escape \<open>
+  fn ScopedParameterAliasEscape(first: \<tau>\<open>bool option\<close>,
+    second: \<tau>\<open>bool option\<close>, third: \<tau>\<open>bool option\<close>) -> bool { false }
+\<close>
+
+lemma scoped_parameter_alias_twin:
+  \<open> scoped_parameter_alias = scoped_parameter_alias_escape \<close>
+  unfolding scoped_parameter_alias_def scoped_parameter_alias_escape_def by (rule refl)
+
+urust_fn [model_parameters = ["address" \<rightarrow> \<open>int\<close>]]
+  scoped_parameter_override \<open>
+  fn ScopedParameterOverride(pointer: *const u32) -> u32 { 0 }
+\<close>
+urust_fn scoped_parameter_override_escape \<open>
+  fn ScopedParameterOverrideEscape(pointer: \<tau>\<open>(int, unit, 32 word) ref\<close>) -> u32 { 0 }
+\<close>
+
+lemma scoped_parameter_override_twin:
+  \<open> scoped_parameter_override = scoped_parameter_override_escape \<close>
+  unfolding scoped_parameter_override_def scoped_parameter_override_escape_def by (rule refl)
+
+urust_fn [model_parameters = ["address" \<rightarrow> \<open>_\<close>]]
+  scoped_parameter_removed \<open>
+  fn ScopedParameterRemoved(pointer: &mut u32) -> u32 { 0 }
+\<close>
+urust_fn scoped_parameter_removed_escape \<open>
+  fn ScopedParameterRemovedEscape(pointer: \<tau>\<open>('address, unit, 32 word) ref\<close>) ->
+    u32 { 0 }
+\<close>
+lemma scoped_parameter_removed_twin:
+  \<open> scoped_parameter_removed = scoped_parameter_removed_escape \<close>
+  unfolding scoped_parameter_removed_def scoped_parameter_removed_escape_def by (rule refl)
+
+end
+
+urust_fn scoped_parameter_outside \<open>
+  fn ScopedParameterOutside(pointer: &mut u32) -> u32 { 0 }
+\<close>
+urust_fn scoped_parameter_outside_escape \<open>
+  fn ScopedParameterOutsideEscape(pointer: \<tau>\<open>('address, 'global, 32 word) ref\<close>) ->
+    u32 { 0 }
+\<close>
+lemma scoped_parameter_outside_twin:
+  \<open> scoped_parameter_outside = scoped_parameter_outside_escape \<close>
+  unfolding scoped_parameter_outside_def scoped_parameter_outside_escape_def by (rule refl)
+
+urust_fn scoped_parameter_fresh_model \<open>
+  fn ScopedParameterFreshModel(first: ScopedParameterHolder,
+    second: ScopedParameterAlias) -> bool { false }
+\<close>
+urust_fn scoped_parameter_fresh_model_escape \<open>
+  fn ScopedParameterFreshModelEscape(first: \<tau>\<open>'stamp option\<close>,
+    second: \<tau>\<open>'stamp option\<close>) -> bool { false }
+\<close>
+lemma scoped_parameter_fresh_model_twin:
+  \<open> scoped_parameter_fresh_model = scoped_parameter_fresh_model_escape \<close>
+  unfolding scoped_parameter_fresh_model_def scoped_parameter_fresh_model_escape_def by (rule refl)
+
+context notes [[urust_model_parameters = \<open> ["stamp" \<rightarrow> \<open>nat\<close>] \<close>]]
+begin
+urust_fn scoped_parameter_inner_alias_reused \<open>
+  fn ScopedParameterInnerAliasReused(value: ScopedParameterInnerAlias) -> bool { false }
+\<close>
+urust_fn scoped_parameter_inner_alias_reused_escape \<open>
+  fn ScopedParameterInnerAliasReusedEscape(value: \<tau>\<open>nat option\<close>) -> bool { false }
+\<close>
+lemma scoped_parameter_inner_alias_reused_twin:
+  \<open> scoped_parameter_inner_alias_reused = scoped_parameter_inner_alias_reused_escape \<close>
+  unfolding scoped_parameter_inner_alias_reused_def scoped_parameter_inner_alias_reused_escape_def
+  by (rule refl)
+end
+
+
+locale scoped_default_locale =
+  fixes scoped_address_anchor :: \<open>'address itself\<close>
+    and scoped_global_anchor :: \<open>'global itself\<close>
+    and scoped_stamp_anchor :: \<open>'stamp itself\<close>
+begin
+
+declare [[urust_model_parameters = \<open>
+  ["address" \<rightarrow> \<open>'address\<close>, "global" \<rightarrow> \<open>'global\<close>,
+   "stamp" \<rightarrow> \<open>'stamp\<close>]
+\<close>]]
+
+urust_fn scoped_default_replay \<open>
+  fn ScopedDefaultReplay(pointer: &mut u32, model: ScopedParameterHolder) -> u32 { 0 }
+\<close>
+urust_fn scoped_default_replay_escape \<open>
+  fn ScopedDefaultReplayEscape(pointer: \<tau>\<open>('address, 'global, 32 word) ref\<close>,
+    model: \<tau>\<open>'stamp option\<close>) -> u32 { 0 }
+\<close>
+lemma scoped_default_replay_twin:
+  \<open> scoped_default_replay = scoped_default_replay_escape \<close>
+  unfolding scoped_default_replay_def scoped_default_replay_escape_def by (rule refl)
+end
+
+context
+begin
+
+interpretation scoped_default_first: scoped_default_locale
+  \<open>TYPE(nat)\<close> \<open>TYPE(unit)\<close> \<open>TYPE(bool)\<close> .
+
+ML_val\<open>
+  List.app (fn (role, expected) =>
+    if Option.map #typ (URust_Model_Parameters.lookup \<^context> role) = SOME expected then ()
+    else error "first interpretation did not transport the scoped model default")
+    [(URust_Model_Parameters.Address, \<^typ>\<open>nat\<close>),
+     (URust_Model_Parameters.Global, \<^typ>\<open>unit\<close>),
+     (URust_Model_Parameters.Model "stamp", \<^typ>\<open>bool\<close>)]
+\<close>
+
+interpretation scoped_default_second: scoped_default_locale
+  \<open>TYPE(bool)\<close> \<open>TYPE(nat)\<close> \<open>TYPE(int)\<close> .
+
+ML_val\<open>
+  List.app (fn (role, expected) =>
+    if Option.map #typ (URust_Model_Parameters.lookup \<^context> role) = SOME expected then ()
+    else error "second interpretation did not transport the scoped model default")
+    [(URust_Model_Parameters.Address, \<^typ>\<open>bool\<close>),
+     (URust_Model_Parameters.Global, \<^typ>\<open>nat\<close>),
+     (URust_Model_Parameters.Model "stamp", \<^typ>\<open>int\<close>)]
+\<close>
+
+ML_val\<open>
+local
+  val ctxt = \<^context>
+  fun canonical typ = Term_Subst.instantiateT (TVars.make
+    (rev (Term.add_tvarsT typ []) |> map_index
+      (fn (index, variable as (_, sort)) => (variable, TVar (("replay", index), sort))))) typ
+  fun instances rust = Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NFunction rust
+    |> map (canonical o fastype_of o #hol_term)
+  val native = instances "ScopedDefaultReplay"
+  val escaped = instances "ScopedDefaultReplayEscape"
+  val expected =
+    [[\<^typ>\<open>(nat, unit, 32 word) ref\<close>, \<^typ>\<open>bool option\<close>],
+     [\<^typ>\<open>(bool, nat, 32 word) ref\<close>, \<^typ>\<open>int option\<close>]]
+in
+  val _ = if length native = 2 andalso eq_set (op =) (map binder_types native, expected) andalso
+      eq_set (op =) (native, escaped) then ()
+    else error "scoped attribute locale replay widened a complete interpreted type or lost a binding"
+end
+\<close>
+
+end
+
 end
