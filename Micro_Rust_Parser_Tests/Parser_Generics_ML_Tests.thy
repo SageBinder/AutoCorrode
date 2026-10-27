@@ -6195,7 +6195,7 @@ local
     (template = (map #1 (#inputs relation) ---> Type (\<^type_name>\<open>function_body\<close>,
       [state, #1 (#result relation), abort, input, output])))
   val _ = require "callable produced a fictitious independent F type variable"
-    (not (member (op =) (map fst (Term.add_tfreesT template [])) "'f"))
+    (not (Library.member (op =) (map fst (Term.add_tfreesT template [])) "'f"))
   val _ = require "legacy generic getter lied about a structured scope"
     (is_none (Types.generic_scope owned))
   val final_events = Types.binding_event_declarations (Types.binding_signature_events scope)
@@ -6296,6 +6296,8 @@ local
      ("mutual-cycle", "recursive callable dependency", "fn CallableMutual<F: Fn(G) -> bool, G: Fn(F) -> bool>(callback: F) -> bool { false }"),
      ("body-only", "does not occur in the signature", "fn CallableBodyOnly<F: Fn(bool) -> bool>() { let value = " ^ "\<llangle>undefined :: 'f\<rrangle>" ^ "; () }"),
      ("recipe-only-ordinary", "does not occur in the signature", "fn CallableRecipeOnly<T, F: Fn(T) -> T>(callback: F) { let value = " ^ "\<llangle>undefined :: 't\<rrangle>" ^ "; () }"),
+     ("body-only-turbofish", "does not occur in the signature", "fn CallableBodyOnlyTurbofish<F: Fn(bool) -> bool>() { let value = SignatureIdentity::<F>(" ^ "\<epsilon>" ^ cartouche "undefined" ^ "); () }"),
+     ("recipe-only-ordinary-turbofish", "does not occur in the signature", "fn CallableRecipeOnlyTurbofish<T, F: Fn(T) -> T>(callback: F) { let value = SignatureIdentity::<T>(" ^ "\<epsilon>" ^ cartouche "undefined" ^ "); () }"),
      ("whole-sort", "does not satisfy", "fn CallableSort<F: Fn(bool) -> bool>(callback: " ^ "\<tau>" ^ cartouche "'f::len0" ^ ") -> bool { callback(false) }"),
      ("shared-reference-limit", "shared", "fn CallableShared<F: Fn(&bool) -> bool>(callback: F) -> bool { false }"),
      ("custom-suffix", "unregistered callable trait", "fn CallableCustom<F: custom::Fn(bool) -> bool>(callback: F) -> bool { false }"),
@@ -6318,6 +6320,205 @@ local
 in end
 \<close>
 
+
+section\<open> Complete locale instances and strict single views \<close>
+
+ML_val\<open>
+local
+  open Callable_Signature_Test
+  val ctxt = \<^context>
+  val sources = Micro_Rust_Names.registrations ctxt Micro_Rust_Names.NFunction
+    "CallableLocaleFunction" |> map #serial |> distinct (op =)
+  val _ = require "locale interpretations lost their one source declaration"
+    (length sources = 1)
+  val source = the_single sources
+  val instances = Types.binding_generic_schemes_for_source ctxt source
+  val _ = require "complete source view discarded a locale interpretation"
+    (length instances >= 2)
+  fun declaration (slot: Types.binding_scheme_parameter) =
+    (#rust slot, #kind slot, #declaration slot, #hol_name slot, #sort slot, #bounds slot,
+      #source_used slot, is_some (#witness slot), #callable_origins slot,
+      is_some (#callable_relation slot))
+  val parameters = map Types.binding_scoped_parameters instances
+  val _ = require "locale instances disagree on their ordered source declarations"
+    (length (distinct (op =) (map (map declaration) parameters)) = 1 andalso
+      forall (fn slots => map #rust slots = ["T", "F"] andalso
+        map #kind slots = [URust_AST.Type_Parameter, URust_AST.Type_Parameter]) parameters)
+  val _ = require "free function acquired an impl owner during locale transport"
+    (forall (is_none o Types.binding_scoped_owner) instances)
+  fun checked_relation (slots: Types.binding_scheme_parameter list) =
+    let
+      val callable = nth slots 1
+      val relation = the (#callable_relation callable)
+      val {state, abort, input, output} = #channels relation
+      val _ = require "locale transport disconnected a callable witness from its relation"
+        (#witness callable = SOME (map #1 (#inputs relation) --->
+          Type (\<^type_name>\<open>function_body\<close>,
+            [state, #1 (#result relation), abort, input, output])))
+    in relation end
+  val relations = map checked_relation parameters
+  val states = map (#state o #channels) relations
+  val _ = require "complete source view lost the distinct nat/bool channel instances"
+    (Library.member (op =) states \<^typ>\<open>nat\<close> andalso
+      Library.member (op =) states \<^typ>\<open>bool\<close>)
+  val _ = ignore (failure "locale-strict-single-view"
+    "inconsistent complete binding metadata" (fn () =>
+      Types.binding_generic_scheme_for_source ctxt source))
+  val _ = writeln "S4 complete locale instances preserve declaration invariants, checked relations and distinct channels; strict single view rejects PASS"
+in end
+\<close>
+
+ML_val\<open>
+local
+  open Callable_Signature_Test
+  structure Reports = URust_Report_Transaction
+  val ctxt = \<^context>
+  val calls = Unsynchronized.ref 0
+  val signal = YXML.string_of_body [XML.Elem (Markup.free, [XML.Text "locale callback probe"])]
+  fun reference _ = (calls := !calls + 1; Output.report [signal])
+  val (function, bound) = callable_bound ctxt "locale-candidate-effects" "Fn"
+  val [URust_AST.Generic_Type (_, pos, _)] = #parameters (URust_AST.function_generics function)
+  val declaration = Types.fresh_generic_declaration_identity ()
+  val parameter: Types.generic_parameter =
+    {rust = "F", kind = URust_AST.Type_Parameter, pos = pos, hol = ("'f", \<^sort>\<open>type\<close>),
+     bounds = [], report_reference = reference}
+  val pending = Types.prepare_binding_scope
+    [{parameter = parameter, declaration = declaration, callables = [recipe ctxt bound]}] ctxt
+  fun channel text = SOME (Types.Authored_Channel (Input.string text))
+  val resolved = Types.resolve_function_signature_with_bindings
+    (Types.with_binding_scope pending ctxt)
+    {state = channel "nat", abort = channel "unit", input = channel "unit", output = channel "unit"}
+    [] (parameters function) (the (URust_AST.function_return_type function))
+  val owned = Types.with_binding_scope (#scope resolved) ctxt
+  val entries = Micro_Rust_Names.registrations owned Micro_Rust_Names.NFunction
+    "CallableLocaleFunction"
+  fun state_entry state ({hol_term, ...}: Micro_Rust_Names.entry) =
+    (case body_type (fastype_of hol_term) of
+       Type (name, actual :: _) => name = \<^type_name>\<open>function_body\<close> andalso actual = state
+     | _ => false)
+  val arguments = SOME (map (URust_Parser.parse_generic_argument_source owned)
+    [source "locale-effects-element" "bool", source "locale-effects-callback" "F"])
+  fun check state wanted =
+    let
+      val entry = entries |> filter (state_entry state) |> the_single
+      val candidate = Micro_Rust_Dispatch.fresh_backend owned (#hol_term entry)
+      val _ = calls := 0
+      val ((result, events), reports) = Reports.capture_isolated (fn () =>
+        Types.capture_binding_argument_events owned (fn observed =>
+          Types.instantiate_binding_source_arguments_for_source observed (#serial entry)
+            candidate (#typ resolved) {target = NONE, arguments = arguments}))
+      val _ = require "locale attempt executed source callbacks before outer selection" (!calls = 0)
+      val _ = require "locale candidate selection changed the concrete state constraint"
+        (is_some result = wanted)
+      val uses = Types.binding_event_declarations events
+      val _ = require "discarded locale instance leaked source/witness demand"
+        (#source_uses uses = (if wanted then [declaration] else []) andalso
+          #witness_uses uses = (if wanted then [declaration] else []))
+      val (released, output) = capture (fn () => Reports.replay owned reports)
+      val _ = Exn.release released
+      val count = if wanted then 1 else 0
+      val _ = require "locale instance callbacks or reports were duplicated or leaked"
+        (!calls = count andalso length (filter (fn text => text = signal) (chunks "report" output)) = count)
+    in () end
+  val _ = check \<^typ>\<open>nat\<close> true
+  val _ = check \<^typ>\<open>bool\<close> false
+  val _ = writeln "S4 locale instances replay one selected callback/report bundle and discard failed-instance effects PASS"
+in end
+\<close>
+
+ML_val\<open>
+local
+  open Callable_Signature_Test
+  val original = \<^context>
+  val options = "[state = " ^ cartouche "'shape_state" ^ ", abort = " ^ cartouche "unit" ^
+    ", input = " ^ cartouche "unit" ^ ", output = " ^ cartouche "unit" ^ "] "
+  val completed = run \<^theory> "callable-source-shape-prefix"
+    ("urust_fn " ^ options ^ cartouche
+      "fn CallableSourceShape<F: Fn(u32) -> u32>(callback: F, value: u32) -> u32 { callback(value) }" ^
+     "\n urust_fn " ^ options ^ cartouche
+      "fn CallableSignedSourceShape<F: Fn(i32) -> i32>(callback: F, value: i32) -> i32 { callback(value) }")
+    |> Toplevel.context_of
+  val entry = scheme_entry completed "CallableSourceShape"
+  val (_, checked) = scheme completed "CallableSourceShape"
+  val [parameter] = Types.binding_scoped_parameters checked
+  val relation = the (#callable_relation parameter)
+  val (_, signed_checked) = scheme completed "CallableSignedSourceShape"
+  val [signed_parameter] = Types.binding_scoped_parameters signed_checked
+  val signed_relation = the (#callable_relation signed_parameter)
+  val [(unsigned_type, unsigned_source)] = #inputs relation
+  val [(signed_type, signed_source)] = #inputs signed_relation
+  val _ = require "source-shape fixture lost its equal native signed/unsigned denotation"
+    (unsigned_type = signed_type andalso
+      Types.source_identity_name unsigned_source <>
+        Types.source_identity_name signed_source)
+  val _ = require "source-shape fixture lost its checked unsigned callable relation"
+    (#1 (#result relation) = unsigned_type)
+  val before_names = snapshot original
+  val before_schemes = scheme_snapshot original
+  val thy = Proof_Context.theory_of completed
+  fun registration state changed_inputs changed_result lthy =
+    let
+      val channels: Types.computation_channels =
+        {state = state, abort = \<^typ>\<open>unit\<close>,
+         input = \<^typ>\<open>unit\<close>, output = \<^typ>\<open>unit\<close>}
+      val expected = Type (\<^type_name>\<open>function_body\<close>,
+        [#state channels, unsigned_type, #abort channels, #input channels, #output channels])
+      val backend_environment = Sign.typ_match thy
+        (body_type (fastype_of (#hol_term entry)), expected) Vartab.empty
+      val checked_inputs = #inputs relation
+      val checked_result = #result relation
+      val witness = map #1 checked_inputs ---> expected
+      val changed: Types.callable_relation =
+        {inputs = if changed_inputs then
+           map (fn (typ, _) => (typ, signed_source)) checked_inputs else checked_inputs,
+         result = if changed_result then
+           (#1 checked_result, #2 (#result signed_relation)) else checked_result,
+         channels = channels}
+      val slot: Types.binding_scheme_parameter =
+        {rust = #rust parameter, kind = #kind parameter, declaration = #declaration parameter,
+         hol_name = #hol_name parameter, witness = SOME witness,
+         sort = #sort parameter, bounds = #bounds parameter,
+         callable_origins = #callable_origins parameter, callable_relation = SOME changed,
+         source_used = #source_used parameter}
+      val backend = Term.map_types (Envir.subst_type backend_environment) (#hol_term entry)
+      val [backend_callback, backend_value] = binder_types (fastype_of backend)
+      val Type (body_name, [backend_state, backend_result, backend_abort, backend_input, backend_output]) =
+        body_type (fastype_of backend)
+      val _ = require "checked fixture backend and callback bundle lost exact native sharing"
+        (backend_callback = the (#witness slot) andalso backend_value = unsigned_type andalso
+          body_name = \<^type_name>\<open>function_body\<close> andalso backend_result = unsigned_type andalso
+          [backend_state, backend_abort, backend_input, backend_output] =
+            [#state channels, #abort channels, #input channels, #output channels])
+    in Types.register_binding_generic_source_scheme
+      {identity = backend, backend = backend, sources = [#serial entry],
+       owner = NONE, parameters = [slot], pos = #reg_pos entry} lthy end
+  val base = Named_Target.theory_init thy
+  val nat_instance = registration \<^typ>\<open>nat\<close> false false base
+  val same = registration \<^typ>\<open>nat\<close> false false nat_instance
+  fun instances ctxt = Types.binding_generic_schemes_for_source ctxt (#serial entry)
+  val _ = require "exact checked instance replay changed the declaration views"
+    (length (instances same) = length (instances nat_instance))
+  val valid = registration \<^typ>\<open>bool\<close> false false nat_instance
+  val states = instances valid |> maps Types.binding_scoped_parameters
+    |> map_filter #callable_relation |> map (#state o #channels)
+  val _ = require "distinct checked native instances lost their common source shapes"
+    (Library.member (op =) states \<^typ>\<open>nat\<close> andalso
+      Library.member (op =) states \<^typ>\<open>bool\<close>)
+  fun check (label, changed_inputs, changed_result) =
+    let
+      val changed = registration \<^typ>\<open>bool\<close> changed_inputs changed_result nat_instance
+      val _ = ignore (failure label "inconsistent binding declaration metadata" (fn () =>
+        instances changed))
+    in require "source-shape rejection mutated the original context or escaped its scope"
+      (snapshot original = before_names andalso scheme_snapshot original = before_schemes andalso
+        is_none (Types.binding_scope original)) end
+  val _ = List.app check
+    [("callable-input-source-shape", true, false),
+     ("callable-result-source-shape", false, true)]
+  val _ = scopes_closed "checked source-shape registration" completed
+  val _ = writeln "S4 checked distinct native instances retain callable input/result source shapes PASS"
+in end
+\<close>
 
 section\<open> Candidate-owned erased callable evidence \<close>
 

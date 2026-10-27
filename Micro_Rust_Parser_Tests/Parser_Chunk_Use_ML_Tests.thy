@@ -3567,6 +3567,8 @@ local
   val rows =
     [("chunk-callable-wrapper", "F: [const] FnOnce(u8) -> u8",
       "conditional-const trait bounds are not supported"),
+     ("chunk-higher-ranked-callable", "F: for<'a> FnOnce(&'a mut u8) -> u8",
+       "higher-ranked trait bounds are not supported"),
      ("chunk-associated-bound", "T: Sequence<Item = u8>", "generic trait bounds are not supported"),
      ("chunk-const-type", "const N: char", "const parameters require usize")]
   val _ = List.app (fn (label, parameters, expected) =>
@@ -3602,6 +3604,17 @@ local
       val _ = require (label ^ ": ordinary command recovery failed")
         (is_some (Parser_Test_Calls.lookup recovery "HeaderEarlier"))
     in () end) rows
+  val accepted = run_commands false "chunk-callable-supported" thy
+    ("urust " ^ command_source
+      ("fn HeaderEarlier(value: u8) -> u8 { value }\n" ^
+       "fn HeaderLater<F: FnOnce(u8) -> u8>(callback: F, value: u8) -> u8 " ^
+       "{ callback(value) }"))
+    |> Toplevel.context_of
+  val _ = require "plain callable headers commit both chunk members"
+    (is_some (Parser_Test_Calls.lookup accepted "HeaderEarlier") andalso
+      is_some (Parser_Test_Calls.lookup accepted "HeaderLater"))
+  val _ = require "successful private chunk leaves the original registry unchanged"
+    (registry_snapshot ctxt = prior_registry)
 in val _ = () end
 \<close>
 

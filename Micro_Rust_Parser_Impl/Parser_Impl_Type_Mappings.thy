@@ -69,6 +69,14 @@ Existing registration serials distinguish equal expanded abbreviation bodies. Ca
 uses the native-fresh backend without freshening caller variables again; final unification and
 selection remain in the notation dispatcher.
 
+The complete single-view getters \<open>binding_generic_scheme_for_source\<close> and
+\<open>binding_generic_scheme\<close> require identical transported metadata.
+\<open>binding_generic_schemes_for_source\<close> instead returns all complete instances of one
+source declaration after checking their shared declaration invariants. Locale interpretations
+may differ in concrete witnesses, callable channels and Self types; these stay together in each
+instance and are checked jointly against the actual candidate. Source routing reads only common
+declaration descriptors, without selecting a concrete instance before native dispatch.
+
 Erased arguments accept supported nominal paths, grouping, primitives and normalized unsigned
 numeric leaves. Known schemes check all source arities, kinds and available bound evidence.
 Source-only validation requests no semantic backend, even for a known implicit mapping nested in
@@ -423,6 +431,7 @@ sig
     binding_scheme_registration -> local_theory -> local_theory
   val binding_generic_scheme_for_source: Proof.context -> serial -> binding_generic_scheme option
   val binding_scheme_is_canonical: binding_generic_scheme -> bool
+  val binding_generic_schemes_for_source: Proof.context -> serial -> binding_generic_scheme list
   val binding_generic_scheme: Proof.context -> term -> binding_generic_scheme option
   val binding_scoped_owner: binding_generic_scheme -> binding_impl_scheme option
   val binding_scoped_parameters: binding_generic_scheme -> binding_scheme_parameter list
@@ -1643,11 +1652,15 @@ struct
         (scope_bindings scope)
     then SOME {parameters = map binding_parameter (scope_bindings scope)} else NONE) (binding_scope ctxt)
 
+  type generic_use_observer =
+    {observe: generic_binding list -> typ list -> bool -> unit,
+     bindings: unit -> generic_binding list}
   structure Generic_Uses = Proof_Data
   (
-    type T = (generic_binding list -> typ list -> bool -> unit) option
+    type T = generic_use_observer option
     fun init _ = NONE
   )
+  fun generic_use_observer ctxt = Option.map #observe (Generic_Uses.get ctxt)
   (* An operation-owned provenance collector; never installed in a returned scope. *)
   structure Signature_Origins = Proof_Data
   (
@@ -1717,9 +1730,19 @@ struct
        signature_events = NONE} ctxt
   fun with_generic_scope (scope as {parameters}: generic_scope) ctxt =
     let
-      fun identity parameter = case find_first
-          (fn old => same_generic_parameter (parameter, binding_parameter old)) (installed_bindings ctxt) of
-          SOME old => binding_identity old | NONE => serial ()
+      val ancestors = case Generic_Uses.get ctxt of NONE => []
+        | SOME {bindings, ...} => bindings ()
+      fun original_legacy parameter binding =
+        same_generic_parameter (parameter, binding_parameter binding) andalso
+        null (#callables (binding_spec binding)) andalso
+        binding_template binding = SOME (TFree (#hol parameter)) andalso
+        is_none (binding_callable_relation binding) andalso binding_checked_recipes binding = 0
+      fun identity parameter =
+        case find_first (fn old => same_generic_parameter
+            (parameter, binding_parameter old)) (installed_bindings ctxt) of
+          SOME old => binding_identity old
+        | NONE => (case find_first (original_legacy parameter) ancestors of
+            SOME old => binding_identity old | NONE => serial ())
     in with_identified_generic_scope scope (map identity parameters) ctxt end
 
   fun with_source_only_parameters names ctxt = Source_Only_Parameters.put
@@ -1810,7 +1833,9 @@ struct
         val source_uses = Unsynchronized.ref ([]: generic_binding list)
         val witness_uses = Unsynchronized.ref ([]: generic_binding list)
         val active = Unsynchronized.ref true
-        val parent = Generic_Uses.get ctxt
+        val parent = generic_use_observer ctxt
+        val ancestors = case Generic_Uses.get ctxt of NONE => K []
+          | SOME {bindings, ...} => bindings
         fun note uses binding = if !active then uses := insert same_binding binding (!uses) else ()
         fun observe current types demand =
           let
@@ -1823,7 +1848,10 @@ struct
               then (note source_uses binding; if demand then note witness_uses binding else ()) else ()
             val _ = List.app record current
           in Option.app (fn previous => previous current types demand) parent end
-        val observed = Generic_Uses.put (SOME observe) ctxt
+        (* The legacy adapter may restore an exact original record through a foreign child
+           scope. Only active capture lineage can supply that record's declaration identity. *)
+        fun bindings () = (if !active then tracked else []) @ ancestors ()
+        val observed = Generic_Uses.put (SOME {observe = observe, bindings = bindings}) ctxt
       in Thread_Attributes.uninterruptible_body (fn run =>
         let val result = Exn.capture0 (run (fn () => action observed)) ()
             val events = {source_uses = rev (!source_uses), witness_uses = rev (!witness_uses)}
@@ -1842,7 +1870,7 @@ struct
       fun replay binding = if exists (fn installed => same_binding (binding, installed))
           (installed_bindings ctxt)
         then Option.app (fn observe => observe [binding] []
-          (exists (fn witness => same_binding (binding, witness)) witness_uses)) (Generic_Uses.get ctxt)
+          (exists (fn witness => same_binding (binding, witness)) witness_uses)) (generic_use_observer ctxt)
         else ()
     in List.app replay source_uses end
   fun event_labels ({source_uses, witness_uses}: binding_events) =
@@ -1859,9 +1887,9 @@ struct
       {source_uses = filter (fn binding => member (op =) source_uses (binding_name binding)) (installed_bindings ctxt),
        witness_uses = filter (fn binding => member (op =) witness_uses (binding_name binding)) (installed_bindings ctxt)}
   fun note_generic_types ctxt types = if null types then () else
-    Option.app (fn observe => observe (installed_bindings ctxt) types true) (Generic_Uses.get ctxt)
+    Option.app (fn observe => observe (installed_bindings ctxt) types true) (generic_use_observer ctxt)
   fun observe_generic_reference demand ctxt parameter = Option.app
-    (fn binding => Option.app (fn observe => observe [binding] [] demand) (Generic_Uses.get ctxt))
+    (fn binding => Option.app (fn observe => observe [binding] [] demand) (generic_use_observer ctxt))
     (current_binding ctxt parameter)
 
   val generic_reference_demand = Thread_Data.var (): bool Thread_Data.var
@@ -2557,18 +2585,77 @@ struct
 
   fun consistent_binding_schemes [] = NONE
     | consistent_binding_schemes (entry :: entries: function_scheme list) =
-        let
-          (* One source can have several locale interpretations. Only its source contract is
-             invariant; each candidate still carries and checks its exact transported types. *)
-          fun contract scheme = map_binding_metadata (K dummyT) (binding_metadata scheme)
-        in
-          if forall (fn other => contract other = contract entry) entries then SOME entry
-          else error "urust: inconsistent complete binding metadata for one source"
-        end
+        if forall (fn other => binding_metadata other = binding_metadata entry) entries then SOME entry
+        else error "urust: inconsistent complete binding metadata for one source"
   fun binding_generic_scheme_for_source ctxt source =
     consistent_binding_schemes (schemes_for_source ctxt source)
   fun binding_generic_scheme ctxt backend =
     consistent_binding_schemes (matching_function_schemes ctxt backend)
+
+  fun neutral_source_kind Type_Parameter = Micro_Rust_Names.Type_Source
+    | neutral_source_kind Const_Parameter = Micro_Rust_Names.Const_Source
+
+  fun source_tree_of_meaning ctxt declarations meaning =
+    let
+      open Micro_Rust_Names
+      fun tree expected (Meaning_Scoped_Parameter (identity, kind)) =
+            (case find_index (fn declared => declared = identity) declarations of
+               ~1 => Source_Rigid (identity, neutral_source_kind kind)
+             | index => Source_Variable (("_urust_impl_source", index), neutral_source_kind kind))
+        | tree _ (Meaning_Primitive primitive) =
+            Source_Node (Primitive_Source (rust_primitive_name primitive), [])
+        | tree _ (Meaning_Mapped (base, _, _, _, _, arguments)) =
+            let val kinds = case lookup ctxt base of
+                SOME entry => map neutral_source_kind (#parameter_kinds entry)
+              | NONE => map (K Type_Source) arguments
+            in Source_Node (Mapped_Source base, map2 tree kinds arguments) end
+        | tree _ (Meaning_Opaque rows) = Source_Node
+            (Opaque_Source (map (fn (name, arguments) => (name, length arguments)) rows),
+             maps (map (tree Type_Source) o snd) rows)
+        | tree _ (Meaning_Numeric value) = Source_Node (Numeric_Source value, [])
+        | tree _ (Meaning_Tuple types) = Source_Node (Tuple_Source, map (tree Type_Source) types)
+        | tree _ (Meaning_Array (element, length)) = Source_Node (Array_Source, [tree Type_Source element, tree Const_Source length])
+        | tree _ (Meaning_Pointer (mode, typ)) = Source_Node (Pointer_Source (mode = RPM_Mut), [tree Type_Source typ])
+        | tree _ (Meaning_Reference (mode, typ)) = Source_Node (Reference_Source (mode = BM_Mut), [tree Type_Source typ])
+        | tree expected (Meaning_HOL typ) = Source_HOL (expected, typ)
+        | tree _ (Meaning_Parameter _) = raise Fail "uninstantiated mapping source parameter"
+        | tree _ (Meaning_Const_Parameter _) = raise Fail "uninstantiated mapping const parameter"
+    in tree Type_Source meaning end
+
+  (* Locale interpretations retain one source declaration and transport its complete typed
+     bundle independently. Preselection may compare declaration invariants, not concrete
+     witnesses, callable channels or Self types. Callable input/result source shapes remain
+     fixed after erasing only native HOL leaves. Each returned instance still undergoes the
+     existing joint candidate alignment and all native/source constraints below. *)
+  fun binding_declaration_shape ctxt (entry: function_scheme) =
+    let
+      val {owner, parameters, source_templates, ambient_declarations} = binding_metadata entry
+      fun source meaning = source_tree_of_meaning ctxt [] meaning
+        |> Micro_Rust_Names.map_source_types (K dummyT)
+      fun relation ({inputs, result, ...}: callable_relation) =
+        (map (source o #2) inputs, source (#2 result))
+      fun slot ({rust, kind, declaration, hol_name, witness, sort, bounds, callable_origins,
+          callable_relation, source_used}: binding_scheme_parameter) =
+        (rust, kind, declaration, hol_name, is_some witness, sort, bounds, callable_origins,
+          Option.map relation callable_relation,
+          source_used)
+      fun inherited ({parameters, declarations, target}: binding_impl_scheme) =
+        (map slot parameters, declarations,
+          Option.map (Micro_Rust_Names.map_source_types (K dummyT)) (#source target),
+          map (fn ({name, kind, witness}: Micro_Rust_Names.source_variable) =>
+            (name, kind, is_some witness)) (#variables target), #requires_source_identity target)
+    in (map slot parameters, Option.map inherited owner, map (apsnd is_some) source_templates,
+      ambient_declarations) end
+
+  fun binding_generic_schemes_for_source ctxt source =
+    let
+      val entries = schemes_for_source ctxt source
+      val _ = case entries of [] => ()
+        | entry :: others =>
+            if forall (fn other => binding_declaration_shape ctxt other = binding_declaration_shape ctxt entry)
+                others then ()
+            else error "urust: inconsistent binding declaration metadata for one source"
+    in entries end
 
   fun align_binding_candidate ctxt (entries: function_scheme list) candidate caller_types (entry: function_scheme) =
     let
@@ -2598,8 +2685,7 @@ struct
   fun instantiate_binding_generic_scheme_for_source ctxt source candidate
       {target = selection, arguments} =
     let
-      val entries = schemes_for_source ctxt source
-      val _ = consistent_binding_schemes entries
+      val entries = binding_generic_schemes_for_source ctxt source
       val caller_types = maps (fn selected => #self_type selected :: map snd (#evidence selected) @
           maps Micro_Rust_Names.source_types (the_list (#source selected))) (the_list selection) @
         maps (map_filter (fn (typ, _) => typ)) (the_list arguments)
@@ -4088,36 +4174,6 @@ struct
 
   (* assemble receives the resolved leading HOL sources and the resolved Rust types, and returns
      the types to finish. *)
-  fun neutral_source_kind Type_Parameter = Micro_Rust_Names.Type_Source
-    | neutral_source_kind Const_Parameter = Micro_Rust_Names.Const_Source
-
-  fun source_tree_of_meaning ctxt declarations meaning =
-    let
-      open Micro_Rust_Names
-      fun tree expected (Meaning_Scoped_Parameter (identity, kind)) =
-            (case find_index (fn declared => declared = identity) declarations of
-               ~1 => Source_Rigid (identity, neutral_source_kind kind)
-             | index => Source_Variable (("_urust_impl_source", index), neutral_source_kind kind))
-        | tree _ (Meaning_Primitive primitive) =
-            Source_Node (Primitive_Source (rust_primitive_name primitive), [])
-        | tree _ (Meaning_Mapped (base, _, _, _, _, arguments)) =
-            let val kinds = case lookup ctxt base of
-                SOME entry => map neutral_source_kind (#parameter_kinds entry)
-              | NONE => map (K Type_Source) arguments
-            in Source_Node (Mapped_Source base, map2 tree kinds arguments) end
-        | tree _ (Meaning_Opaque rows) = Source_Node
-            (Opaque_Source (map (fn (name, arguments) => (name, length arguments)) rows),
-             maps (map (tree Type_Source) o snd) rows)
-        | tree _ (Meaning_Numeric value) = Source_Node (Numeric_Source value, [])
-        | tree _ (Meaning_Tuple types) = Source_Node (Tuple_Source, map (tree Type_Source) types)
-        | tree _ (Meaning_Array (element, length)) = Source_Node (Array_Source, [tree Type_Source element, tree Const_Source length])
-        | tree _ (Meaning_Pointer (mode, typ)) = Source_Node (Pointer_Source (mode = RPM_Mut), [tree Type_Source typ])
-        | tree _ (Meaning_Reference (mode, typ)) = Source_Node (Reference_Source (mode = BM_Mut), [tree Type_Source typ])
-        | tree expected (Meaning_HOL typ) = Source_HOL (expected, typ)
-        | tree _ (Meaning_Parameter _) = raise Fail "uninstantiated mapping source parameter"
-        | tree _ (Meaning_Const_Parameter _) = raise Fail "uninstantiated mapping const parameter"
-    in tree Type_Source meaning end
-
   (* The callable branch belongs to the same signature/target inference owner. *)
   fun resolve_binding_operations kind original_ctxt channel_sources lifetimes rust_types assemble =
     let
@@ -4427,7 +4483,7 @@ struct
             {witness = witness, pos = pos}
           else if exists (fn installed => same_binding (binding, installed))
               (installed_bindings observed) then
-            Option.app (fn observe => observe [binding] [] witness) (Generic_Uses.get observed)
+            Option.app (fn observe => observe [binding] [] witness) (generic_use_observer observed)
           else raise Fail "uRust Self signature origin: stale finalized binding") actual_origins)
       val scope = {bindings = final_bindings, signature_events = SOME events}: binding_scope
       val resolved = map (fn {typ, meaning} => {typ = the_single (restore [typ]),
@@ -5021,8 +5077,7 @@ struct
 
   fun prepare_binding_target_selection ctxt source (selection: Micro_Rust_Names.target_selection) =
     let
-      val entries = schemes_for_source ctxt source
-      val _ = consistent_binding_schemes entries
+      val entries = binding_generic_schemes_for_source ctxt source
       fun enrich (scheme: function_scheme) (selection: Micro_Rust_Names.target_selection) =
         case binding_scoped_owner scheme of NONE => selection
        | SOME {target, parameters, ...} =>
@@ -5070,10 +5125,9 @@ struct
   fun instantiate_binding_source_arguments_for_source ctxt source candidate occurrence_type
       {target = selection, arguments} =
     let
-      val entries = schemes_for_source ctxt source
-      val _ = consistent_binding_schemes entries
+      val entries = binding_generic_schemes_for_source ctxt source
       val thy = Proof_Context.theory_of ctxt
-      fun instantiate (entry: function_scheme) =
+      fun instantiate ctxt (entry: function_scheme) =
         let
           val original = binding_metadata entry
           val parameters = #parameters original
@@ -5195,8 +5249,23 @@ struct
           val unfreeze = Term.typ_subst_atomic (map swap (!rigid))
         in SOME (Term.map_types (unfreeze o Envir.norm_type (#1 native)) candidate) end
         handle Pattern.MATCH => NONE | Type.TUNIFY => NONE | Micro_Rust_Names.SOURCE_MATCH => NONE
-      val results = map_filter instantiate entries |> distinct (op aconv)
-    in case results of [] => NONE | [term] => SOME term
+      (* Distinct locale instances may fail after reading source arguments. Keep their reports
+         and use observations isolated until one complete checked result survives. *)
+      fun attempt entry =
+        let
+          val ((result, events), reports) = URust_Report_Transaction.capture_isolated
+            (fn () => capture_binding_argument_events ctxt (fn observed => instantiate observed entry))
+        in Option.map (fn term => (term, events, reports)) result end
+      val results = map_filter attempt entries |> distinct
+        (fn ((left, _, _), (right, _, _)) => left aconv right)
+    in case results of [] => NONE
+      | [(term, events, reports)] =>
+          (replay_binding_argument_events ctxt events;
+           (* An enclosing candidate is still speculative. Defer callbacks with its existing
+              report transaction instead of executing a nested replay before final selection. *)
+           URust_Report_Transaction.defer_action
+             (fn () => URust_Report_Transaction.replay ctxt reports);
+           SOME term)
       | _ => error "urust: inconsistent candidate-owned source evidence for one source" end
 
 

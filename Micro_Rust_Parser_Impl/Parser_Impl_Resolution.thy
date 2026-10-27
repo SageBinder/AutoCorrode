@@ -979,10 +979,28 @@ struct
   fun source_scheme ctxt ({serial, ...}: Micro_Rust_Names.entry) =
     URust_Type_Mappings.generic_scheme_for_source ctxt serial
 
-  fun source_slots ctxt ({serial, ...}: Micro_Rust_Names.entry) =
-    Option.mapPartial (fn scheme => case URust_Type_Mappings.binding_scoped_parameters scheme of
-      [] => NONE | parameters => SOME parameters)
-      (URust_Type_Mappings.binding_generic_scheme_for_source ctxt serial)
+  (* Routing and argument preparation use the common source declaration only. Concrete
+     witnesses, checked relations and Self types belong to each candidate's complete bundle. *)
+  type source_slot =
+    {rust: string, kind: generic_parameter_kind, declaration: serial, hol_name: string,
+     witnessed: bool, sort: sort, bounds: string list, callable: bool, source_used: bool option}
+  fun source_slot ({rust, kind, declaration, hol_name, witness, sort, bounds, callable_origins,
+      source_used, ...}: URust_Type_Mappings.binding_scheme_parameter) =
+    {rust = rust, kind = kind, declaration = declaration, hol_name = hol_name,
+     witnessed = is_some witness, sort = sort, bounds = bounds,
+     callable = not (null callable_origins), source_used = source_used}: source_slot
+  fun source_instances ctxt ({serial, ...}: Micro_Rust_Names.entry) =
+    URust_Type_Mappings.binding_generic_schemes_for_source ctxt serial
+  fun source_slots ctxt entry =
+    (case map (map source_slot o URust_Type_Mappings.binding_scoped_parameters)
+        (source_instances ctxt entry) |> distinct (op =) of
+       [] => NONE
+     | [parameters] => if null parameters then NONE else SOME parameters
+     | _ => error "urust: inconsistent binding declaration slots for one source")
+  fun legacy_source_slot ({rust, kind, hol_name, witnessed, sort, bounds, source_used, ...}
+      : source_slot) =
+    {rust = rust, kind = kind, hol = if witnessed then SOME (hol_name, sort) else NONE,
+     sort = sort, bounds = bounds, source_used = source_used}: URust_Type_Mappings.generic_source_parameter
 
   fun generated_generic_entries ctxt filters name =
     Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NFunction name
@@ -1068,7 +1086,8 @@ struct
         in (Input.string_of source, Input.pos_of source) end) arguments
       (* Candidate-specific validation belongs after native receiver/full-type filtering. The
          pending carrier retains the original inputs and positions without inventing witnesses. *)
-      (* Interpretations retain distinct native candidates but share one authored source. *)
+      (* Locale instances share this authored source occurrence. Its marker has one record per
+         declaration, while every typed registry candidate remains available for dispatch. *)
       val instances = map #serial generated |> distinct (op =) |> map (fn source =>
         {source = source, arguments = map (fn (_, pos) => (NONE, pos)) sources,
          identities = replicate (length sources) ""})
@@ -1140,8 +1159,8 @@ struct
                       (map (parse_antiquotation ctxt environment) (generic_sources generic_arguments))
                   end
               | generated =>
-                  if exists (fn entry => exists (fn slot => is_none (#witness slot) orelse
-                    not (null (#callable_origins slot))) (the (source_slots ctxt entry))) generated
+                  if exists (fn entry => exists (fn slot => not (#witnessed slot) orelse
+                    #callable slot) (the (source_slots ctxt entry))) generated
                   then sparse_generated_arguments ctxt name filters generated generic_arguments function
                   else generated_generic_arguments ctxt name filters generated generic_arguments function)
          | NONE =>
@@ -1289,21 +1308,10 @@ struct
         is_some (Micro_Rust_Dispatch.unify_and_instantiate ctxt occurrence_type
           (Micro_Rust_Dispatch.fresh_backend ctxt hol_term))
       val eligible = filter (fn entry => selected entry andalso native_eligible entry) entries
-      fun parameter_key ({kind, sort, witness, declaration, callable_origins, callable_relation, ...}
-          : URust_Type_Mappings.binding_scheme_parameter) =
-        let
-          fun origin ({path, identity, declaration_pos, bound_pos}: URust_Type_Mappings.callable_origin) =
-            (path, identity, Position.properties_of declaration_pos, Position.properties_of bound_pos)
-          fun relation ({inputs, result, channels}: URust_Type_Mappings.callable_relation) =
-            let fun leaf (typ, source) = (typ, URust_Type_Mappings.source_identity_name source)
-            in (map leaf inputs, leaf result,
-              (#state channels, #abort channels, #input channels, #output channels)) end
-        in (kind, sort, witness, declaration, map origin callable_origins,
-          Option.map relation callable_relation) end
       val cache = Unsynchronized.ref []
       fun prepare parameters sources =
         let
-          val key = map parameter_key parameters
+          val key = parameters
         in case AList.lookup (op =) (!cache) key of SOME result => result
          | NONE =>
              let
@@ -1317,7 +1325,8 @@ struct
                          let val parsed = map (fn (text, position) =>
                            URust_Parser.parse_generic_argument_source observed
                              (Parser_Lex_Util.positioned_content_source text position)) sources
-                         in URust_Type_Mappings.resolve_binding_source_arguments observed parameters parsed end))
+                         in URust_Type_Mappings.resolve_source_arguments observed
+                           (map legacy_source_slot parameters) parsed end))
                    fun commit () =
                      (URust_Type_Mappings.replay_binding_argument_events ctxt events;
                       URust_Report_Transaction.replay ctxt reports)
@@ -1364,9 +1373,8 @@ struct
              {target = NONE, arguments = SOME arguments}))
     end
 
-  fun canonical_source_entry ctxt ({serial, ...}: Micro_Rust_Names.entry) =
-    case URust_Type_Mappings.binding_generic_scheme_for_source ctxt serial of NONE => false
-    | SOME scheme => URust_Type_Mappings.binding_scheme_is_canonical scheme
+  fun canonical_source_entry ctxt entry =
+    exists URust_Type_Mappings.binding_scheme_is_canonical (source_instances ctxt entry)
 
   fun binding_candidate_effects ctxt action =
     let
@@ -1433,9 +1441,7 @@ struct
       fun prepare (entry as {serial, ...}: Micro_Rust_Names.entry) = Exn.capture0 (fn () =>
         let
           val {target, arguments, ...} = the (instance entry)
-          val scheme = URust_Type_Mappings.binding_generic_scheme_for_source ctxt serial
-          val parameters = case scheme of NONE => []
-            | SOME scheme => URust_Type_Mappings.binding_scoped_parameters scheme
+          val parameters = the_default [] (source_slots ctxt entry)
           val ((prepared, events), reports) = URust_Report_Transaction.capture_isolated
             (fn () => URust_Type_Mappings.capture_binding_argument_events ctxt (fn observed =>
               let
@@ -1449,9 +1455,9 @@ struct
                         val parsed = map (fn (text, position) =>
                           URust_Parser.parse_generic_argument_source observed
                             (Parser_Lex_Util.positioned_content_source text position)) sources
-                      in SOME (#arguments (URust_Type_Mappings.resolve_binding_source_arguments
-                        observed parameters parsed)) end
-                val _ = if is_none arguments andalso exists (is_none o #witness) parameters then
+                      in SOME (#arguments (URust_Type_Mappings.resolve_source_arguments
+                        observed (map legacy_source_slot parameters) parsed)) end
+                val _ = if is_none arguments andalso exists (not o #witnessed) parameters then
                     error ("urust: erased generic arguments require explicit source arguments" ^ Position.here pos)
                   else ()
               in {target = target, arguments = arguments} end))
@@ -1515,7 +1521,7 @@ struct
 
   fun check_source_inference ctxt entries pos =
     if exists (fn entry => case source_slots ctxt entry of
-        SOME slots => exists (is_none o #witness) slots | NONE => false) entries then
+        SOME slots => exists (not o #witnessed) slots | NONE => false) entries then
       error ("urust: erased generic arguments require explicit source arguments" ^ Position.here pos)
     else ()
 
@@ -2371,10 +2377,10 @@ struct
            val filters = call_filters direct @ selection
            val entries = Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NFunction (render_path base)
              |> Micro_Rust_Names.eligible_entries ctxt filters
-           fun has_impl_parameters ({serial, ...}: Micro_Rust_Names.entry) =
-             (case Option.mapPartial URust_Type_Mappings.binding_scoped_owner
-                 (URust_Type_Mappings.binding_generic_scheme_for_source ctxt serial) of
-                SOME {parameters, ...} => not (null parameters) | NONE => false)
+           fun has_impl_parameters entry =
+             exists (fn scheme => case URust_Type_Mappings.binding_scoped_owner scheme of
+                 SOME {parameters, ...} => not (null parameters) | NONE => false)
+               (source_instances ctxt entry)
            fun local_call registered =
              (reject_generated_function_generics ctxt stripped;
               apply_generic_arguments ctxt environment registered
