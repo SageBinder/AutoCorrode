@@ -2187,6 +2187,10 @@ spelling records a Rust requirement; this representation abstracts capture owner
 counts and receiver mutability.
 \<close>
 
+type_synonym 'a callable_channel_synonym = \<open> 'a list \<close>
+
+type_synonym 'a callable_value_synonym = \<open> 'a option \<close>
+
 context
   notes [[urust_state = "'state", urust_abort = "'abort",
     urust_input = "'input", urust_output = "'output"]]
@@ -2265,6 +2269,65 @@ urust_fn [pp_test, verbosity = 0] callable_mutable_input \<open>
   fn CallableMutableInput<'a, F: Fn(&'a mut bool) -> bool>(callback: F, value: &'a mut bool) -> bool
   { callback(value) }
 \<close>
+
+text\<open>
+HOL synonyms in callable recipes and outer escapes are checked before their generic arguments
+are constrained. The qualified recipe spelling and the nested callable escape share the same
+ordinary and callable witnesses as their expanded twins.
+\<close>
+
+urust_fn [pp_test, verbosity = 0] callable_recipe_synonym \<open>
+  fn CallableRecipeSynonym<T,
+    F: Fn(\<tau>\<open>'t Parser_Function_Examples.callable_value_synonym\<close>)
+      -> \<tau>\<open>'t callable_value_synonym\<close>>(
+    callback: F, value: \<tau>\<open>'t callable_value_synonym\<close>)
+    -> \<tau>\<open>'t callable_value_synonym\<close> { callback(value) }
+\<close>
+urust_fn [pp_test, verbosity = 0] callable_recipe_synonym_escape \<open>
+  fn CallableRecipeSynonymEscape(
+    callback: \<tau>\<open>'t option \<Rightarrow> ('state, 't option, 'abort, 'input, 'output) function_body\<close>,
+    value: \<tau>\<open>'t option\<close>) -> \<tau>\<open>'t option\<close> { callback(value) }
+\<close>
+lemma callable_recipe_synonym_twin:
+  \<open> callable_recipe_synonym = callable_recipe_synonym_escape \<close>
+  unfolding callable_recipe_synonym_def callable_recipe_synonym_escape_def by (rule refl)
+
+urust_fn [pp_test, verbosity = 0] callable_outer_synonym \<open>
+  fn CallableOuterSynonym<T, F: Fn(bool) -> bool>(
+    callback: SignatureOption<\<tau>\<open>'f callable_value_synonym\<close>>,
+    value: SignatureOption<\<tau>\<open>'t callable_value_synonym\<close>>)
+    -> SignatureOption<\<tau>\<open>'t callable_value_synonym\<close>> { value }
+\<close>
+urust_fn [pp_test, verbosity = 0] callable_outer_synonym_escape \<open>
+  fn CallableOuterSynonymEscape(
+    callback: \<tau>\<open>(bool \<Rightarrow> ('state, bool, 'abort, 'input, 'output) function_body) option option\<close>,
+    value: \<tau>\<open>'t option option\<close>) -> \<tau>\<open>'t option option\<close> { value }
+\<close>
+lemma callable_outer_synonym_twin:
+  \<open> callable_outer_synonym = callable_outer_synonym_escape \<close>
+  unfolding callable_outer_synonym_def callable_outer_synonym_escape_def by (rule refl)
+
+end
+
+context
+  notes [[urust_state = "'state callable_channel_synonym",
+    urust_abort = "'abort callable_channel_synonym",
+    urust_input = "'input callable_channel_synonym",
+    urust_output = "'output callable_channel_synonym"]]
+begin
+
+urust_fn [pp_test, verbosity = 0] callable_channel_synonyms \<open>
+  fn CallableChannelSynonyms<F: Fn(bool) -> bool>(callback: F, value: bool) -> bool
+  { callback(value) }
+\<close>
+urust_fn [pp_test, verbosity = 0] callable_channel_synonyms_escape \<open>
+  fn CallableChannelSynonymsEscape(
+    callback: \<tau>\<open>bool \<Rightarrow> ('state list, bool, 'abort list, 'input list, 'output list) function_body\<close>,
+    value: bool) -> bool { callback(value) }
+\<close>
+lemma callable_channel_synonyms_twin:
+  \<open> callable_channel_synonyms = callable_channel_synonyms_escape \<close>
+  unfolding callable_channel_synonyms_def callable_channel_synonyms_escape_def by (rule refl)
 
 end
 

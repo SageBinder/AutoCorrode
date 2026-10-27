@@ -4236,8 +4236,11 @@ struct
       val _ = List.app (observe_binding_syntax_types ctxt o single)
         (take (length (maps hol_sources recipe_types)) (drop (length leading) raw))
       val ordinary = filter (fn binding => null (#callables (binding_spec binding))) original_bindings
-      val prepared = #2 (Proof_Context.prepare_sortsT ctxt
-        (map (TFree o #hol o binding_parameter) ordinary @ raw))
+      (* Preserve raw syntax for positioned origins, but expand native synonyms before any
+         channel, recipe or outer escape reaches inference or a callable argument sort check. *)
+      val prepared = URust_Report_Transaction.native ctxt (fn read_ctxt =>
+        positioned_result kind (maps #cited reads) (fn () => Syntax.check_typs read_ctxt
+          (map (TFree o #hol o binding_parameter) ordinary @ raw)))
       val (seeds, parsed) = chop (length ordinary) prepared
       (* Check the authored schematic-variable policy before internal sort inference
          can replace a source variable. Use the native context policy on variable
@@ -4408,9 +4411,10 @@ struct
           Authored_Channel _ => observe_binding_syntax_types checking [raw] | _ => ())
         (map_filter I channel_sources ~~ take leading_raw_count raw)
       val imported = map import_type parsed
-      val checked = Syntax.check_typs checking
+      val complete = map normalize
         (map_filter binding_template (scope_bindings intermediate) @ imported)
-      val _ = ignore checked
+      val checked = Syntax.check_typs checking complete
+      val _ = unify (complete ~~ checked)
       fun read_escape source = import_type (lookup_source source)
       val operations = resolve_value_operations kind checking read_escape check_sort existing_type
         backend no_parameter no_dependency
