@@ -2189,7 +2189,7 @@ counts and receiver mutability.
 
 context
   notes [[urust_state = "'state", urust_abort = "'abort",
-          urust_input = "'input", urust_output = "'output"]]
+    urust_input = "'input", urust_output = "'output"]]
 begin
 
 urust_fn [pp_test, verbosity = 0] callable_apply \<open>
