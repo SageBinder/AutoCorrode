@@ -2871,4 +2871,29 @@ urust_fn [pp_test] shared_abbreviated_holes \<open>
     callback: F, left: \<tau>\<open>_ shared_option_abbreviation\<close>, right: \<tau>\<open>_ shared_option_abbreviation\<close>) -> bool { false }
 \<close>
 
+text\<open>
+Unspecified computation channels stay flexible while a native callable template is checked.
+The callback shares all four inferred channels with the surrounding function, as in the
+explicit HOL callback twin.
+\<close>
+
+context
+  notes [[urust_state = "_", urust_abort = "_", urust_input = "_", urust_output = "_"]]
+begin
+
+urust_fn [pp_test, verbosity = 0] callable_inferred_channels \<open>
+  fn CallableInferredChannels<F: Fn(bool) -> bool>(callback: F, value: bool) -> bool
+  { callback(value) }
+\<close>
+urust_fn [pp_test, verbosity = 0] callable_inferred_channels_escape \<open>
+  fn CallableInferredChannelsEscape(
+    callback: \<tau>\<open>bool \<Rightarrow> ('state, bool, 'abort, 'input, 'output) function_body\<close>,
+    value: bool) -> bool { callback(value) }
+\<close>
+lemma callable_inferred_channels_twin:
+  \<open> callable_inferred_channels = callable_inferred_channels_escape \<close>
+  unfolding callable_inferred_channels_def callable_inferred_channels_escape_def by (rule refl)
+
+end
+
 end

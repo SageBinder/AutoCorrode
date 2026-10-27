@@ -4413,7 +4413,10 @@ struct
       val imported = map import_type parsed
       val complete = map normalize
         (map_filter binding_template (scope_bindings intermediate) @ imported)
-      val checked = Syntax.check_typs checking complete
+      (* This complete native frame already contains generated inference TVars; authored
+         syntax was checked above in the original strict context. *)
+      val checked = Syntax.check_typs
+        (Proof_Context.set_mode Proof_Context.mode_schematic checking) complete
       val _ = unify (complete ~~ checked)
       fun read_escape source = import_type (lookup_source source)
       val operations = resolve_value_operations kind checking read_escape check_sort existing_type
