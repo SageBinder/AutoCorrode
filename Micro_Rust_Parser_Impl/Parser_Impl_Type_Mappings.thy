@@ -1730,19 +1730,11 @@ struct
        signature_events = NONE} ctxt
   fun with_generic_scope (scope as {parameters}: generic_scope) ctxt =
     let
-      val ancestors = case Generic_Uses.get ctxt of NONE => []
-        | SOME {bindings, ...} => bindings ()
-      fun original_legacy parameter binding =
-        same_generic_parameter (parameter, binding_parameter binding) andalso
-        null (#callables (binding_spec binding)) andalso
-        binding_template binding = SOME (TFree (#hol parameter)) andalso
-        is_none (binding_callable_relation binding) andalso binding_checked_recipes binding = 0
       fun identity parameter =
         case find_first (fn old => same_generic_parameter
             (parameter, binding_parameter old)) (installed_bindings ctxt) of
           SOME old => binding_identity old
-        | NONE => (case find_first (original_legacy parameter) ancestors of
-            SOME old => binding_identity old | NONE => serial ())
+        | NONE => serial ()
     in with_identified_generic_scope scope (map identity parameters) ctxt end
 
   fun with_source_only_parameters names ctxt = Source_Only_Parameters.put
@@ -4233,6 +4225,12 @@ struct
         positioned_result kind cited (fn () => Syntax.parse_typ read_ctxt (Syntax.implode_input source)
           handle ERROR message => error (labelled label message))
       val raw = URust_Report_Transaction.native ctxt (fn read_ctxt => map (parse read_ctxt) reads)
+      (* Inspect authored variable leaves before native synonym expansion can erase an
+         abbreviation operand. Preserve the native context's schematic-variable policy. *)
+      val _ = List.app (fn (read: signature_read, typ) =>
+        ignore (positioned_result kind (#cited read) (fn () =>
+          Proof_Context.standard_typ_check ctxt (map TVar (Term.add_tvarsT typ [])))))
+        (reads ~~ raw)
       val _ = List.app (observe_binding_syntax_types ctxt o single)
         (take (length (maps hol_sources recipe_types)) (drop (length leading) raw))
       val ordinary = filter (fn binding => null (#callables (binding_spec binding))) original_bindings
