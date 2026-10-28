@@ -4229,7 +4229,9 @@ struct
          abbreviation operand. Preserve the native context's schematic-variable policy. *)
       val _ = List.app (fn (read: signature_read, typ) =>
         ignore (positioned_result kind (#cited read) (fn () =>
-          Proof_Context.standard_typ_check ctxt (map TVar (Term.add_tvarsT typ [])))))
+          Proof_Context.standard_typ_check ctxt
+            (map (fn (name, sort) => TVar (name, #2 (Term_Position.decode_positionS sort)))
+              (Term.add_tvarsT typ [])))))
         (reads ~~ raw)
       val _ = List.app (observe_binding_syntax_types ctxt o single)
         (take (length (maps hol_sources recipe_types)) (drop (length leading) raw))
