@@ -4225,12 +4225,13 @@ struct
         positioned_result kind cited (fn () => Syntax.parse_typ read_ctxt (Syntax.implode_input source)
           handle ERROR message => error (labelled label message))
       val raw = URust_Report_Transaction.native ctxt (fn read_ctxt => map (parse read_ctxt) reads)
-      (* Inspect authored variable leaves before native synonym expansion can erase an
-         abbreviation operand. Preserve the native context's schematic-variable policy. *)
+      (* Inspect authored variable identities before native synonym expansion can erase an
+         abbreviation operand. Raw sorts still contain syntax markers and default-sort
+         placeholders; native certification below checks their actual constraints. *)
       val _ = List.app (fn (read: signature_read, typ) =>
         ignore (positioned_result kind (#cited read) (fn () =>
           Proof_Context.standard_typ_check ctxt
-            (map (fn (name, sort) => TVar (name, #2 (Term_Position.decode_positionS sort)))
+            (map (fn (name, _) => TVar (name, []))
               (Term.add_tvarsT typ [])))))
         (reads ~~ raw)
       val _ = List.app (observe_binding_syntax_types ctxt o single)
