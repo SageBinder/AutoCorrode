@@ -8974,7 +8974,7 @@ ML_val\<open>
        ("f::<a div b>()", "syntax error"),
        ("f::<a mod b>()", "syntax error"),
        ("f::<(1, 2)>()", "syntax error"),
-       ("f::<[1, 2]>()", "unexpected input"),
+       ("f::<[1, 2]>()", "syntax error"),
        ("f::<\"text\">()", "unexpected input"),
        ("f::<STR ''text''>()", "unexpected input"),
        ("f::<1 :: nat>()", "syntax error"),

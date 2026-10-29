@@ -208,8 +208,19 @@ type registry. Lifetimes are accepted in function signatures and erased: `fn F<'
 declares `'a`, `'static` and `'_` need no declaration, and undeclared or duplicate lifetimes are
 rejected. Lifetime bounds and lifetime generic arguments are not interpreted by inferred signatures;
 a declared HOL signature retains literal Rust types under the rules above. Shared
-references `&T` use the explicit policies below. Slices require an explicit HOL escape, and
-references remain unsupported in datatype fields, aliases or casts.
+references `&T` use the explicit policies below, with the canonical slice exception described here.
+Slices `[T]` denote `⟦T⟧ list`, `&[T]` denotes `('address, 'global, ⟦T⟧ list) ro_ref`, and
+`&mut [T]` denotes `('address, 'global, ⟦T⟧ list) ref`, including explicit lifetime forms and
+slice aliases. Borrowed slices share the signature's existing address/global roles. Incompatible
+shared-reference overrides are rejected with a positioned diagnostic; use a HOL type
+antiquotation for an alternate carrier. Slice values work in signatures, datatype fields,
+aliases and generic arguments. Fixed arrays `[T; N]` retain their existing denotation.
+The built-in qualified mapping `std::vec::Vec<T>` denotes `⟦T⟧ list`; unqualified and
+capacity-bearing collections use their single ordinary `urust_type` mapping.
+Equal HOL carriers retain distinct slice, array and nominal vector source identities.
+HOL lists abstract Rust's dynamically sized slices. This feature supplies no borrow checker,
+implicit collection conversions, capacity erasure or nested-borrow collapse.
+References remain unsupported in datatype fields, aliases or casts.
 
 Representation parameters may instead be bound explicitly in the surrounding context:
 
@@ -291,7 +302,7 @@ checked policy selection as an explicit receiver type. Existing modeled storage 
 uses `ro_ref_from_ref`; the policies add no borrow checker, immutable-access enforcement, aliasing
 laws, automatic reads or dereferences. Complete HOL signatures ignore denotation policies and
 their payloads while retaining structural/lifetime checks. Shared-reference fields, aliases
-containing references, slices and higher-ranked callable denotation remain unsupported.
+containing references and higher-ranked callable denotation remain unsupported.
 
 Function items declare type and const parameters in any order after their lifetimes. An empty
 `<>` and a trailing comma are accepted. A type parameter resolves before type mappings, aliases,
@@ -540,14 +551,14 @@ declarations install no mapping or semantic reports. Automatic generated mapping
 overwritten.
 
 Erased arguments still check complete source arity, type/const kind and scope. Type arguments accept
-nominal paths with supported nested arguments, qualified segments, grouping and primitives;
+nominal paths with supported nested arguments, qualified segments, grouping, primitives and recursive slices;
 unmapped tags need no HOL declaration when no bound requires denotation. Const arguments accept
 complete unsigned unsuffixed integers, including zero, and supported declared const parameters;
 discarded numbers create no length type. Scope and formal parameters resolve before imports or
 opaque fallback. Known schemes check their arity, kinds and existing bound evidence without
 strengthening a discarded implicit role.
 
-This is source-shape validation, not complete Rust item resolution. References, pointers, slices,
+This is source-shape validation, not complete Rust item resolution. References, pointers,
 arrays, callable types, `impl Trait`, macros, HOL escapes, lifetimes, associated bindings and
 general const expressions remain rejected inside erased arguments, including nested occurrences.
 Retained arguments keep their existing support. Erasure adds no trait solver, const evaluator,

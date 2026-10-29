@@ -318,6 +318,7 @@ val aq_open_text = ref ""
 val aq_depth = ref 0
 val generic_open = ref (NONE : Position.T option)
 val generic_depth = ref 0
+val generic_groups = ref ([] : string list)
 val log_data_open = ref (NONE : Position.T option)
 val block_comment_open = ref (NONE : int option)
 val block_comment_depth = ref 0
@@ -486,7 +487,7 @@ fun cast_type_token typ =
 fun reset_aq () =
   (aq_kind := No_AQ; aq_buf := []; aq_start := 0; aq_open := 0;
    aq_open_text := ""; aq_depth := 0)
-fun reset_generic () = (generic_open := NONE; generic_depth := 0)
+fun reset_generic () = (generic_open := NONE; generic_depth := 0; generic_groups := [])
 fun reset_log_data () = log_data_open := NONE
 fun reset_block_comment () =
   (block_comment_open := NONE; block_comment_depth := 0;
@@ -1041,6 +1042,17 @@ fun tok_generic_raw markup typ cons (yypos, yytext) =
         (range, markup, typ)
   in cons (yypos, start, stop) end
 
+(* Brackets now occur in type arguments. Reject crossed group delimiters at their own token,
+   before the EOF diagnostic for an unfinished outer turbofish can hide that source leaf. *)
+fun generic_group_open closer = generic_groups := closer :: !generic_groups
+fun generic_group_close text yypos =
+  (case !generic_groups of
+     expected :: rest =>
+       if expected = text then generic_groups := rest
+       else URust_Grammar.lex_error text (source_position (yypos, text))
+   | [] => if text = "]" then URust_Grammar.lex_error text (source_position (yypos, text))
+       else ())
+
 fun tok_matches_bang (yypos, yytext) =
   let
     val range as (start, stop) =
@@ -1522,8 +1534,15 @@ lex_rules\<open>
     (tok_generic_integer (yypos, yytext));
 <GENERIC>{idstart}{identchar}* => (tok_generic_ident (yypos, yytext));
 <GENERIC>"::"     => (tokF (yypos, yytext, Markup.delimiter, "TCOLONCOLON", Tokens.TCOLONCOLON));
-<GENERIC>"("      => (tok_generic_raw Markup.delimiter "GLPAR" Tokens.GLPAR (yypos, yytext));
-<GENERIC>")"      => (tok_generic_raw Markup.delimiter "GRPAR" Tokens.GRPAR (yypos, yytext));
+<GENERIC>"("      => (generic_group_open ")";
+                     tok_generic_raw Markup.delimiter "GLPAR" Tokens.GLPAR (yypos, yytext));
+<GENERIC>")"      => (generic_group_close yytext yypos;
+                     tok_generic_raw Markup.delimiter "GRPAR" Tokens.GRPAR (yypos, yytext));
+<GENERIC>"["      => (generic_group_open "]";
+                     tok_generic_raw Markup.delimiter "GLBRACK" Tokens.GLBRACK (yypos, yytext));
+<GENERIC>"]"      => (generic_group_close yytext yypos;
+                     tok_generic_raw Markup.delimiter "GRBRACK" Tokens.GRBRACK (yypos, yytext));
+<GENERIC>";"      => (tokF (yypos, yytext, Markup.delimiter, "TSEMI", Tokens.TSEMI));
 <GENERIC>","      => (tokF (yypos, yytext, Markup.delimiter, "COMMA", Tokens.COMMA));
 <GENERIC>"+"      => (tokF (yypos, yytext, Markup.operator, "TPLUS", Tokens.TPLUS));
 <GENERIC>"<"      =>
@@ -2281,6 +2300,7 @@ yacc_definitions\<open>
     | TDOLLAR
     | TCONSTOPEN of Parser_Lex_Util.source_layout
     | TWHERE
+    | GLBRACK of int | GRBRACK of int
 %nonterm ustart of URust_AST.parse_result option
        | uitem of URust_AST.urust_item
        | uchunk_items of
@@ -3397,6 +3417,15 @@ yacc_rules\<open>
                            Parsed_Fragment
                              ("(" ^ canonical ^ ")",
                               layout, GLPAR, GRPAR + 1))
+                | GLBRACK ugeneric_additive GRBRACK
+                    (case ugeneric_additive of Parsed_Fragment (canonical, layout, _, _) =>
+                      Parsed_Fragment ("[" ^ canonical ^ "]", layout, GLBRACK, GRBRACK + 1))
+                | GLBRACK ugeneric_additive TSEMI ugeneric_additive GRBRACK
+                    (case (ugeneric_additive1, ugeneric_additive2) of
+                       (Parsed_Fragment (element, layout, _, _),
+                        Parsed_Fragment (length, _, _, _)) =>
+                         Parsed_Fragment ("[" ^ element ^ ";" ^ length ^ "]",
+                           layout, GLBRACK, GRBRACK + 1))
   ugeneric_path : GIDENT
                     (case GIDENT of
                        (name, layout, start, stop) =>
@@ -3836,6 +3865,7 @@ yacc_rules\<open>
     | TLOGDATACLOSE (()) | TSTRUCT (()) | TENUM (()) | TFN (()) | TTHINARROW (()) | TRUSTTYPE (())
     | HOLTYPE (()) | TTYPE (()) | GLT (()) | GGT (()) | GHOLTYPE (()) | TANNOTATION (()) | TUSE (())
     | TPUB (()) | TLIFETIME (()) | TIMPL (()) | TDOLLAR (()) | TCONSTOPEN (())
+    | GLBRACK (()) | GRBRACK (())
   (* The single pattern grammar, shared by every binding site above (D28). Its own nonterminals, disjoint
      from `uexpr`, so the constructor pattern cannot clash with the call production nor or-`|` with bitwise
      or. It deliberately ACCEPTS more than any one site can lower (a numeral in `let`, a constructor under
@@ -4245,7 +4275,9 @@ struct
      (104, "TIMPL", "impl"),
      (105, "TDOLLAR", "$"),
      (106, "TCONSTOPEN", "{"),
-     (107, "TWHERE", "where")]
+     (107, "TWHERE", "where"),
+     (108, "GLBRACK", "["),
+     (109, "GRBRACK", "]")]
 
   val terminal_count = length terminal_specs
 
@@ -4330,7 +4362,8 @@ struct
        T.GGT (0, pos, pos), T.GHOLTYPE (("", lexer_layout, 0, 0), pos, pos),
        T.TANNOTATION (URust_AST.Item_Annotation (source, layout), pos, pos),
        T.TLIFETIME ("", pos, pos), T.TIMPL (lexer_layout, pos, pos),
-       T.TCONSTOPEN (lexer_layout, pos, pos)]
+       T.TCONSTOPEN (lexer_layout, pos, pos),
+       T.GLBRACK (0, pos, pos), T.GRBRACK (0, pos, pos)]
     val valueless_tokens =
       [T.LPAR (pos, pos), T.RPAR (pos, pos), T.TGOPEN (pos, pos), T.TTRUE (pos, pos),
        T.TFALSE (pos, pos), T.TLET (pos, pos), T.TCONST (pos, pos), T.TRETURN (pos, pos),

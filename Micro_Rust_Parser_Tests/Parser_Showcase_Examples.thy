@@ -1785,4 +1785,25 @@ end
 \<close>
 end
 
+section\<open> Canonical slices and qualified vectors \<close>
+
+context notes [[urust_model_parameters = \<open>
+  ["address" \<rightarrow> \<open>nat\<close>, "global" \<rightarrow> \<open>unit\<close>]
+\<close>]]
+begin
+urust_fn [pp_test] showcase_sequences \<open>
+  fn ShowcaseSequences<'a, T>(value: [T], shared: &'a [T], editable: &'a mut [T],
+    vector: std::vec::Vec<T>) -> [T] { value }
+\<close>
+urust_fn showcase_sequences_escape \<open>
+  fn ShowcaseSequencesEscape<T>(value: \<tau>\<open>'T list\<close>,
+    shared: \<tau>\<open>(nat, unit, 'T list) ro_ref\<close>,
+    editable: \<tau>\<open>(nat, unit, 'T list) ref\<close>,
+    vector: \<tau>\<open>'T list\<close>) -> \<tau>\<open>'T list\<close> { value }
+\<close>
+lemma showcase_sequences_twin:
+  \<open> showcase_sequences = showcase_sequences_escape \<close>
+  unfolding showcase_sequences_def showcase_sequences_escape_def by (rule refl)
+end
+
 end

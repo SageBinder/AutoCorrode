@@ -6365,9 +6365,9 @@ ML_val \<open>
         "unknown Rust type \"missing::Pointee\""
         (datatype_command "RawPointerField" "*const missing::Pointee")
     val _ =
-      rejected "slice"
-        "Rust slice types is not supported"
-        (datatype_command "SliceField" "[u8]")
+      rejected "slice-unknown-element"
+        "unknown Rust type \"MissingSliceElement\""
+        (datatype_command "SliceField" "[MissingSliceElement]")
     val _ =
       rejected "zero-array"
         "does not satisfy sort"

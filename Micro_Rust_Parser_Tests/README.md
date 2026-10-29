@@ -6,7 +6,7 @@ and combined showcase examples in one registered session.
 
 ## Test organization
 
-The ROOT registers 22 theories: four support owners, ten readable Examples and eight ML suites.
+The ROOT registers 24 theories: four support owners, eleven readable Examples and nine ML suites.
 The session separates human-readable tests from ML tests. Most topics have two theories:
 
 - `Parser_<Topic>_Examples.thy` contains only Isar: µRust declarations, kernel `refl` equations
@@ -28,6 +28,7 @@ The session separates human-readable tests from ML tests. Most topics have two t
 | Source-ordered `urust` chunks and Rust `use` imports in chunks and blocks | `Parser_Chunk_Use_Examples` | `Parser_Chunk_Use_ML_Tests` |
 | Inherent `impl` blocks: syntax, member declarations and registrations, `Self`, receivers, path selection, type heads, direct calls and imports | `Parser_Impl_Examples` | `Parser_Impl_ML_Tests` |
 | Trait mappings, generic function syntax/signatures, retained rich bounds and declared HOL schemes, scoped bodies and generated turbofish | `Parser_Generics_Examples` | `Parser_Generics_ML_Tests` |
+| Canonical slices, shared/mutable slice borrows, qualified vectors, structural identity and erased slice arguments | `Parser_Sequence_Examples` | `Parser_Sequence_ML_Tests` |
 | Combined showcase | `Parser_Showcase_Examples` | |
 
 Four theories provide shared support. `Parser_Test_Utils.thy` holds the shared ML support
@@ -528,12 +529,22 @@ checks distinct tag/capacity owners with equal HOL Self types, explicit associat
 selection, and the positioned HOL-only receiver limitation.
 
 Erased source shapes accept nominal/qualified paths, supported nested arguments, grouping,
-primitives, unsigned unsuffixed integers including zero and supported scoped const parameters.
+primitives, recursive slices, unsigned unsuffixed integers including zero and supported scoped const parameters.
 Scope and formal hooks precede imports/opaque fallback. Known arity/kinds and rigid existing bound
 evidence are checked without allocating a nested implicit backend. References, pointers, arrays,
-slices, callable types, impl Trait, macros, HOL escapes, lifetimes, associated bindings and general
+callable types, impl Trait, macros, HOL escapes, lifetimes, associated bindings and general
 const expressions remain rejected inside erased arguments, including nested occurrences. This is
 source-shape validation, not full Rust item resolution, trait solving or const evaluation.
+
+The Sequence pair checks `[T]` and `std::vec::Vec<T>` as HOL lists, canonical read-only `&[T]`
+and mutable `&mut [T]` references (including lifetimes and aliases), nested elements and borrows,
+datatype fields, generated calls and sparse generic substitution. Kernel escape twins check
+the definitions, including dereference and update through the existing reference locale.
+Direct metadata tests distinguish slices, arrays and nominal vectors through aliases, erased
+owners, calls and locale interpretations; dispatch serialization preserves the structural
+slice node and origin paths. Positioned rejection and rollback probes cover unknown elements,
+generic kinds, lifetimes, incompatible shared overrides, unsupported reference locations and casts.
+Lists abstract dynamically sized slices; this adds no borrow checker or implicit conversions.
 
 Combined fixtures in each existing owner and the standalone Showcase compose retained payloads,
 erased policy/capacity, aliases and shared backend roles across nested signatures, generated field

@@ -2145,7 +2145,7 @@ urust_expr_rejects \<open> value as () \<close>
   \<open> expanded Rust type has no supported cast operation \<close>
 
 urust_expr_rejects \<open> value as [u8] \<close>
-  \<open> Rust slice types is not supported in cast targets \<close>
+  \<open> expanded Rust type has no supported cast operation \<close>
 
 urust_expr_rejects \<open> value as u8, \<close>
   \<open> syntax error found at , \<close>
@@ -2599,7 +2599,7 @@ urust_expr_rejects \<open> f::<Suc 4>() \<close> \<open> syntax error \<close>
 
 urust_expr_rejects \<open> f::<(1, 2)>() \<close> \<open> syntax error \<close>
 
-urust_expr_rejects \<open> f::<[1, 2]>() \<close> \<open> unexpected input "[" \<close>
+urust_expr_rejects \<open> f::<[1, 2]>() \<close> \<open> syntax error \<close>
 
 urust_expr_rejects \<open> f::<"text">() \<close> \<open> unexpected input \<close>
 

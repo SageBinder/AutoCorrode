@@ -5266,7 +5266,7 @@ local
   val _ = List.app (fn (label, shape) =>
     rejected_source ctxt label "in an erased argument" ("ErasureBox<" ^ shape ^ ",0>"))
     [("erasure-pointer", "*const u8"), ("erasure-reference", "&mut u8"),
-     ("erasure-array", "[u8;4]"), ("erasure-slice", "[u8]"),
+     ("erasure-array", "[u8;4]"),
      ("erasure-callable", "fn(u8)->u8"), ("erasure-impl-trait", "impl Marker"),
      ("erasure-hol", "\<tau>" ^ cartouche "bool"),
      ("erasure-nested-pointer", "foreign::Tag<*const u8>")]

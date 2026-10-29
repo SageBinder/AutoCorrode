@@ -30,4 +30,12 @@ entries over the existing HOL models.
 urust_type "Option<'a>" = \<open>'a option\<close>
 urust_type "Result<'a, 'e>" = \<open>('a, 'e) result\<close>
 
+text\<open>
+The qualified standard vector has one list denotation. Unqualified and capacity-bearing
+collection names remain ordinary nominal mappings. Structural slices also denote lists,
+but retain a distinct source identity.
+\<close>
+
+urust_type "std::vec::Vec<'a>" = \<open>'a list\<close>
+
 end

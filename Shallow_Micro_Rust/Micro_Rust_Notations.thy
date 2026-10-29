@@ -168,7 +168,7 @@ datatype source_head =
   | Mapped_Source of string
   | Opaque_Source of (string * int) list
   | Numeric_Source of int
-  | Tuple_Source | Array_Source | Pointer_Source of bool | Reference_Source of bool;
+  | Tuple_Source | Slice_Source | Array_Source | Pointer_Source of bool | Reference_Source of bool;
 
 datatype source_tree =
     Source_Variable of indexname * source_kind
@@ -1395,7 +1395,8 @@ fun scoped_sparse_encoding ({instances, pending, ...}: scoped_sparse_arguments) 
     fun head (Primitive_Source name) = ("primitive", name)
       | head (Mapped_Source name) = ("mapped", name)
       | head (Numeric_Source value) = ("numeric", string_of_int value)
-      | head Tuple_Source = ("tuple", "") | head Array_Source = ("array", "")
+      | head Tuple_Source = ("tuple", "") | head Slice_Source = ("slice", "")
+      | head Array_Source = ("array", "")
       | head (Pointer_Source mutable) = ("pointer", Bool.toString mutable)
       | head (Reference_Source mutable) = ("reference", Bool.toString mutable)
       | head (Opaque_Source _) = ("opaque", "");
@@ -1457,7 +1458,8 @@ fun scoped_sparse_instances name witnesses =
                     "primitive" => (Primitive_Source value, body)
                   | "mapped" => (Mapped_Source value, body)
                   | "numeric" => (Numeric_Source (Value.parse_int value), body)
-                  | "tuple" => (Tuple_Source, body) | "array" => (Array_Source, body)
+                  | "tuple" => (Tuple_Source, body) | "slice" => (Slice_Source, body)
+                  | "array" => (Array_Source, body)
                   | "pointer" => (Pointer_Source (Value.parse_bool value), body)
                   | "reference" => (Reference_Source (Value.parse_bool value), body)
                   | "opaque" => (case body of XML.Elem (("symbols", []), symbols) :: rest =>

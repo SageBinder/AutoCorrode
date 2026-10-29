@@ -31,8 +31,10 @@ lifetime, to the same \<open>Global_Store.ref\<close> model as raw pointers, sha
 address/global backend roles. Manual mappings request zero, one or both roles from the same lazy
 environment, and generated datatype schemes preserve those roles explicitly. Lifetimes are checked against the function's declared lifetime
 parameters and then erased; they never change the resolved type. Shared signature references
-\<open>&T\<close> require an explicit nominal or item policy selecting value, reference, or readonly.
-The latter two use the same backend environment and the existing ref/ro_ref carriers.
+\<open>&T\<close> require an explicit nominal or item policy selecting value, reference, or readonly,
+except that slices have the fixed readonly representation. Structural \<open>[T]\<close> denotes
+the recursively resolved element's HOL list type. Slice aliases retain this meaning, including
+the canonical borrow policy. The reference carriers use the same backend environment.
 References in datatype fields, aliases and cast targets remain rejected. A function with a
 declared HOL type resolves no signature type while retaining these lifetime scope rules and the
 lexical restrictions on Self and self in Rust type paths.
@@ -116,7 +118,7 @@ Scope records and callbacks remain unchanged. Nested captures retain actual same
 and deactivate on every exit; no observer or captured context is installed in declarations.
 Source-only body references are valid, while a request for an unavailable HOL witness rejects.
 Unmapped erased tags require no HOL declaration when no bound demands denotation. This structural
-subset excludes references, pointers, arrays, slices, callable types, impl Trait, macros, HOL
+subset includes recursively checked slices but excludes references, pointers, arrays, callable types, impl Trait, macros, HOL
 escapes, lifetimes, associated bindings and general const expressions, recursively. Known bounds
 require rigid existing evidence, without strengthening a discarded implicit role.
 \<close>
@@ -497,6 +499,7 @@ struct
     | Meaning_Opaque of (string * meaning list) list
     | Meaning_Numeric of int
     | Meaning_Tuple of meaning list
+    | Meaning_Slice of meaning
     | Meaning_Array of meaning * meaning
     | Meaning_Pointer of raw_pointer_mutability * meaning
     | Meaning_Reference of borrow_mode * meaning
@@ -950,6 +953,7 @@ struct
         | morph (Meaning_Opaque rows) = Meaning_Opaque (map (apsnd (map morph)) rows)
         | morph (Meaning_Numeric n) = Meaning_Numeric n
         | morph (Meaning_Tuple types) = Meaning_Tuple (map morph types)
+        | morph (Meaning_Slice element) = Meaning_Slice (morph element)
         | morph (Meaning_Array (element, length)) = Meaning_Array (morph element, morph length)
         | morph (Meaning_Pointer (mutability, typ)) =
             Meaning_Pointer (mutability, morph typ)
@@ -972,6 +976,7 @@ struct
         | instantiate (Meaning_Numeric n) = Meaning_Numeric n
         | instantiate (Meaning_Tuple types) =
             Meaning_Tuple (map instantiate types)
+        | instantiate (Meaning_Slice element) = Meaning_Slice (instantiate element)
         | instantiate (Meaning_Array (element, length)) =
             Meaning_Array (instantiate element, instantiate length)
         | instantiate (Meaning_Pointer (mutability, typ)) =
@@ -1007,6 +1012,7 @@ struct
   fun meaning_children (Meaning_Mapped (_, _, _, _, _, arguments)) = arguments
     | meaning_children (Meaning_Opaque rows) = maps snd rows
     | meaning_children (Meaning_Tuple types) = types
+    | meaning_children (Meaning_Slice element) = [element]
     | meaning_children (Meaning_Array (element, length)) = [element, length]
     | meaning_children (Meaning_Pointer (_, typ)) = [typ]
     | meaning_children (Meaning_Reference (_, typ)) = [typ]
@@ -1058,6 +1064,7 @@ struct
             (map (fn (name, arguments) => node "segment" [("name", name)] (map encode arguments)) rows)
         | encode (Meaning_Numeric value) = node "numeric" [("value", string_of_int value)] []
         | encode (Meaning_Tuple types) = node "tuple" [] (map encode types)
+        | encode (Meaning_Slice element) = node "slice" [] [encode element]
         | encode (Meaning_Array (element, length)) = node "array" [] [encode element, encode length]
         | encode (Meaning_Pointer (mutability, typ)) =
             node "pointer" [("mutable", Bool.toString (mutability = RPM_Mut))] [encode typ]
@@ -1070,6 +1077,7 @@ struct
         not (null erased) orelse exists identity_sensitive arguments
     | identity_sensitive (Meaning_Opaque _) = true
     | identity_sensitive (Meaning_Tuple types) = exists identity_sensitive types
+    | identity_sensitive (Meaning_Slice element) = identity_sensitive element
     | identity_sensitive (Meaning_Array (element, length)) =
         identity_sensitive element orelse identity_sensitive length
     | identity_sensitive (Meaning_Pointer (_, typ)) = identity_sensitive typ
@@ -1085,6 +1093,7 @@ struct
         | finish_source (Meaning_Opaque rows) =
             Meaning_Opaque (map (apsnd (map finish_source)) rows)
         | finish_source (Meaning_Tuple types) = Meaning_Tuple (map finish_source types)
+        | finish_source (Meaning_Slice element) = Meaning_Slice (finish_source element)
         | finish_source (Meaning_Array (element, length)) =
             Meaning_Array (finish_source element, finish_source length)
         | finish_source (Meaning_Pointer (mode, typ)) = Meaning_Pointer (mode, finish_source typ)
@@ -2606,6 +2615,7 @@ struct
              maps (map (tree Type_Source) o snd) rows)
         | tree _ (Meaning_Numeric value) = Source_Node (Numeric_Source value, [])
         | tree _ (Meaning_Tuple types) = Source_Node (Tuple_Source, map (tree Type_Source) types)
+        | tree _ (Meaning_Slice element) = Source_Node (Slice_Source, [tree Type_Source element])
         | tree _ (Meaning_Array (element, length)) = Source_Node (Array_Source, [tree Type_Source element, tree Const_Source length])
         | tree _ (Meaning_Pointer (mode, typ)) = Source_Node (Pointer_Source (mode = RPM_Mut), [tree Type_Source typ])
         | tree _ (Meaning_Reference (mode, typ)) = Source_Node (Reference_Source (mode = BM_Mut), [tree Type_Source typ])
@@ -3098,6 +3108,18 @@ struct
                SOME selection => SOME selection
              | NONE => (case generic of SOME selection => SOME selection
                  | NONE => Option.mapPartial nominal_selection nominal))
+          (* Aliases have already expanded to structural meaning here. The canonical slice
+             borrow does not depend on the spelling of the target or on an expected HOL type. *)
+          val selected = (case meaning of
+              Meaning_Slice _ =>
+                (case selected of
+                   SOME (policy, _) =>
+                     if policy = Shared_Readonly then selected
+                     else error ("urust_fn: shared slice references have the fixed readonly " ^
+                       "representation; use a HOL type antiquotation for another carrier" ^
+                       Position.here pos)
+                 | NONE => SOME (Shared_Readonly, pos))
+            | _ => selected)
         in
           (case selected of
              SOME (policy, policy_pos) =>
@@ -3269,6 +3291,12 @@ struct
                   val rows = path_rows segments
                   val {base, positions, arities, arguments} = row_information rows
                 in source_nominal base positions arities arguments (source_span layout) rows NONE end
+            | Slice_Type (element, layout) =>
+                let
+                  val value = source_type (SOME Type_Parameter) element
+                in {meaning = Meaning_Slice (#meaning value),
+                  evidence = Option.map HOLogic.listT (#evidence value),
+                  pos = source_span layout} end
             | _ => unsupported kind "this source type form in an erased argument"
                 (rust_type_position rust_type))
           val _ = case expected of NONE => () | SOME role =>
@@ -3472,8 +3500,9 @@ struct
               {typ = reference_typ (#typ target_type) (source_span layout),
                meaning = Meaning_Pointer (mutability, #meaning target_type)}
             end
-        | resolve_type_value _ (Slice_Type (_, layout)) =
-            unsupported kind "Rust slice types" (source_span layout)
+        | resolve_type_value _ (Slice_Type (element, _)) =
+            let val resolved = resolve_type (SOME Type_Parameter) element
+            in {typ = HOLogic.listT (#typ resolved), meaning = Meaning_Slice (#meaning resolved)} end
         | resolve_type_value _ (Array_Type (element, integer, layout)) =
             let val length = length_literal ctxt integer in
               resolve_array (resolve_type NONE element)
@@ -4207,6 +4236,7 @@ struct
                   (map_index I arguments)
             | visit _ (Meaning_Opaque rows) = List.app (visit false) (maps snd rows)
             | visit demand (Meaning_Tuple types) = List.app (visit demand) types
+            | visit demand (Meaning_Slice element) = visit demand element
             | visit demand (Meaning_Array (element, length)) =
                 (visit demand element; visit demand length)
             | visit demand (Meaning_Pointer (_, typ)) = visit demand typ
@@ -4803,6 +4833,7 @@ struct
     | non_path_description _ = "a type without a Rust path"
 
   fun meaning_description _ _ (Meaning_Tuple _) = "a tuple type"
+    | meaning_description _ _ (Meaning_Slice _) = "a slice type"
     | meaning_description _ _ (Meaning_Pointer _) = "a raw pointer type"
     | meaning_description _ _ (Meaning_Reference _) = "a reference type"
     | meaning_description ctxt typ (Meaning_Array _) =
