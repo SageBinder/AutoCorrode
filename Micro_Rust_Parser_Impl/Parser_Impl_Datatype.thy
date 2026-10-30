@@ -36,6 +36,7 @@ sig
      backend: string,
      word_width: int option,
      parameters: rename list,
+     erase_parameters: (string * Position.T) list,
      plugins: Proof.context -> Plugin_Name.filter}
   type prepared
   val prepare: declaration -> URust_AST.urust_datatype -> local_theory -> prepared
@@ -66,6 +67,7 @@ type declaration =
    backend: string,
    word_width: int option,
    parameters: rename list,
+   erase_parameters: (string * Position.T) list,
    plugins: Proof.context -> Plugin_Name.filter}
 
 fun verbosity_output_enabled interactive lthy =
@@ -166,6 +168,42 @@ fun duplicate_names what entries =
             ("duplicate " ^ what ^ " " ^ quote name) pos
           else check (Symtab.update (name, ()) seen) rest
   in check Symtab.empty entries end
+
+fun check_erased_parameters descriptors erased =
+  let
+    val _ = duplicate_names "erased parameter" erased
+    val names = map (fn URust_AST.Generic_Parameter (name, _, _) => name) descriptors
+    val _ = List.app (fn (name, pos) =>
+      if member (op =) names name then ()
+      else positioned_datatype_error ("unknown erased parameter " ^ quote name) pos) erased
+  in () end
+
+(* Every source slot survives. Only its HOL witness may be absent, and explicit
+   selection never changes a field's checked denotation to make that possible. *)
+fun partition_parameter_witnesses erased descriptors parameters types =
+  let
+    val required = fold Term.add_tfreesT types []
+    fun witness (URust_AST.Generic_Parameter (name, _, _), parameter) =
+      (case AList.lookup (op =) erased name of
+         NONE => SOME parameter
+       | SOME pos =>
+           if member (op =) required parameter then
+             positioned_datatype_error
+               ("erased parameter " ^ quote name ^ " is still required by a datatype field") pos
+           else NONE)
+  in map witness (descriptors ~~ parameters) end
+
+fun native_parameter_witnesses erased descriptors parameters =
+  let
+    fun witness (URust_AST.Generic_Parameter (name, _, _)) remaining =
+      if AList.defined (op =) erased name then (NONE, remaining)
+      else (case remaining of
+         parameter :: rest => (SOME parameter, rest)
+       | [] => raise Fail "uRust datatype: native source witness list is incomplete")
+    val (witnesses, remaining) = fold_map witness descriptors parameters
+    val _ = if null remaining then () else
+      raise Fail "uRust datatype: native source witness list has unused parameters"
+  in witnesses end
 
 fun payload_key variant member = variant ^ "." ^ member
 
@@ -983,6 +1021,8 @@ type generated_artifacts =
    source_item: URust_AST.urust_datatype,
    source_descriptors: URust_AST.generic_parameter list,
    parameter_overrides: rename list,
+   erase_parameters: (string * Position.T) list,
+   source_witnesses: (string * sort) option list,
    selector_definitions: thm list,
    lens_definitions: (string * thm) list,
    item: URust_AST.urust_datatype}
@@ -1031,7 +1071,8 @@ fun theorem_for_definition lthy constant_name =
     (try (Proof_Context.get_thm lthy)
       (Thm.def_name constant_name))
 
-fun completed_generated_artifacts source_item source_descriptors parameter_overrides register_notation
+fun completed_generated_artifacts source_item source_descriptors parameter_overrides erase_parameters
+    register_notation
     ({rust_name, hol_type_name, hol_type, backend_parameters, backend, source_parameters,
       selector_definitions, item, ...}: generated_datatype) lthy =
   let
@@ -1076,6 +1117,8 @@ fun completed_generated_artifacts source_item source_descriptors parameter_overr
      register_notation = register_notation,
      source_item = source_item, source_descriptors = source_descriptors,
      parameter_overrides = parameter_overrides,
+     erase_parameters = erase_parameters,
+     source_witnesses = native_parameter_witnesses erase_parameters source_descriptors source_parameters,
      selector_definitions = selector_definitions,
      lens_definitions = lens_definitions,
      item = item}: generated_artifacts
@@ -1139,7 +1182,7 @@ fun report_generated_field_declarations lthy
 
 fun report_generated_datatype_replay lthy
     ({rust_name, hol_type_name, source_parameters, backend_parameters,
-      source_descriptors, parameter_overrides,
+      source_descriptors, parameter_overrides, erase_parameters,
       constructors, source_item = original_item, ...}:
       generated_artifacts)
     source =
@@ -1169,7 +1212,10 @@ fun report_generated_datatype_replay lthy
        batch's fresh names may differ from the native datatype parameters. *)
     val replayed_fields =
       URust_Type_Mappings.resolve_declaration lthy source_descriptors parameter_overrides (item_field_types replayed_item)
-    val replayed_parameters = #source_parameters replayed_fields @ #backend_parameters replayed_fields
+    val replayed_witnesses =
+      partition_parameter_witnesses erase_parameters source_descriptors
+        (#source_parameters replayed_fields) (#types replayed_fields)
+    val replayed_parameters = map_filter I replayed_witnesses @ #backend_parameters replayed_fields
     val complete_parameters = source_parameters @ backend_parameters
     val _ =
       if map snd replayed_parameters = map snd complete_parameters then ()
@@ -1421,7 +1467,7 @@ fun pretty_manifest_section _ [] = []
 
 fun pretty_datatype_manifest lthy
     (artifacts as {rust_name, hol_type_name, constructors, lenses, register_notation,
-      backend, source_descriptors, source_parameters, backend_parameters, ...}:
+      backend, source_descriptors, source_witnesses, backend_parameters, ...}:
       generated_artifacts) =
   let
     val constructor_rows =
@@ -1451,12 +1497,13 @@ fun pretty_datatype_manifest lthy
          pretty_type_identity lthy hol_type_name]
     val parameter_ctxt = Config.put show_sorts true lthy
     val parameter_rows = map2
-      (fn URust_AST.Generic_Parameter (name, _, kind) => fn parameter =>
+      (fn URust_AST.Generic_Parameter (name, _, kind) => fn witness =>
         Pretty.block
           [Pretty.str ((case kind of URust_AST.Type_Parameter => ""
              | URust_AST.Const_Parameter => "const ") ^ name ^ " -> "),
-           Syntax.pretty_typ parameter_ctxt (TFree parameter)])
-      source_descriptors source_parameters
+           (case witness of NONE => Pretty.str "erased"
+            | SOME parameter => Syntax.pretty_typ parameter_ctxt (TFree parameter))])
+      source_descriptors source_witnesses
     val implicit_rows = map (fn parameter => Pretty.block
       [Pretty.str "implicit ", Syntax.pretty_typ parameter_ctxt (TFree parameter)])
       backend_parameters
@@ -1678,7 +1725,7 @@ type prepared =
    discriminants: (string * URust_AST.integer_literal) list}
 
 fun prepare
-    (declaration as {source, explicit_binding, pp_test, renames, unprefixed_selectors, backend,
+    (declaration as {source, explicit_binding, pp_test, renames, unprefixed_selectors, erase_parameters, backend,
       word_width, ...} : declaration) source_item lthy : prepared =
   let
     val (descriptors, repr, discriminants, item) = case source_item of
@@ -1689,6 +1736,7 @@ fun prepare
          URust_AST.Struct_Item (name, pos, _, _) => (name, pos)
        | URust_AST.Enum_Item (name, pos, _, _) => (name, pos))
     val _ = URust_AST.reject_datatype_keyword_names source_item
+    val _ = check_erased_parameters descriptors erase_parameters
     val _ = reject_recursive_item rust_name item
     val _ = List.app (fn (name, pos, _, shape) => validate_shape name pos shape)
       (item_constructor_descriptors item)
@@ -1774,7 +1822,7 @@ fun prepared_registrations ctxt
 
 fun declare_prepared
     ({declaration =
-        {interactive, verbosity, pretty, register_notation, parameters, plugins, backend,
+        {interactive, verbosity, pretty, register_notation, parameters, erase_parameters, plugins, backend,
          word_width, ...},
       source_item, descriptors, item, rust_name, rust_pos, type_binding, resolved_renames,
       repr, discriminants}: prepared) lthy =
@@ -1784,20 +1832,23 @@ fun declare_prepared
     val ((final_lthy, artifacts, pretty_declaration), type_reports) =
       URust_Report_Transaction.capture (fn () =>
         let
-          val {types, source_parameters, backend_parameters = role_parameters} =
+          val {types, source_parameters = resolved_parameters, backend_parameters = role_parameters} =
             URust_Type_Mappings.resolve_declaration_roles lthy descriptors parameters (item_field_types item)
+          val source_witnesses =
+            partition_parameter_witnesses erase_parameters descriptors resolved_parameters types
+          val source_parameters = map_filter I source_witnesses
           val backend_parameters = map snd role_parameters
           val all_parameters = source_parameters @ backend_parameters
           (* Backend selection follows field resolution, so item diagnostics keep their order. *)
           val (selected, width, values) = select_backend backend word_width repr discriminants item
           val _ =
-            URust_Type_Mappings.preflight_declaration_role_scheme
+            URust_Type_Mappings.preflight_sparse_declaration_role_scheme
               {rust_name = rust_name,
                rust_pos = rust_pos,
                hol_type_name = expected_hol_type_name,
                hol_type =
                  Type (expected_hol_type_name, map TFree all_parameters),
-               source_parameters = source_parameters,
+               source_parameters = source_witnesses,
                parameter_kinds = map (fn URust_AST.Generic_Parameter (_, _, kind) => kind) descriptors,
                backend_parameters = role_parameters}
               lthy
@@ -1824,12 +1875,13 @@ fun declare_prepared
               val registered_lthy =
                 generated_lthy
                 |> register_generated_datatype generated
-                |> URust_Type_Mappings.register_declaration_role_scheme
+                |> URust_Type_Mappings.register_sparse_declaration_role_scheme
                     {rust_name = rust_name,
                      rust_pos = rust_pos,
                      hol_type_name = #hol_type_name generated,
                      hol_type = #hol_type generated,
-                     source_parameters = #source_parameters generated,
+                     source_parameters = native_parameter_witnesses erase_parameters descriptors
+                       (#source_parameters generated),
                      parameter_kinds =
                        map (fn URust_AST.Generic_Parameter (_, _, kind) => kind) descriptors,
                      backend_parameters = map fst role_parameters ~~ #backend_parameters generated}
@@ -1842,7 +1894,7 @@ fun declare_prepared
           val (generated, final_lthy) =
             URust_Report_Transaction.invisible_declarations (K I) generate lthy
           val artifacts =
-            completed_generated_artifacts source_item descriptors parameters register_notation
+            completed_generated_artifacts source_item descriptors parameters erase_parameters register_notation
               generated final_lthy
           val _ =
             URust_Report_Transaction.defer_definitions final_lthy

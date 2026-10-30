@@ -4552,7 +4552,8 @@ ML_val\<open>
            explicit_binding = NONE, interactive = false, verbosity = 0,
            pp_test = true, pretty = false, register_notation = true, renames = [],
            unprefixed_selectors = NONE,
-           backend = "hol", word_width = NONE, parameters = [], plugins = K Plugin_Name.default_filter}
+           backend = "hol", word_width = NONE, parameters = [], erase_parameters = [],
+           plugins = K Plugin_Name.default_filter}
           lthy) ()
     val _ =
       (case rejected of
@@ -5264,7 +5265,8 @@ ML_val \<open>
     {source = source, explicit_binding = NONE, interactive = false, verbosity = 0,
      pp_test = true, pretty = false, register_notation = true, renames = [],
      unprefixed_selectors = NONE,
-     backend = "simple_word_enum", word_width = SOME 8, parameters = [], plugins = K Plugin_Name.default_filter})
+     backend = "simple_word_enum", word_width = SOME 8, parameters = [], erase_parameters = [],
+     plugins = K Plugin_Name.default_filter})
       (Named_Target.theory_init \<^theory>)
   val _ = case result of Exn.Res _ => error "explicit word backend discarded a stored singleton payload"
     | Exn.Exn exn => if String.isSubstring "no payload" (Runtime.exn_message exn) then ()
@@ -7834,6 +7836,220 @@ ML_val\<open>
       (wrapped = Type (\<^type_name>\<open>option\<close>, [pointer]) andalso aliased = pointer andalso
         map fst (#backend_parameters batch) = ["'urust_address", "'urust_global"])
   in val _ = () end
+\<close>
+
+section\<open> Explicit datatype parameter erasure audits \<close>
+
+ML_val\<open>
+local
+  structure M = URust_Type_Mappings
+  structure I = URust_Item_Scope
+  structure N = Micro_Rust_Names
+  structure T = Selector_Name_Test
+  val ctxt = \<^context>
+  val thy = \<^theory>
+  fun require label condition = if condition then () else
+    error ("datatype erasure: " ^ label)
+  fun entry name = the (M.lookup ctxt name)
+  fun parsed text = URust_Parser.parse_type_source ctxt (Parser_Lex_Util.text_source text)
+  fun resolved text = M.resolve ctxt (parsed text)
+  val _ = require "all-erased records retain source slots without HOL phantom parameters"
+    (M.entry_arities (entry "ErasureConstRecord") = [1] andalso
+     M.entry_parameter_kinds (entry "ErasureConstRecord") = [URust_AST.Const_Parameter] andalso
+     M.entry_parameter_sorts (entry "ErasureConstRecord") = [[]] andalso
+     M.entry_erased_parameters (entry "ErasureConstRecord") = [0] andalso
+     M.entry_template (entry "ErasureConstRecord") = \<^typ>\<open>erasure_const_record\<close> andalso
+     M.entry_template (entry "ErasureTypeRecord") = \<^typ>\<open>erasure_type_record\<close>)
+  val mixed = entry "ErasureMixedRecord"
+  val _ = require "source order survives reordered erasure selections"
+    (M.entry_arities mixed = [4] andalso
+     M.entry_parameter_kinds mixed =
+       [URust_AST.Type_Parameter, URust_AST.Type_Parameter,
+        URust_AST.Const_Parameter, URust_AST.Const_Parameter] andalso
+     M.entry_erased_parameters mixed = [1, 3] andalso
+     M.entry_parameter_sorts mixed =
+       [\<^sort>\<open>type\<close>, [], \<^sort>\<open>len\<close>, []] andalso
+     sort (prod_ord string_ord int_ord) (map #1 (Term.add_tvarsT (M.entry_template mixed) [])) =
+       [("_urust_type", 0), ("_urust_type", 2)])
+  val _ = require "aliases forward erased source slots without changing field types"
+    (resolved "ErasureConstAlias<0>" = \<^typ>\<open>erasure_const_record\<close> andalso
+     resolved "ErasureMixedAlias<u8, foreign::Tag<u16>, 4, 0>" =
+       \<^typ>\<open>(8 word, 4) erasure_mixed_record\<close> andalso
+     M.entry_erased_parameters (entry "ErasureMixedAlias") = [1, 3])
+  val _ = List.app (fn (name, hol_type) =>
+    let val mapping = entry name in
+      require ("backend retained phantom parameters: " ^ name)
+        (M.entry_erased_parameters mapping = [0, 1] andalso
+         M.entry_template mapping = hol_type andalso
+         null (Term.add_tvarsT (M.entry_template mapping) []))
+    end)
+    [("ErasureCustomEnum", \<^typ>\<open>erasure_custom_enum\<close>),
+     ("ErasureNativeEnum", \<^typ>\<open>erasure_native_enum\<close>),
+     ("ErasureTupleRecord", \<^typ>\<open>erasure_tuple_record\<close>)]
+  val _ = require "word backend retains the checked const source slot"
+    (M.entry_arities (entry "ErasureWordEnum") = [1] andalso
+     M.entry_erased_parameters (entry "ErasureWordEnum") = [0] andalso
+     M.entry_template (entry "ErasureWordEnum") = \<^typ>\<open>erasure_word_enum\<close>)
+  val constructor = the (I.lookup_constructor ctxt "ErasureConstRecord")
+  val _ = require "constructor and selector schemes use the checked parameterless type"
+    (body_type (fastype_of (I.constructor_scheme constructor)) =
+       \<^typ>\<open>erasure_const_record\<close> andalso
+     map (fastype_of o I.field_scheme) (I.constructor_field_entries constructor) =
+       [\<^typ>\<open>erasure_const_record \<Rightarrow> 8 word\<close>])
+  val [identity_entry] = N.lookups ctxt N.NFunction "ErasureRecordIdentity"
+  val identity_slots = the (M.generic_source_scheme_for_source ctxt (#serial identity_entry))
+  val _ = require "function scheme forwarding acquired an erased HOL witness"
+    (map #rust identity_slots = ["N"] andalso forall (is_none o #hol) identity_slots)
+  val (zero, zero_source) = M.resolve_impl_target_identity ctxt (parsed "ErasureConstRecord<0>")
+  val (seven, seven_source) = M.resolve_impl_target_identity ctxt (parsed "ErasureConstRecord<7>")
+  val (_, alias_source) = M.resolve_impl_target_identity ctxt (parsed "ErasureConstAlias<0>")
+  val _ = require "equal HOL types collapsed distinct source specializations"
+    (#self_type zero = #self_type seven andalso is_some zero_source andalso is_some seven_source andalso
+     M.source_identity_name (the zero_source) <> M.source_identity_name (the seven_source) andalso
+     Option.map M.source_identity_name zero_source = Option.map M.source_identity_name alias_source)
+  val _ = require "locale transport lost the generated source erasure scheme"
+    (M.entry_arities (entry "ErasureTransportRecord") = [1] andalso
+     M.entry_erased_parameters (entry "ErasureTransportRecord") = [0])
+  val backend = entry "ErasureBackendFields"
+  val _ = require "source erasure dropped or reordered required backend roles"
+    (M.entry_arities backend = [3] andalso
+     M.entry_erased_parameters backend = [1, 2] andalso
+     M.entry_backend_roles backend = [M.Address, M.Global] andalso
+     length (Term.add_tvarsT (M.entry_template backend) []) = 3)
+  val backend_fields =
+    I.constructor_field_entries (the (I.lookup_constructor ctxt "ErasureBackendFields"))
+  val _ = require "erasure changed the shared backend carrier of checked fields"
+    (map (range_type o fastype_of o I.field_scheme) backend_fields =
+      replicate 2 (range_type (fastype_of (I.field_scheme (hd backend_fields)))))
+  val _ = require "empty explicit policy changed the retained phantom scheme"
+    (M.entry_arities (entry "ErasureEmptyPolicy") = [1] andalso
+     null (M.entry_erased_parameters (entry "ErasureEmptyPolicy")) andalso
+     M.entry_parameter_sorts (entry "ErasureEmptyPolicy") = [\<^sort>\<open>len0\<close>] andalso
+     length (Term.add_tvarsT (M.entry_template (entry "ErasureEmptyPolicy")) []) = 1)
+
+  fun rejection (label, options, source, expected) =
+    let
+      val command = "urust_datatype " ^ options ^ " " ^ T.cartouche source
+      val failed = T.run_output thy label command
+      val _ = case #result failed of
+          Exn.Res _ => error (label ^ ": invalid erasure was accepted")
+        | Exn.Exn exn =>
+            if Exn.is_interrupt exn then Exn.reraise exn
+            else require (label ^ ": wrong or unpositioned diagnostic: " ^ T.plain_message exn)
+              (String.isSubstring expected (T.plain_message exn) andalso
+               not (null (T.message_positions exn)))
+      val _ = require (label ^ ": failed declaration leaked a generated mapping or item")
+        (is_none (M.lookup ctxt "ErasureRejected") andalso
+         is_none (I.lookup_type ctxt "ErasureRejected") andalso
+         is_none (I.lookup_constructor ctxt "ErasureRejected"))
+      val _ = require (label ^ ": failed declaration emitted a definition entity")
+        (not (exists (fn (name, properties) =>
+          name = Markup.entityN andalso is_some (Properties.get properties Markup.defN))
+          (#markup failed)))
+    in () end
+  val _ = List.app rejection
+    [("datatype-erasure-unknown", "[erase_parameters = [\"Missing\"]]",
+       "struct ErasureRejected<const N: usize> { value: u8 }", "unknown erased parameter"),
+     ("datatype-erasure-duplicate", "[erase_parameters = [\"N\", \"N\"]]",
+       "struct ErasureRejected<const N: usize> { value: u8 }", "duplicate erased parameter"),
+     ("datatype-erasure-required-type", "[erase_parameters = [\"T\"]]",
+       "struct ErasureRejected<T> { value: T }", "is still required by a datatype field"),
+     ("datatype-erasure-required-const", "[erase_parameters = [\"N\"]]",
+       "struct ErasureRejected<const N: usize> { values: [u8; N] }",
+       "is still required by a datatype field"),
+     ("datatype-erasure-required-escape", "[erase_parameters = [\"T\"]]",
+       "struct ErasureRejected<T> { value: \<tau>\<open>'t option\<close> }",
+       "is still required by a datatype field"),
+     ("datatype-erasure-option-bare", "[erase_parameters]",
+       "struct ErasureRejected<const N: usize> { value: u8 }", "quoted Rust parameter names"),
+     ("datatype-erasure-option-boolean", "[erase_parameters = true]",
+       "struct ErasureRejected<const N: usize> { value: u8 }", "quoted Rust parameter names")]
+  val _ = List.app (fn (label, names, name, occurrence, message) =>
+    let
+      val command = "urust_datatype [erase_parameters = " ^ names ^ "] " ^
+        T.cartouche "struct ErasureRejected<const N: usize> { value: u8 }"
+    in T.rejected_at thy label message (T.key_range command occurrence name) command end)
+    [("datatype-erasure-unknown-position", "[\"Missing\"]", "Missing", 1,
+        "unknown erased parameter"),
+     ("datatype-erasure-duplicate-position", "[\"N\", \"N\"]", "N", 2,
+        "duplicate erased parameter")]
+  val _ = List.app (fn (label, source, expected) =>
+    let
+      val command = "urust_type_alias " ^ T.cartouche ("type ErasureRejected = " ^ source ^ ";")
+      val result = T.run_output thy label command
+    in case #result result of Exn.Res _ => error (label ^ ": malformed source arguments accepted")
+      | Exn.Exn exn => require (label ^ ": wrong source-argument diagnostic")
+          (String.isSubstring expected (T.plain_message exn) andalso
+           not (null (T.message_positions exn))) end)
+    [("datatype-erasure-arity", "ErasureConstRecord<0, 1>", "generic arities"),
+     ("datatype-erasure-kind", "ErasureConstRecord<u8>", "type parameters used as const arguments"),
+     ("datatype-erasure-out-of-scope", "ErasureConstRecord<N>", "type parameters used as const arguments"),
+     ("datatype-erasure-type-kind", "ErasureTypeRecord<0>", "numeric generic arguments for type parameters")]
+  val recovered = T.succeeded thy "datatype-erasure-recovery"
+    ("urust_datatype [erase_parameters = [\"N\"]] " ^
+      T.cartouche "struct ErasureRejected<const N: usize> { value: u8 }")
+  val _ = require "failed declarations prevented a later valid declaration"
+    (M.entry_erased_parameters (the (M.lookup recovered "ErasureRejected")) = [0])
+in
+  val _ = writeln "explicit datatype source slots, witness masks, identities, rollback and backends PASS"
+end
+\<close>
+
+ML_val\<open>
+local
+  open Live_Parameter_Parity
+  val thy = \<^theory>
+  val native = run thy "datatype-erasure-native-parity"
+    ("datatype_record erasure_parity_record = erasure_parity_record_value :: \<open>8 word\<close>\n" ^
+     "micro_rust_record erasure_parity_record (erasure_parity_record_value = \"value\")")
+  val erased = run thy "datatype-erasure-source-parity"
+    ("urust_datatype [erase_parameters = [\"N\"]] " ^
+     cartouche "struct ErasureParityRecord<const N: usize> { value: u8 }")
+  val native_artifacts = artifacts thy native
+  val erased_artifacts = artifacts thy erased
+in
+  val _ = require "explicit erasure changed native parameterless record artifacts"
+    (native_artifacts = erased_artifacts)
+end
+\<close>
+
+ML_val\<open>
+local
+  structure M = URust_Type_Mappings
+  structure T = Selector_Name_Test
+  fun require label condition = if condition then () else
+    error ("generated erasure merge: " ^ label)
+  val parent = Theory.end_theory \<^theory>
+  fun branch label parameters rhs =
+    Theory.begin_theory (label, Position.none) [parent]
+    |> (fn thy => T.succeeded thy label
+      ("urust_type_alias " ^ T.cartouche
+        ("type ErasureMergeAlias<" ^ parameters ^ "> = ErasureMixedRecord<" ^ rhs ^ ">;")))
+    |> Proof_Context.theory_of |> Theory.end_theory
+  val left = branch "datatype-erasure-merge-left"
+    "P, Tag, const N: usize, const M: usize" "P, Tag, N, M"
+  val right = branch "datatype-erasure-merge-right"
+    "Value, Marker, const Size: usize, const Limit: usize" "Value, Marker, Size, Limit"
+  fun merged label parents =
+    Theory.begin_theory (label, Position.none) parents |> Proof_Context.init_global
+  val forward = merged "DatatypeErasureMergeForward" [left, right]
+  val reverse = merged "DatatypeErasureMergeReverse" [right, left]
+  fun mapping ctxt = the (M.lookup ctxt "ErasureMergeAlias")
+  val _ = require "alpha-renaming or merge order changed sparse source metadata"
+    (M.entry_template (mapping forward) = M.entry_template (mapping reverse) andalso
+     M.entry_parameter_sorts (mapping forward) = M.entry_parameter_sorts (mapping reverse) andalso
+     M.entry_parameter_kinds (mapping forward) = M.entry_parameter_kinds (mapping reverse) andalso
+     M.entry_erased_parameters (mapping forward) = [1, 3] andalso
+     M.entry_erased_parameters (mapping reverse) = [1, 3])
+  fun source_key ctxt =
+    URust_Parser.parse_type_source ctxt (Parser_Lex_Util.text_source
+      "ErasureMergeAlias<u8, foreign::Tag<0>, 4, 0>")
+    |> M.resolve_impl_target_identity ctxt |> #2 |> the |> M.source_identity_name
+  val _ = require "merge order changed generated nominal source identity"
+    (source_key forward = source_key reverse)
+in
+  val _ = writeln "generated sparse source schemes and alpha-renamed aliases merge both ways PASS"
+end
 \<close>
 
 end

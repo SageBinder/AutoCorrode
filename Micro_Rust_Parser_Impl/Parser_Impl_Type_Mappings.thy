@@ -218,6 +218,16 @@ sig
      hol_type: typ, source_parameters: (string * sort) list,
      parameter_kinds: URust_AST.generic_parameter_kind list,
      backend_parameters: (backend_role * (string * sort)) list} -> local_theory -> local_theory
+  val preflight_sparse_declaration_role_scheme:
+    {rust_name: string, rust_pos: Position.T, hol_type_name: string,
+     hol_type: typ, source_parameters: (string * sort) option list,
+     parameter_kinds: URust_AST.generic_parameter_kind list,
+     backend_parameters: (backend_role * (string * sort)) list} -> local_theory -> unit
+  val register_sparse_declaration_role_scheme:
+    {rust_name: string, rust_pos: Position.T, hol_type_name: string,
+     hol_type: typ, source_parameters: (string * sort) option list,
+     parameter_kinds: URust_AST.generic_parameter_kind list,
+     backend_parameters: (backend_role * (string * sort)) list} -> local_theory -> local_theory
   val resolve_cast:
     Proof.context -> URust_AST.source_cast_target -> URust_AST.cast_target
   val declare_alias:
@@ -1377,7 +1387,7 @@ struct
          (mapped_meaning base (Type (hol_type_name, [])) [] [] []) [])
     end
 
-  fun declaration_role_scheme_candidate
+  fun sparse_declaration_role_scheme_candidate
       {rust_name, rust_pos, hol_type_name, hol_type,
        source_parameters, parameter_kinds, backend_parameters} =
     let
@@ -1385,7 +1395,7 @@ struct
         parse_mapping_key_text (rust_name, rust_pos)
       val _ = if null parameters then () else
         mapping_error "generated type names cannot contain mapping placeholders" rust_pos
-      val all_parameters = source_parameters @ map snd backend_parameters
+      val all_parameters = map_filter I source_parameters @ map snd backend_parameters
       val roles = map fst backend_parameters
       val _ =
         if null (Term.add_tvarsT hol_type []) andalso
@@ -1394,22 +1404,34 @@ struct
            length source_parameters = length parameter_kinds andalso
            length roles = length (distinct (op =) roles)
         then () else mapping_error "generated type scheme parameters are inconsistent" rust_pos
-      val source_sorts = map snd source_parameters
+      val source_sorts = map (fn NONE => [] | SOME (_, sort) => sort) source_parameters
+      val erased = map_index (fn (index, NONE) => SOME index | _ => NONE)
+        source_parameters |> map_filter I
       val role_parameters = map (fn role =>
         (role, the (AList.lookup (op =) backend_parameters role))) (role_order roles)
       val role_sorts = map (apsnd snd) role_parameters
       val substitutions =
-        map_index (fn (index, parameter as (_, sort)) =>
-          (TFree parameter, canonical_parameter index sort)) source_parameters @
+        map_index (fn (index, SOME (parameter as (_, sort))) =>
+          SOME (TFree parameter, canonical_parameter index sort) | _ => NONE)
+          source_parameters |> map_filter I
+      val substitutions = substitutions @
         map (fn (role, parameter as (_, sort)) =>
           (TFree parameter, canonical_backend_parameter role sort)) role_parameters
       val template = Term.typ_subst_atomic substitutions hol_type
       val arities = take (length segment_arities - 1) segment_arities @ [length source_parameters]
     in
       (base, make_entry (Generated hol_type_name) rust_pos arities template
-        parameter_kinds source_sorts [] role_sorts
-        (mapped_meaning base template source_sorts [] role_sorts) [])
+        parameter_kinds source_sorts erased role_sorts
+        (mapped_meaning base template source_sorts erased role_sorts) [])
     end
+
+  fun declaration_role_scheme_candidate
+      {rust_name, rust_pos, hol_type_name, hol_type,
+       source_parameters, parameter_kinds, backend_parameters} =
+    sparse_declaration_role_scheme_candidate
+      {rust_name = rust_name, rust_pos = rust_pos, hol_type_name = hol_type_name,
+       hol_type = hol_type, source_parameters = map SOME source_parameters,
+       parameter_kinds = parameter_kinds, backend_parameters = backend_parameters}
 
   fun legacy_backend_parameters pos [] = []
     | legacy_backend_parameters _ [address, global] = [(Address, address), (Global, global)]
@@ -1447,6 +1469,14 @@ struct
 
   fun register_declaration_role_scheme specification lthy =
     let val (base, candidate) = declaration_role_scheme_candidate specification
+    in install_prepared base candidate lthy end
+
+  fun preflight_sparse_declaration_role_scheme specification lthy =
+    let val (base, candidate) = sparse_declaration_role_scheme_candidate specification
+    in ignore (preflight lthy base candidate) end
+
+  fun register_sparse_declaration_role_scheme specification lthy =
+    let val (base, candidate) = sparse_declaration_role_scheme_candidate specification
     in install_prepared base candidate lthy end
 
   fun preflight_generated specification lthy =

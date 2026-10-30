@@ -224,7 +224,11 @@ Type/const parameters retain source order, including unused parameters. Const pa
 HOL length types, initially \<open>len0\<close> and strengthened where fields require \<open>len\<close>.
 The option \<open>hol_type_parameters = ["T" \<rightarrow> \<open>'a::address_type\<close>]\<close> supplies local
 HOL names/sorts, with the same quoted keys and cartouche targets.
-Unused type parameters are retained independently of fields. Automatic \<open>PhantomData\<close> field
+Without an explicit policy, unused HOL parameters are retained independently of fields.
+The inline-only option \<open>erase_parameters = ["T", "N"]\<close> removes selected HOL witnesses
+after checking the field types. Every Rust source slot and its kind remain checked, in declaration
+order. Unknown or duplicate names, and witnesses still needed by fields, are positioned errors.
+Selection does not change a field's mapped type. Automatic \<open>PhantomData\<close> field
 handling is deferred; ordinary explicit HOL definitions and manual type/notation mappings remain
 available, with all mapped fields stored and required.
 The default \<open>backend = auto\<close> chooses the custom enum for ordinary enums and the word backend
@@ -451,6 +455,7 @@ val attributes_option = "attrs"
 val register_notation_option = "register_notation"
 val hol_names_option = "hol_names"
 val hol_type_parameters_option = "hol_type_parameters"
+val erase_parameters_option = "erase_parameters"
 val model_parameters_option = "model_parameters"
 val ambient_type_parameters_option = "ambient_type_parameters"
 val shared_references_option = "shared_references"
@@ -490,6 +495,7 @@ datatype command_option_value =
   | Integer_Value of int
   | Attributes_Value of Token.src list
   | Renames_Value of URust_Datatype.rename list
+  | Names_Value of (string * Position.T) list
   | Type_Bindings_Value of URust_Model_Parameters.rename list
   | Type_Value of Input.source
   | Backend_Value of string
@@ -501,6 +507,7 @@ datatype command_option_config =
   | Integer_Config of int Config.T
   | Attributes_Config
   | Renames_Config
+  | Names_Config
   | Type_Bindings_Config
   | Type_Config of string
   | Backend_Config
@@ -548,6 +555,7 @@ val datatype_option_configs =
      (hol_names_option, Renames_Config),
      (unprefixed_selectors_option, Boolean_Config unprefixed_selectors_inline),
      (hol_type_parameters_option, Renames_Config),
+     (erase_parameters_option, Names_Config),
      ("backend", Backend_Config),
      ("word_width", Width_Config),
      ("plugins", Plugins_Config)]
@@ -615,6 +623,8 @@ fun add_inline_option option_configs
                   option_type_error name "an Isabelle attribute list" name_pos
               | (Renames_Config, NONE) =>
                   option_type_error name rename_list_expectation name_pos
+              | (Names_Config, NONE) =>
+                  option_type_error name "a list of quoted Rust parameter names" name_pos
               | (Type_Bindings_Config, NONE) =>
                   option_type_error name "a list of positioned HOL type bindings" name_pos
               | (Type_Config _, NONE) =>
@@ -645,6 +655,8 @@ fun add_inline_option option_configs
                   Attributes_Value attributes
               | (Renames_Config, SOME (Renames_Value renames, _)) =>
                   Renames_Value renames
+              | (Names_Config, SOME (Names_Value names, _)) =>
+                  Names_Value names
               | (Type_Bindings_Config, SOME (Type_Bindings_Value bindings, _)) =>
                   Type_Bindings_Value bindings
               | (Type_Config _, SOME (Type_Value source, _)) =>
@@ -657,6 +669,8 @@ fun add_inline_option option_configs
                   option_type_error name "an Isabelle attribute list" value_pos
               | (Renames_Config, SOME (_, value_pos)) =>
                   option_type_error name rename_list_expectation value_pos
+              | (Names_Config, SOME (_, value_pos)) =>
+                  option_type_error name "a list of quoted Rust parameter names" value_pos
               | (Type_Bindings_Config, SOME (_, value_pos)) =>
                   option_type_error name "a list of positioned HOL type bindings" value_pos
               | (Type_Config _, SOME (_, value_pos)) =>
@@ -2880,6 +2894,8 @@ fun datatype_declaration
          SOME (Integer_Value value, _) => SOME value | _ => NONE),
        parameters = (case Symtab.lookup options hol_type_parameters_option of
          SOME (Renames_Value value, _) => value | _ => []),
+       erase_parameters = (case Symtab.lookup options erase_parameters_option of
+         SOME (Names_Value value, _) => value | _ => []),
        plugins = (case Symtab.lookup options "plugins" of
          SOME (Plugins_Value value, _) => value | _ => K Plugin_Name.default_filter),
        renames =
@@ -3017,6 +3033,10 @@ fun parse_option_value config =
    | SOME Renames_Config =>
        Parse.position parse_renames >>
          (fn (renames, pos) => (Renames_Value renames, pos))
+   | SOME Names_Config =>
+       Parse.position (Parse.$$$ "[" |--
+         Parse.!!! (Parse.enum "," Parse.string_position --| Parse.$$$ "]")) >>
+         (fn (names, pos) => (Names_Value names, pos))
    | SOME Type_Bindings_Config =>
        Parse.position parse_type_bindings >>
          (fn (bindings, pos) => (Type_Bindings_Value bindings, pos))

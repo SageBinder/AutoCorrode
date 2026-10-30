@@ -1326,4 +1326,162 @@ in
 end
 \<close>
 
+section\<open> Explicit datatype parameter erasure \<close>
+
+text\<open>
+The Rust header keeps every parameter. The explicit option removes only a HOL
+witness which the checked fields do not need. Type parameters here occur in
+stored nominal fields whose declared mappings erase those arguments.
+\<close>
+
+urust_type [erase = \<open> 'tag \<close>]
+  "ErasureStoredTag<'tag>" = \<open> unit \<close>
+urust_type [erase = \<open> 'limit \<close>]
+  "ErasureStoredLimit<const 'limit>" = \<open> unit \<close>
+
+urust_datatype [erase_parameters = ["N"], pp_test, pretty, verbosity = 2] \<open>
+  struct ErasureConstRecord<const N: usize> { value: u8 }
+\<close>
+
+urust_datatype [erase_parameters = ["T"], pp_test, pretty, verbosity = 2] \<open>
+  struct ErasureTypeRecord<T> { tag: ErasureStoredTag<T> }
+\<close>
+
+urust_datatype [erase_parameters = ["M", "Tag"], pp_test, pretty, verbosity = 2] \<open>
+  struct ErasureMixedRecord<T, Tag, const N: usize, const M: usize> {
+    value: T,
+    tag: ErasureStoredTag<Tag>,
+    data: [T; N],
+    limit: ErasureStoredLimit<M>,
+  }
+\<close>
+
+urust_datatype [erase_parameters = ["T", "N"], backend = "enum", pp_test, pretty,
+  verbosity = 2] \<open>
+  enum ErasureCustomEnum<T, const N: usize> {
+    ErasureCustomEmpty,
+    ErasureCustomStored { tag: ErasureStoredTag<T>, value: u8 },
+  }
+\<close>
+
+urust_datatype [erase_parameters = ["N", "T"], backend = "hol", pp_test, pretty,
+  verbosity = 2] \<open>
+  enum ErasureNativeEnum<T, const N: usize> {
+    ErasureNativeEmpty,
+    ErasureNativeStored(ErasureStoredTag<T>, u8),
+  }
+\<close>
+
+urust_datatype [erase_parameters = ["N"], word_width = 8, pp_test, pretty,
+  verbosity = 2] \<open>
+  enum ErasureWordEnum<const N: usize> { First, Second = 3 }
+\<close>
+
+urust_datatype [erase_parameters = ["T", "N"], pp_test, pretty, verbosity = 2] \<open>
+  struct ErasureTupleRecord<T, const N: usize>(ErasureStoredTag<T>, u8);
+\<close>
+
+urust_type_alias \<open>
+  type ErasureConstAlias<const N: usize> = ErasureConstRecord<N>;
+\<close>
+urust_type_alias \<open>
+  type ErasureMixedAlias<P, Tag, const N: usize, const M: usize> =
+    ErasureMixedRecord<P, Tag, N, M>;
+\<close>
+
+urust_fn \<open>
+  fn ErasureRecordIdentity<const N: usize>(value: ErasureConstRecord<N>)
+      -> ErasureConstAlias<N> { value }
+\<close>
+urust_fn \<open>
+  fn ErasureRecordIdentityTwin(value: \<tau>\<open> erasure_const_record \<close>)
+      -> \<tau>\<open> erasure_const_record \<close> { value }
+\<close>
+urust_fn \<open>
+  fn ErasureRecordForward<const N: usize>(value: ErasureConstAlias<N>)
+      -> ErasureConstRecord<N> { ErasureRecordIdentity::<N>(value) }
+\<close>
+urust_fn \<open>
+  fn ErasureRecordForwardTwin(value: \<tau>\<open> erasure_const_record \<close>)
+      -> \<tau>\<open> erasure_const_record \<close> { ErasureRecordIdentityTwin(value) }
+\<close>
+
+lemma erasure_record_function_twins:
+  shows \<open> erasure_record_identity = erasure_record_identity_twin \<close>
+    and \<open> erasure_record_forward = erasure_record_forward_twin \<close>
+  unfolding erasure_record_identity_def erasure_record_identity_twin_def
+    erasure_record_forward_def erasure_record_forward_twin_def
+  by (rule refl)+
+
+urust_expr erasure_record_construct (x) \<open>
+  ErasureConstRecord::<0> { value: x }
+\<close>
+urust_expr erasure_record_construct_other (x) \<open>
+  ErasureConstRecord::<7> { value: x }
+\<close>
+lemma erasure_record_constructor_twins:
+  shows \<open> erasure_record_construct = erasure_record_construct_other \<close>
+    and \<open> erasure_record_construct value =
+      funcall1 (lift_fun1 make_erasure_const_record) (literal value) \<close>
+  unfolding erasure_record_construct_def erasure_record_construct_other_def
+  by (rule refl)+
+
+urust_fn \<open>
+  fn ErasureRecordPattern(value: ErasureConstRecord<0>) -> u8 {
+    match value { ErasureConstRecord::<0> { value: item } => item }
+  }
+\<close>
+urust_fn \<open>
+  fn ErasureRecordSelector(value: ErasureConstAlias<0>) -> u8 {
+    match value { ErasureConstRecord::<7> { value: item } => item }
+  }
+\<close>
+
+lemma erasure_record_pattern_selector:
+  \<open> erasure_record_pattern = erasure_record_selector \<close>
+  unfolding erasure_record_pattern_def erasure_record_selector_def
+  by (rule refl)
+
+locale erasure_datatype_transport =
+  fixes seed :: nat
+begin
+
+urust_datatype [erase_parameters = ["N"], pp_test, pretty, verbosity = 2] \<open>
+  struct ErasureTransportRecord<const N: usize> { value: u8 }
+\<close>
+urust_fn \<open>
+  fn ErasureTransportIdentity<const N: usize>(value: ErasureTransportRecord<N>)
+      -> ErasureTransportRecord<N> { let spare = seed; value }
+\<close>
+
+end
+
+interpretation erasure_datatype_one: erasure_datatype_transport 1 .
+interpretation erasure_datatype_two: erasure_datatype_transport 2 .
+
+urust_datatype [erase_parameters = ["N", "Tag"], pp_test, pretty, verbosity = 2] \<open>
+  struct ErasureBackendFields<T, Tag, const N: usize> {
+    pointer: *const T,
+    mirror: DatatypeCombined<T, Tag, N>,
+  }
+\<close>
+
+urust_datatype [erase_parameters = [], pp_test, pretty, verbosity = 2] \<open>
+  struct ErasureEmptyPolicy<const N: usize> { value: u8 }
+\<close>
+
+urust_expr erasure_mixed_construct (x, tag, xs, limit) \<open>
+  ErasureMixedRecord::<u8, foreign::Tag<u16>, 4, 0> {
+    value: x, tag: tag, data: xs, limit: limit,
+  }
+\<close>
+urust_expr erasure_mixed_construct_other (x, tag, xs, limit) \<open>
+  ErasureMixedRecord::<u8, foreign::Other<u16>, 4, 7> {
+    value: x, tag: tag, data: xs, limit: limit,
+  }
+\<close>
+lemma erasure_mixed_constructor_twin:
+  \<open> erasure_mixed_construct = erasure_mixed_construct_other \<close>
+  unfolding erasure_mixed_construct_def erasure_mixed_construct_other_def by (rule refl)
+
 end
