@@ -564,7 +564,8 @@ general const expressions remain rejected inside erased arguments, including nes
 Retained arguments keep their existing support. Erasure adds no trait solver, const evaluator,
 model specialization or cast privilege. Different source tags/capacities retain distinct identities
 through aliases and locale transport even when their HOL types agree. Source-only alias parameters
-count as used; generated datatypes still retain every declared phantom witness.
+count as used. Generated datatypes retain declared phantom witnesses unless an explicit
+`erase_parameters` policy selects them.
 
 `urust_datatype` is the recommended command for non-recursive Rust structs and enums. The HOL type name is
 optional and otherwise inferred with acronym-aware ASCII snake case (`HTTPServer` becomes
@@ -580,13 +581,14 @@ Pointer-containing fields introduce implicit address/global HOL parameters share
 item, including nested generated types and all enum variants. These implicit parameters are separate
 from declared Rust arguments. Unrelated free type variables in field HOL escapes remain unsupported.
 
-Type parameters retain declaration order, including unused parameters. HOL datatypes and records
-declare every source and implicit pointer parameter live, exactly as `datatype` and
+Retained type parameters keep declaration order, including unused parameters. By default all
+source parameters are retained. HOL datatypes and records declare retained source and implicit
+pointer parameters live, exactly as `datatype` and
 `datatype_record` do: BNF makes a parameter dead when it occurs in a dead position, such as a
 fixed-array element or a function domain, and generates map, set, relator and predicator constants
 over the live ones. Unused parameters are live phantoms. There is no explicit `dead` option.
-`const N: usize` maps to a HOL length type with sort `len0`, strengthened to `len` by fixed arrays
-or registered mappings.
+A retained `const N: usize` maps to a HOL length type with sort `len0`, strengthened to `len`
+by fixed arrays or registered mappings.
 Arguments accept decimal/hexadecimal literals, forwarded const parameters, and `τ‹LENGTH_TYPE›`.
 Type aliases support const forwarding and retain unused const parameters; unused type parameters in
 aliases remain rejected, as in Rust.
@@ -604,6 +606,42 @@ urust_datatype ‹
 ›
 urust_datatype ‹ #[repr(u8)] enum Status { Idle, Ready = 7, Busy } ›
 ```
+
+Explicit `erase_parameters = ["N"]` keeps a datatype's complete Rust generic header
+and checks every source argument while omitting the selected slot from the generated
+HOL type. Unknown or duplicate names reject. A parameter still needed by a checked
+field type rejects before native generation. Retained source witnesses keep their
+order; implicit backend roles remain shared across the whole declaration.
+
+Named `urust_type` representations provide explicit alternatives without replacing
+the default mapping. `field_representations` selects one for the outer nominal type
+of a named struct field, including an alias that exposes that head. Retained nested
+arguments use ordinary mappings. Selection checks the full source schema and uses
+the chosen template's sorts; an erased capacity acquires no default carrier length
+constraint. Constructors, selectors and patterns use the persisted checked field
+types and canonical source provenance.
+
+```isabelle
+urust_type "example::Buffer<'element, const 'capacity>" =
+  ‹ ('element, 'capacity::len) vector ›
+urust_type [representation = "list", erase = ‹ 'capacity ›]
+  "example::Buffer<'element, const 'capacity>" = ‹ 'element list ›
+urust_datatype [
+  erase_parameters = ["LIMIT"],
+  field_representations = ["samples" → ‹ list ›]
+] ‹
+  struct Snapshot<const LIMIT: usize> {
+    samples: example::Buffer<u64, LIMIT>,
+  }
+›
+```
+
+Here `Snapshot<0>` and `Snapshot<7>` have the same parameterless HOL type and
+list field, while their checked source identities remain distinct through aliases
+and explicit calls. Ordinary `example::Buffer<u64,4>` still uses its vector
+representation. With neither option, generated datatypes retain their existing
+phantom witnesses. These policies add no collection operations, implicit conversion,
+automatic `PhantomData` handling or const evaluator.
 
 The default `backend = auto` selects:
 
@@ -630,7 +668,8 @@ digit separators, or explicit HOL length types. Additive const expressions are r
 monomorphic Rust functions reject turbofish arguments in both direct and method calls; generic
 function calls follow the source-ordered rules above.
 
-Unused (phantom) type parameters are retained. Automatic `PhantomData` field handling is deferred;
+Unused (phantom) type parameters are retained unless explicitly selected by
+`erase_parameters`. Automatic `PhantomData` field handling is deferred;
 no field, initializer, or pattern slot is discarded automatically. An unmapped `PhantomData` field
 receives a diagnostic. Ordinary HOL definitions and manual `urust_type`/notation mappings remain
 available, including singleton models whose fields are stored normally. A payload remains a payload

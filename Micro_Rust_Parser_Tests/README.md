@@ -6,7 +6,7 @@ and combined showcase examples in one registered session.
 
 ## Test organization
 
-The ROOT registers 24 theories: four support owners, eleven readable Examples and nine ML suites.
+The ROOT registers 28 theories: four support owners, thirteen readable Examples and eleven ML suites.
 The session separates human-readable tests from ML tests. Most topics have two theories:
 
 - `Parser_<Topic>_Examples.thy` contains only Isar: µRust declarations, kernel `refl` equations
@@ -29,6 +29,8 @@ The session separates human-readable tests from ML tests. Most topics have two t
 | Inherent `impl` blocks: syntax, member declarations and registrations, `Self`, receivers, path selection, type heads, direct calls and imports | `Parser_Impl_Examples` | `Parser_Impl_ML_Tests` |
 | Trait mappings, generic function syntax/signatures, retained rich bounds and declared HOL schemes, scoped bodies and generated turbofish | `Parser_Generics_Examples` | `Parser_Generics_ML_Tests` |
 | Canonical slices, shared/mutable slice borrows, qualified vectors, structural identity and erased slice arguments | `Parser_Sequence_Examples` | `Parser_Sequence_ML_Tests` |
+| Named field representations, imported and aliased nominal heads, checked field types and provenance | `Parser_Field_View_Examples` | `Parser_Field_View_ML_Tests` |
+| Explicit datatype erasure composed with field representations, generic impls, aliases and source identities | `Parser_Erasure_Field_View_Examples` | `Parser_Erasure_Field_View_ML_Tests` |
 | Combined showcase | `Parser_Showcase_Examples` | |
 
 Four theories provide shared support. `Parser_Test_Utils.thy` holds the shared ML support
@@ -549,11 +551,22 @@ Lists abstract dynamically sized slices; this adds no borrow checker or implicit
 Combined fixtures in each existing owner and the standalone Showcase compose retained payloads,
 erased policy/capacity, aliases and shared backend roles across nested signatures, generated field
 schemes, explicit generated calls and concrete impls. Generated datatype source parameters remain
-witnessed phantoms where appropriate; manual erasure changes no generated datatype policy.
+witnessed phantoms by default. An explicit `erase_parameters` policy partitions complete
+source slots from retained HOL witnesses after the whole field batch resolves.
 Impl members reuse checked Self role bindings for aliases, pointers and mutable references,
 including ignored arguments; incompatible demands on fixed Self or ambient types reject.
 Source uses retain genuine navigation without fabricated HOL typing. No new cast privilege or
 model specialization follows from equal HOL representations.
+
+The Datatype pair checks positioned type/const parameter erasure, sparse generated schemes,
+all native backends, aliases, source identity, rejection, rollback and replay. The Field_View
+pair checks named alternative mappings and selection at a named field's outer nominal head,
+including imported paths and captured aliases. Selected templates supply their own sorts and
+backend roles; nested and unrelated mappings retain their ordinary carriers. Stored checked
+field types and canonical declaration provenance agree with constructors and selectors.
+The Erasure_Field_View pair composes both policies through generic headers, zero capacities,
+constructor/pattern/function equations, aliases, concrete and generic impl dispatch, locale
+interpretations and rollback. These policies add no collection operations or const evaluator.
 
 Raw pointers share one implicit address/global pair across a complete signature or datatype field
 batch. Bodies constrain signature backend variables; pointer datatypes expose implicit HOL

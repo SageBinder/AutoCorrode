@@ -8,6 +8,7 @@ theory Parser_Showcase_Examples
     Micro_Rust_Std_Lib.StdLib_Logging
     Micro_Rust_Parser_Impl.Parser_Impl_Chunk
     Misc.Simple_Word_Enums
+    Misc.Vector
     Shallow_Separation_Logic.Separation_Algebra
 begin
 
@@ -1805,5 +1806,34 @@ lemma showcase_sequences_twin:
   \<open> showcase_sequences = showcase_sequences_escape \<close>
   unfolding showcase_sequences_def showcase_sequences_escape_def by (rule refl)
 end
+
+section\<open> Explicit datatype erasure and field representations \<close>
+
+text\<open>
+The source buffer retains its bounded carrier as the default. Its named list
+representation applies only to the selected field. The complete Rust header and
+const arguments still check; the explicit erasure policy leaves this HOL record
+parameterless after its field has resolved to a list.
+\<close>
+
+urust_type "showcase::Storage<'element, const 'capacity>" =
+  \<open> ('element, 'capacity::len) vector \<close>
+urust_type [representation = "list", erase = \<open> 'capacity \<close>]
+  "showcase::Storage<'element, const 'capacity>" = \<open> 'element list \<close>
+
+urust_datatype [erase_parameters = ["LIMIT"],
+  field_representations = ["samples" \<rightarrow> \<open> list \<close>]] \<open>
+  struct ShowcaseSnapshot<const LIMIT: usize> {
+    samples: showcase::Storage<u8, LIMIT>,
+  }
+\<close>
+
+urust_expr showoff_snapshot (samples) \<open>
+  ShowcaseSnapshot::<0> { samples: samples }
+\<close>
+
+lemma showoff_snapshot_constructor:
+  \<open> showoff_snapshot samples = literal (make_showcase_snapshot samples) \<close>
+  by (simp only: showoff_snapshot_def micro_rust_simps)
 
 end

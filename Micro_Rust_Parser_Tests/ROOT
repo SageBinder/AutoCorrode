@@ -36,4 +36,6 @@ session Micro_Rust_Parser_Tests = HOL +
     Parser_Sequence_ML_Tests
     Parser_Field_View_Examples
     Parser_Field_View_ML_Tests
+    Parser_Erasure_Field_View_Examples
+    Parser_Erasure_Field_View_ML_Tests
     Parser_Showcase_Examples
