@@ -196,6 +196,16 @@ sig
       URust_AST.rust_type list ->
       {types: typ list, source_parameters: (string * sort) list,
        backend_parameters: (backend_role * (string * sort)) list}
+  type field_representation =
+    {source_head: string, representation: string, declaration_pos: Position.T,
+     declaration_identity: serial}
+  val resolve_declaration_roles_with_representations:
+    Proof.context -> URust_AST.generic_parameter list ->
+      ((string * Position.T) * (string * Position.T)) list ->
+      ((string * Position.T) option * URust_AST.rust_type) list ->
+      {types: typ list, source_parameters: (string * sort) list,
+       backend_parameters: (backend_role * (string * sort)) list,
+       representations: field_representation option list}
   val instantiate_constructor:
     Proof.context -> string -> URust_AST.rust_generic_argument list -> term -> term
   val preflight_declaration_scheme:
@@ -243,6 +253,8 @@ sig
      rhs: URust_AST.rust_type} -> local_theory -> local_theory
   val lookup: Proof.context -> string -> entry option
   val dump: Proof.context -> (string * entry) list
+  val lookup_representation: Proof.context -> string -> string -> entry option
+  val dump_representations: Proof.context -> ((string * string) * entry) list
 
   type impl_self =
     {canonical_path: string, self_type: typ, target_pos: Position.T,
@@ -669,9 +681,61 @@ struct
   fun dump ctxt =
     Symtab.dest (Data.get (Context.Proof ctxt))
 
+  (* Alternatives never enter the default mapping table. Their source schema is checked
+     against that table, while their own template determines retained witnesses and sorts. *)
+  type representation_entry = {entry: entry, name_pos: Position.T}
+  structure Representations = Generic_Data
+  (
+    type T = representation_entry Symtab.table Symtab.table
+    val empty = Symtab.empty
+    fun merge tables = Symtab.join
+      (fn base => fn views => Symtab.join
+        (fn name => fn (left: representation_entry, right: representation_entry) =>
+          let
+            val entry = join_entry (base ^ " representation " ^ quote name)
+              (#entry left, #entry right)
+            val name_pos = if #identity (#entry left) <= #identity (#entry right)
+              then #name_pos left else #name_pos right
+          in {entry = entry, name_pos = name_pos} end) views) tables
+  )
+
+  fun representation_entry ctxt base name =
+    Option.mapPartial (fn views => Symtab.lookup views name)
+      (Symtab.lookup (Representations.get (Context.Proof ctxt)) base)
+
+  fun lookup_representation ctxt base name =
+    Option.map #entry (representation_entry ctxt base name)
+
+  fun dump_representations ctxt =
+    maps (fn (base, views) => map (fn (name, {entry, ...}) =>
+      ((base, name), entry)) (Symtab.dest views))
+      (Symtab.dest (Representations.get (Context.Proof ctxt)))
+
+  type field_representation =
+    {source_head: string, representation: string, declaration_pos: Position.T,
+     declaration_identity: serial}
+
+  (* Alias recipes are captured only after the ordinary alias declaration has checked.
+     Imports are canonicalized there, and HOL escapes retain checked types through morphisms.
+     Selection expands only an alias's outer source type, then uses the ordinary resolver. *)
+  type alias_recipe =
+    {parameters: string list, rhs: rust_type, escapes: (Input.source * typ) list,
+     identity: serial}
+  structure Alias_Recipes = Generic_Data
+  (
+    type T = alias_recipe Symtab.table
+    val empty = Symtab.empty
+    (* Data.join_entry rejects incompatible alias schemes and retains the smaller identity.
+       Keep the corresponding checked recipe, rather than combining its captured evidence. *)
+    fun merge tables = Symtab.join
+      (fn _ => fn (left: alias_recipe, right: alias_recipe) =>
+        if #identity left <= #identity right then left else right) tables
+  )
+
   fun model_parameter_requirements ctxt =
     maps (fn (_, entry: entry) =>
-      #backend_roles entry ~~ #backend_parameter_sorts entry) (dump ctxt)
+      #backend_roles entry ~~ #backend_parameter_sorts entry)
+      (dump ctxt @ map (apfst fst) (dump_representations ctxt))
 
   fun with_model_parameters renames ctxt =
     Models.with_bindings (model_parameter_requirements ctxt) renames ctxt
@@ -1346,7 +1410,7 @@ struct
         Navigation.defer_report ctxt pos Markup.tfree)
       (parameters ~~ parameter_positions)
 
-  fun declare_mapping origin roles erased_names shared_policy (key_source, source)
+  fun mapping_candidate origin roles erased_names shared_policy (key_source, source)
       lthy =
     let
       val key as {base, segment_arities, parameter_kinds, ...} =
@@ -1367,7 +1431,75 @@ struct
           parameter_kinds parameter_sorts erased role_sorts
           (mapped_meaning base template parameter_sorts erased role_sorts) []
         |> replace_shared_policy shared_policy
+    in (base, key_pos, candidate) end
+
+  fun declare_mapping origin roles erased_names shared_policy payload lthy =
+    let val (base, _, candidate) =
+      mapping_candidate origin roles erased_names shared_policy payload lthy
     in install_prepared base candidate lthy end
+
+  fun declare_representation name_source roles erased_names shared_policy payload lthy =
+    let
+      val name = Input.string_of name_source
+      val name_pos = Input.pos_of name_source
+      val _ =
+        if name <> "" andalso identifier_start (String.sub (name, 0)) andalso
+            forall identifier_rest (String.explode name)
+        then () else mapping_error "representation names must be identifiers" name_pos
+      val (base, key_pos, candidate) =
+        mapping_candidate Manual roles erased_names shared_policy payload lthy
+      val default =
+        (case lookup lthy base of
+           SOME entry => entry
+         | NONE => mapping_error
+             ("representation " ^ quote name ^ " requires an existing default mapping for " ^
+               quote base) key_pos)
+      val _ =
+        if alias_origin (#origin default) then
+          mapping_error "representation declarations must name a canonical nominal head, not an alias"
+            key_pos
+        else if #segment_arities default = #segment_arities candidate andalso
+            #parameter_kinds default = #parameter_kinds candidate
+        then ()
+        else mapping_error
+          ("representation " ^ quote name ^ " has a different source schema from " ^ quote base)
+          key_pos
+      val _ = Navigation.defer_report lthy key_pos
+        (Position.make_entity_markup {def = false} (#identity default) mappingN
+          (base, #declaration_pos default))
+      fun add phi context =
+        let
+          val entry = morph_entry phi candidate
+          val selected = {entry = entry, name_pos = name_pos}: representation_entry
+          fun update views =
+            (case Symtab.lookup views name of
+               NONE => Symtab.update (name, selected) views
+             | SOME previous =>
+                 let val entry = join_entry (base ^ " representation " ^ quote name)
+                   (#entry previous, entry)
+                 in Symtab.update (name,
+                   {entry = entry, name_pos = #name_pos previous}) views end)
+        in Representations.map (Symtab.map_default (base, Symtab.empty) update) context end
+      val existing = representation_entry lthy base name
+      val joined = Option.map (fn previous =>
+        join_entry (base ^ " representation " ^ quote name)
+          (#entry previous, candidate)) existing
+    in
+      (case (existing, joined) of
+         (SOME previous, SOME entry) =>
+           if Option.map #1 (#shared_policy (#entry previous)) =
+               Option.map #1 (#shared_policy entry)
+           then lthy
+           else Local_Theory.declaration
+             {pervasive = false, syntax = true, pos = #2 (the (#shared_policy entry))}
+             add lthy
+       | _ =>
+        (Navigation.defer_report lthy name_pos
+           (Position.make_entity_markup {def = true} (#identity candidate)
+             (mappingN ^ "_representation") (base ^ "::" ^ name, name_pos));
+         Local_Theory.declaration
+           {pervasive = false, syntax = true, pos = name_pos} add lthy))
+    end
 
   fun generated_candidate
       {rust_name, rust_pos, hol_type_name} =
@@ -2905,6 +3037,161 @@ struct
      arities = map (length o #3) rows,
      arguments = maps #3 rows}
 
+  fun type_from_rows layout rows =
+    Path_Type (map (fn (name, pos, arguments) =>
+      Rust_Type_Path_Segment (name, pos,
+        if null arguments then NONE else SOME arguments, make_source_layout pos [])) rows, layout)
+
+  fun map_recipe_types path escape =
+    let
+      fun typ (Path_Type (segments, layout)) =
+            path (map (fn Rust_Type_Path_Segment (name, pos, arguments, source) =>
+              Rust_Type_Path_Segment (name, pos, Option.map (map argument) arguments, source))
+              segments, layout)
+        | typ (Tuple_Type (types, layout)) = Tuple_Type (map typ types, layout)
+        | typ (Group_Type (T, layout)) = Group_Type (typ T, layout)
+        | typ (Reference_Type (mode, lifetime, T, layout)) =
+            Reference_Type (mode, lifetime, typ T, layout)
+        | typ (Raw_Pointer_Type (mode, T, layout)) = Raw_Pointer_Type (mode, typ T, layout)
+        | typ (Slice_Type (T, layout)) = Slice_Type (typ T, layout)
+        | typ (Array_Type (T, size, layout)) = Array_Type (typ T, size, layout)
+        | typ (Const_Array_Type (T, size, layout)) = Const_Array_Type (typ T, typ size, layout)
+        | typ (Function_Type (types, result, layout)) =
+            Function_Type (map typ types, Option.map typ result, layout)
+        | typ (Impl_Trait_Type (T, layout)) = Impl_Trait_Type (typ T, layout)
+        | typ (HOL_Type_Source source) = escape source
+        | typ other = other
+      and argument (Rust_Type_Argument T) = Rust_Type_Argument (typ T)
+        | argument (Rust_Associated_Type_Argument (name, pos, T)) =
+            Rust_Associated_Type_Argument (name, pos, typ T)
+        | argument other = other
+    in typ end
+
+  fun canonical_alias_recipe ctxt parameters =
+    map_recipe_types
+      (fn (segments, layout) =>
+        let
+          val rows = path_rows segments
+          val parameter = case rows of [(name, _, [])] => member (op =) parameters name
+            | _ => false
+        in
+          if parameter then Path_Type (segments, layout)
+          else case imported_type_path ctxt Alias_Declaration rows of
+              SOME (canonical, _) => type_from_rows layout canonical
+            | NONE => Path_Type (segments, layout)
+        end)
+      HOL_Type_Source
+
+  fun substitute_alias_recipe parameters arguments rhs =
+    let
+      val substitutions = parameters ~~ arguments
+      fun parameter (Path_Type ([Rust_Type_Path_Segment (name, _, NONE, _)], _)) =
+            AList.lookup (op =) substitutions name
+        | parameter _ = NONE
+      fun typ T =
+        (case parameter T of
+           SOME (Rust_Type_Argument value) => value
+         | SOME value => mapping_error "const argument cannot be used as a type in an alias"
+             (argument_origin value)
+         | NONE =>
+             (case T of
+                Path_Type (segments, layout) =>
+                  Path_Type (map (fn Rust_Type_Path_Segment (name, pos, args, source) =>
+                    Rust_Type_Path_Segment (name, pos, Option.map (map argument) args, source))
+                    segments, layout)
+              | Tuple_Type (types, layout) => Tuple_Type (map typ types, layout)
+              | Group_Type (T, layout) => Group_Type (typ T, layout)
+              | Reference_Type (mode, lifetime, T, layout) =>
+                  Reference_Type (mode, lifetime, typ T, layout)
+              | Raw_Pointer_Type (mode, T, layout) => Raw_Pointer_Type (mode, typ T, layout)
+              | Slice_Type (T, layout) => Slice_Type (typ T, layout)
+              | Array_Type (T, size, layout) => Array_Type (typ T, size, layout)
+              | Const_Array_Type (T, size, layout) =>
+                  (case parameter size of
+                     SOME (Rust_Numeric_Argument integer) => Array_Type (typ T, integer, layout)
+                   | _ => Const_Array_Type (typ T, typ size, layout))
+              | Function_Type (types, result, layout) =>
+                  Function_Type (map typ types, Option.map typ result, layout)
+              | Impl_Trait_Type (T, layout) => Impl_Trait_Type (typ T, layout)
+              | other => other))
+      and argument (Rust_Type_Argument T) =
+            (case parameter T of SOME value => value | NONE => Rust_Type_Argument (typ T))
+        | argument (Rust_Associated_Type_Argument (name, pos, T)) =
+            Rust_Associated_Type_Argument (name, pos, typ T)
+        | argument other = other
+    in typ rhs end
+
+  fun expand_field_representation ctxt parameter_names (name, name_pos) original =
+    let
+      val name = Symbol.trim_blanks name
+      val field_pos = rust_type_position original
+      fun invalid message = mapping_error message name_pos
+      (* A recipe-owned nominal head is reported at the authored alias token. Relocate before
+         substitution so a nominal head supplied by an actual argument keeps its own positions. *)
+      fun relocate_head pos (Group_Type (T, layout)) = Group_Type (relocate_head pos T, layout)
+        | relocate_head pos (Path_Type (segments, layout)) =
+            let
+              val rows = path_rows segments
+              val (prefix, (name, _, arguments)) = split_last rows
+              val rows = map (fn (name, _, args) => (name, Position.none, args)) prefix @
+                [(name, pos, arguments)]
+            in type_from_rows layout rows end
+        | relocate_head _ T = T
+      fun expand seen validations escapes (Group_Type (T, _)) =
+            expand seen validations escapes T
+        | expand seen validations escapes (Path_Type (segments, _)) =
+            let
+              val _ = check_type_path_start Datatype_Fields segments
+              val _ = case segments of Rust_Type_Path_Segment (head, _, _, _) :: _ =>
+                  if member (op =) parameter_names head then
+                    invalid "field representations require an outer nominal type, not a source parameter"
+                  else ()
+                | _ => ()
+              val rows = path_rows segments
+              val rows = case imported_type_path ctxt Datatype_Fields rows of
+                  SOME (canonical, (alias_pos, binding)) =>
+                    (URust_Import_Scope.defer_use_reference ctxt alias_pos binding; canonical)
+                | NONE => rows
+              val {base, positions, arities, arguments} = row_information rows
+              val entry = case lookup ctxt base of SOME entry => entry
+                | NONE => unknown_type Datatype_Fields base field_pos
+              val _ = if #segment_arities entry = arities then ()
+                else arity_error Datatype_Fields base (#segment_arities entry) arities field_pos
+            in
+              if alias_origin (#origin entry) then
+                let
+                  val _ = if member (op =) seen base then
+                    invalid "recursive alias while selecting a field representation" else ()
+                  val recipe = case Symtab.lookup
+                      (Alias_Recipes.get (Context.Proof ctxt)) base of
+                      SOME recipe => recipe
+                    | NONE => invalid ("checked source recipe unavailable for alias " ^ quote base)
+                  val _ = List.app (fn position => report_reference ctxt position base entry) positions
+                  val rhs = substitute_alias_recipe (#parameters recipe) arguments
+                    (relocate_head (List.last positions) (#rhs recipe))
+                in expand (base :: seen)
+                  ((#parameter_kinds entry, arguments) :: validations)
+                  (#escapes recipe @ escapes) rhs end
+              else
+                let
+                  val view = case representation_entry ctxt base name of
+                      SOME view => view
+                    | NONE => invalid
+                        ("unknown representation " ^ quote name ^ " for " ^ quote base)
+                  val selected = #entry view
+                  (* Direct/imported heads retain exact native token positions. Recipe heads
+                     already carry the authored alias occurrence's terminal token above. *)
+                  val T = type_from_rows (make_source_layout field_pos []) rows
+                  val provenance =
+                    {source_head = base, representation = name,
+                     declaration_pos = #name_pos view,
+                     declaration_identity = #identity selected}: field_representation
+                in (T, rev validations, escapes, provenance) end
+            end
+        | expand _ _ _ _ =
+            invalid "field representations require an outer nominal type, optionally through an alias"
+    in expand [] [] [] original end
+
   fun numeric_argument_position
       (Integer_Literal (_, layout, _)) =
     source_span layout
@@ -3090,6 +3377,17 @@ struct
   fun resolve_value_operations kind ctxt read_escape check_sort normalize backend
       parameter dependency =
     let
+      val selected_field = Unsynchronized.ref (NONE: (string * Position.T) option)
+      val captured_escapes = Unsynchronized.ref ([]: (Input.source * typ) list)
+      val source_schema_only = Unsynchronized.ref false
+      val ordinary_escape = read_escape
+      fun same_escape (left, right) =
+        Input.string_of left = Input.string_of right andalso
+          same_origin (Input.pos_of left, Input.pos_of right)
+      fun read_escape source =
+        (case AList.lookup same_escape (!captured_escapes) source of
+           SOME typ => Proof_Context.cert_typ ctxt typ
+         | NONE => ordinary_escape source)
       (* Raw pointers and mutable references share one reference model and one backend pair. *)
       fun reference_carrier carrier target pos =
         let
@@ -3178,7 +3476,8 @@ struct
         | source_kind _ = Type_Parameter
 
       fun source_sort base sort ({meaning, evidence, pos}: {meaning: meaning, evidence: typ option, pos: Position.T}) =
-        if null sort orelse Sign.subsort (Proof_Context.theory_of ctxt) (\<^sort>\<open>type\<close>, sort)
+        if !source_schema_only orelse null sort orelse
+            Sign.subsort (Proof_Context.theory_of ctxt) (\<^sort>\<open>type\<close>, sort)
         then ()
         else
           (case (meaning, evidence) of
@@ -3198,7 +3497,8 @@ struct
 
       fun source_argument expected argument =
         let val value = source_argument_value expected argument
-          val _ = note_source_resolution ctxt (#meaning value) NONE argument
+          val _ = if !source_schema_only then ()
+            else note_source_resolution ctxt (#meaning value) NONE argument
         in value end
       and source_argument_value expected (Rust_Type_Argument typ) = source_type (SOME expected) typ
         | source_argument_value Const_Parameter (Rust_Numeric_Argument integer) =
@@ -3294,8 +3594,13 @@ struct
                     SOME (Term_Subst.instantiateT
                       (TVars.make (map_filter I (map the substitutions))) (#template entry))
                   else NONE
-                val _ = List.app (fn position => report_reference ctxt position base entry) positions
-                val _ = note_instantiated_origins ctxt pos (#meaning entry) arguments
+                val _ = if !source_schema_only then
+                    (* This validation adds no carrier typing. A canonical entity reference
+                       belongs to the terminal authored head, as in ordinary nominal use. *)
+                    report_reference ctxt (the_default pos (try List.last positions)) base entry
+                  else List.app (fn position => report_reference ctxt position base entry) positions
+                val _ = if !source_schema_only then ()
+                  else note_instantiated_origins ctxt pos (#meaning entry) arguments
               in {meaning = instantiate_meaning (map #meaning resolved) (#meaning entry),
                 evidence = evidence, pos = pos} end
         end
@@ -3305,8 +3610,9 @@ struct
           val value = (case rust_type of
               Group_Type (typ, _) =>
                 let val value = source_type expected typ
-                  val _ = inherit_source_origins ctxt
-                    (rust_type_position typ) (rust_type_position rust_type)
+                  val _ = if !source_schema_only then ()
+                    else inherit_source_origins ctxt
+                      (rust_type_position typ) (rust_type_position rust_type)
                 in value end
             | Primitive_Type (primitive, pos) => source_nominal
                 (rust_primitive_name primitive) [pos] [0] [] pos
@@ -3327,13 +3633,58 @@ struct
                 in {meaning = Meaning_Slice (#meaning value),
                   evidence = Option.map HOLogic.listT (#evidence value),
                   pos = source_span layout} end
+            | Tuple_Type (types, layout) =>
+                if !source_schema_only then
+                  {meaning = Meaning_Tuple
+                     (map (#meaning o source_type (SOME Type_Parameter)) types),
+                   evidence = NONE, pos = source_span layout}
+                else unsupported kind "this source type form in an erased argument"
+                  (source_span layout)
+            | Reference_Type (mode, _, element, layout) =>
+                if !source_schema_only then
+                  {meaning = Meaning_Reference
+                     (mode, #meaning (source_type (SOME Type_Parameter) element)),
+                   evidence = NONE, pos = source_span layout}
+                else unsupported kind "this source type form in an erased argument"
+                  (source_span layout)
+            | Raw_Pointer_Type (mode, element, layout) =>
+                if !source_schema_only then
+                  {meaning = Meaning_Pointer
+                     (mode, #meaning (source_type (SOME Type_Parameter) element)),
+                   evidence = NONE, pos = source_span layout}
+                else unsupported kind "this source type form in an erased argument"
+                  (source_span layout)
+            | Array_Type (element, length, layout) =>
+                if !source_schema_only then
+                  {meaning = Meaning_Array
+                     (#meaning (source_type (SOME Type_Parameter) element),
+                      #meaning (source_argument Const_Parameter (Rust_Numeric_Argument length))),
+                   evidence = NONE, pos = source_span layout}
+                else unsupported kind "this source type form in an erased argument"
+                  (source_span layout)
+            | Const_Array_Type (element, length, layout) =>
+                if !source_schema_only then
+                  {meaning = Meaning_Array
+                     (#meaning (source_type (SOME Type_Parameter) element),
+                      #meaning (source_type (SOME Const_Parameter) length)),
+                   evidence = NONE, pos = source_span layout}
+                else unsupported kind "this source type form in an erased argument"
+                  (source_span layout)
+            | HOL_Type_Source source =>
+                if !source_schema_only then
+                  (* A type escape is a type-role argument. Its checked HOL evidence is read
+                     or replayed by the final retained field resolution, in the same frame. *)
+                  {meaning = Meaning_Opaque [], evidence = NONE, pos = Input.pos_of source}
+                else unsupported kind "this source type form in an erased argument"
+                  (Input.pos_of source)
             | _ => unsupported kind "this source type form in an erased argument"
                 (rust_type_position rust_type))
           val _ = case expected of NONE => () | SOME role =>
             if source_kind (#meaning value) = role then ()
             else unsupported kind (if role = Const_Parameter then "type parameters used as const arguments"
               else "const parameters used as type arguments") (#pos value)
-          val _ = note_source_resolution ctxt (#meaning value) NONE (Rust_Type_Argument rust_type)
+          val _ = if !source_schema_only then ()
+            else note_source_resolution ctxt (#meaning value) NONE (Rust_Type_Argument rust_type)
         in value end
 
       fun resolve_nominal base positions arities arguments pos primitive =
@@ -3347,9 +3698,25 @@ struct
                val active = lookup ctxt base
                val _ = dependency base active pos
                val entry =
-                 (case active of
-                    SOME entry => entry
-                  | NONE => unknown_type kind base pos)
+                 (case !selected_field of
+                    NONE =>
+                      (case active of SOME entry => entry
+                       | NONE => unknown_type kind base pos)
+                  | SOME (name, name_pos) =>
+                      let
+                        val view = case representation_entry ctxt base name of
+                            SOME view => view
+                          | NONE => mapping_error
+                              ("unknown representation " ^ quote name ^ " for " ^ quote base)
+                              name_pos
+                        val entry = #entry view
+                        (* Consume selection before entering retained argument resolution. *)
+                        val _ = selected_field := NONE
+                        val _ = Navigation.defer_report ctxt name_pos
+                          (Position.make_entity_markup {def = false} (#identity entry)
+                            (mappingN ^ "_representation")
+                            (base ^ "::" ^ name, #name_pos view))
+                      in entry end)
                val expected_arities = #segment_arities entry
                val _ =
                  if expected_arities = arities then ()
@@ -3414,7 +3781,9 @@ struct
                     Type (name, _) =>
                       Navigation.defer_type ctxt terminal_pos name
                   | _ => ())
-               val _ = report_use ctxt base entry positions primitive
+               (* Source-head navigation remains attached to its canonical declaration.
+                  The option occurrence separately references the selected alternative. *)
+               val _ = report_use ctxt base (the_default entry active) positions primitive
                val _ = note_instantiated_origins ctxt pos (#meaning entry) arguments
              in
                {typ = result,
@@ -3579,7 +3948,20 @@ struct
                  | _ => (ignore (source_argument expected argument);
                      raise Fail "unsupported source argument survived validation")
              in {typ = SOME (#typ value), evidence = SOME (#typ value), meaning = #meaning value, pos = pos} end)
-    in {types = map (resolve_type NONE),
+      fun field (selection, escapes, rust_type) =
+        let
+          val _ = selected_field := selection
+          val _ = captured_escapes := escapes
+          val result = resolve_type NONE rust_type
+          val _ = if is_none (!selected_field) then ()
+            else mapping_error "field representation did not reach an outer nominal mapping"
+              (snd (the (!selected_field)))
+          val _ = captured_escapes := []
+        in result end
+    in {types = map (resolve_type NONE), fields = map field,
+      schema_arguments = fn kinds => fn arguments =>
+        Unsynchronized.setmp source_schema_only true
+          (fn () => ignore (map2 source_argument kinds arguments)) (),
       arguments = fn specifications => fn arguments => map2 call_argument specifications arguments} end
 
   fun resolve_values kind ctxt read_escape check_sort normalize backend parameter dependency rust_types =
@@ -3707,8 +4089,16 @@ struct
       fun checked rust = Option.map #typ (Models.ambient ctxt rust)
     in map #hol (read_parameter_names_with checked ctxt parameters overrides) end
 
-  fun resolve_declaration_roles ctxt parameters overrides rust_types =
+  fun resolve_declaration_roles_with_representations ctxt parameters overrides fields =
     let
+      fun prepare (NONE, T) = (NONE, [], T, [], NONE)
+        | prepare (SOME selection, T) =
+            let val (expanded, validations, escapes, provenance) =
+              expand_field_representation ctxt
+                (map (fn Generic_Parameter (name, _, _) => name) parameters) selection T
+            in (SOME (#representation provenance, snd selection), escapes, expanded,
+              validations, SOME provenance) end
+      val prepared = map prepare fields
       fun descriptor (Generic_Parameter (name, pos, kind)) = (name, pos, kind)
       val descriptors = map descriptor parameters
       val names = map (fn {hol = (name, _), declared, pos} => (name, declared, pos))
@@ -3751,8 +4141,16 @@ struct
                   val _ = check_sort name slot sort (Input.pos_of source)
                 in (TFree variable, slot) end
         in Term.typ_subst_atomic (map substitute variables) typ end
-      val resolved = resolve_values Datatype_Fields ctxt escape check_sort normalize backend
-        parameter no_dependency rust_types
+      val operations = resolve_value_operations Datatype_Fields ctxt escape check_sort normalize backend
+        parameter no_dependency
+      (* Every alias source slot is checked even if expansion drops it. Its old carrier's
+         sorts are deliberately absent; the selected template checks retained witnesses. *)
+      val _ = List.app (fn (_, _, _, validations, _) =>
+        List.app (fn (kinds, arguments) =>
+          #schema_arguments operations kinds arguments)
+          validations) prepared
+      val resolved = #fields operations
+        (map (fn (selection, escapes, T, _, _) => (selection, escapes, T)) prepared)
       fun finish_parameter ((_, slot), (name, declared, pos)) =
         case normalize slot of TVar (_, sort) =>
           let
@@ -3767,7 +4165,15 @@ struct
       val normalized_types = map (Term.typ_subst_atomic substitutions o normalize o #typ) resolved
       val backend_context = fold (Variable.declare_typ o TFree o snd) inferred ctxt
       val {types, backend_parameters} = finish_backend backend_context normalize (backend_slots ()) normalized_types
-    in {types = types, source_parameters = map snd inferred, backend_parameters = backend_parameters} end
+    in {types = types, source_parameters = map snd inferred, backend_parameters = backend_parameters,
+      representations = map #5 prepared} end
+
+  fun resolve_declaration_roles ctxt parameters overrides rust_types =
+    let val {types, source_parameters, backend_parameters, ...} =
+      resolve_declaration_roles_with_representations ctxt parameters overrides
+        (map (pair NONE) rust_types)
+    in {types = types, source_parameters = source_parameters,
+      backend_parameters = backend_parameters} end
 
   fun resolve_fields ctxt rust_types =
     let
@@ -5467,6 +5873,7 @@ struct
             (parameters ~~ parameter_types))
       val used_parameters = Unsynchronized.ref ([]: string list)
       val dependencies = Unsynchronized.ref ([]: string list)
+      val captured_escapes = Unsynchronized.ref ([]: (Input.source * typ) list)
 
       fun parameter name arities pos =
         (case Symtab.lookup parameter_table name of
@@ -5502,13 +5909,15 @@ struct
           val pos = Input.pos_of source
           val typ =
             positioned_result Alias_Declaration [pos]
-              (fn () => Syntax.read_typ lthy (Syntax.implode_input source))
+              (fn () => URust_Report_Transaction.native lthy
+                (fn read_ctxt => Syntax.read_typ read_ctxt (Syntax.implode_input source)))
           val _ =
             if null (Term.add_tfreesT typ []) andalso
                 null (Term.add_tvarsT typ []) then ()
             else alias_error
               "unrelated HOL type variables are not supported in aliases; use Rust type parameters"
               pos
+          val _ = captured_escapes := (source, typ) :: !captured_escapes
         in typ end
 
       val result =
@@ -5584,7 +5993,22 @@ struct
       (case prepared of
          Existing _ => lthy
        | Refined _ => raise Fail "uRust alias declaration unexpectedly refined a shared policy"
-       | Fresh entry => install_new base entry lthy)
+       | Fresh entry =>
+           let
+             val recipe =
+               {parameters = parameter_names,
+                rhs = canonical_alias_recipe lthy parameter_names rhs,
+                escapes = !captured_escapes, identity = #identity entry}: alias_recipe
+             fun morph phi =
+               {parameters = #parameters recipe, rhs = #rhs recipe,
+                escapes = map (apsnd (Morphism.typ phi)) (#escapes recipe),
+                identity = #identity recipe}: alias_recipe
+           in
+             install_new base entry lthy
+             |> Local_Theory.declaration
+                 {pervasive = false, syntax = true, pos = declaration_pos}
+                 (fn phi => Alias_Recipes.map (Symtab.update (base, morph phi)))
+           end)
     end
 
   fun declare_alias {registration, item_name, parameters, rhs} lthy =
@@ -5629,19 +6053,25 @@ struct
   fun unknown_mapping_option (name, pos) =
     mapping_error ("unknown option " ^ quote name) pos
 
+  datatype mapping_option_config = Cartouche_Option | String_Option
   val mapping_option_configs =
-    Symtab.make [("implicit", ()), ("erase", ()), ("model", ()), ("shared", ())]
+    Symtab.make [("implicit", Cartouche_Option), ("erase", Cartouche_Option),
+      ("model", Cartouche_Option), ("shared", Cartouche_Option),
+      ("representation", String_Option)]
 
   fun add_mapping_option ((name, pos), value) options =
     if Symtab.defined options name then mapping_error ("duplicate option " ^ quote name) pos
     else
       (case value of
          SOME source => Symtab.update (name, source) options
-       | NONE => mapping_error ("option " ^ quote name ^ " expects a cartouche payload") pos)
+       | NONE => mapping_error ("option " ^ quote name ^ " expects " ^
+           (if name = "representation" then "a quoted representation name" else "a cartouche payload"))
+           pos)
 
   val parse_mapping_options =
     URust_Option_Parser.command_list unknown_mapping_option mapping_option_configs
-      (K (Parse.token Parse.cartouche >> Parser_Lex_Util.cartouche_source))
+      (fn Cartouche_Option => Parse.token Parse.cartouche >> Parser_Lex_Util.cartouche_source
+        | String_Option => Parse.token Parse.string >> Token.input_of)
       add_mapping_option Symtab.empty
 
   fun declare_manual (options, payload) lthy =
@@ -5655,7 +6085,12 @@ struct
               NONE => [] | SOME source => read_erased_parameters lthy source
              val shared = Option.map (read_shared_policy lthy)
                (Symtab.lookup options "shared")
-        in declare_mapping Manual roles erased shared payload lthy end)
+        in
+          case Symtab.lookup options "representation" of
+            NONE => declare_mapping Manual roles erased shared payload lthy
+          | SOME name_source =>
+              declare_representation name_source roles erased shared payload lthy
+        end)
       val _ = URust_Report_Transaction.replay result reports
     in result end
 

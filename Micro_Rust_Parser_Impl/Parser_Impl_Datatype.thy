@@ -37,7 +37,11 @@ sig
      word_width: int option,
      parameters: rename list,
      erase_parameters: (string * Position.T) list,
+     field_representations: rename list,
      plugins: Proof.context -> Plugin_Name.filter}
+  type field_representation =
+    {field: string, hol_type: typ, policy: URust_Type_Mappings.field_representation}
+  val field_representations_of: Proof.context -> string -> field_representation list
   type prepared
   val prepare: declaration -> URust_AST.urust_datatype -> local_theory -> prepared
   val prepared_registrations: Proof.context -> prepared -> URust_Imports.registrations
@@ -68,7 +72,23 @@ type declaration =
    word_width: int option,
    parameters: rename list,
    erase_parameters: (string * Position.T) list,
+   field_representations: rename list,
    plugins: Proof.context -> Plugin_Name.filter}
+
+type field_representation =
+  {field: string, hol_type: typ, policy: URust_Type_Mappings.field_representation}
+fun same_field_representation (left: field_representation, right: field_representation) =
+  #field left = #field right andalso #hol_type left = #hol_type right andalso
+    #policy left = #policy right
+structure Field_Representation_Metadata = Generic_Data
+(
+  type T = field_representation list Symtab.table
+  val empty = Symtab.empty
+  fun merge tables = Symtab.join
+    (fn _ => fn rows => Library.merge same_field_representation rows) tables
+)
+fun field_representations_of ctxt name =
+  the_default [] (Symtab.lookup (Field_Representation_Metadata.get (Context.Proof ctxt)) name)
 
 fun verbosity_output_enabled interactive lthy =
   interactive orelse Config.get lthy Proof_Display.show_results
@@ -457,6 +477,50 @@ fun item_field_types item =
          (fn URust_AST.Datatype_Variant (_, _, shape) =>
            map snd (shape_fields shape))
          variants)
+
+fun selected_field_representations item selections =
+  let
+    val fields =
+      (case item of
+         URust_AST.Struct_Item (_, _, URust_AST.Named_Shape fields, _) => fields
+       | _ =>
+           if null selections then []
+           else positioned_datatype_error
+             "field_representations applies only to named struct fields"
+             (#2 (#1 (hd selections))))
+    val names = map datatype_field_name fields
+    val _ = duplicate_names "field representation key" (map #1 selections)
+    val _ = List.app (fn ((field, pos), _) =>
+      if member (op =) names field then ()
+      else positioned_datatype_error ("unknown field representation key " ^ quote field) pos)
+      selections
+    val table = map (apfst fst) selections
+  in
+    if null selections then map (pair NONE) (item_field_types item)
+    else map (fn field =>
+      (AList.lookup (op =) table (datatype_field_name field), datatype_field_type field)) fields
+  end
+
+fun install_field_representation_metadata hol_type_name item types policies lthy =
+  let
+    val names = (case item of
+        URust_AST.Struct_Item (_, _, URust_AST.Named_Shape fields, _) => map datatype_field_name fields
+      | _ => [])
+    val rows = if null names then [] else
+      map_filter (fn ((field, typ), policy) => Option.map (fn policy =>
+        {field = field, hol_type = typ, policy = policy}: field_representation) policy)
+        ((names ~~ types) ~~ policies)
+    fun morph phi ({field, hol_type, policy}: field_representation) =
+      {field = field, hol_type = Morphism.typ phi hol_type, policy = policy}: field_representation
+  in
+    if null rows then lthy
+    else Local_Theory.declaration
+      {pervasive = false, syntax = true, pos = #declaration_pos (#policy (hd rows))}
+      (fn phi => Field_Representation_Metadata.map
+        (Symtab.map_default (hol_type_name, [])
+          (fn previous => Library.merge same_field_representation (previous, map (morph phi) rows))))
+      lthy
+  end
 
 (* Source and implicit backend parameters are live, as the native datatype commands declare them
    by default (SOME Binding.empty; NONE is the explicit dead marker). BNF itself makes a parameter
@@ -1023,6 +1087,8 @@ type generated_artifacts =
    parameter_overrides: rename list,
    erase_parameters: (string * Position.T) list,
    source_witnesses: (string * sort) option list,
+   field_representations: rename list,
+   representation_policies: URust_Type_Mappings.field_representation option list,
    selector_definitions: thm list,
    lens_definitions: (string * thm) list,
    item: URust_AST.urust_datatype}
@@ -1071,8 +1137,8 @@ fun theorem_for_definition lthy constant_name =
     (try (Proof_Context.get_thm lthy)
       (Thm.def_name constant_name))
 
-fun completed_generated_artifacts source_item source_descriptors parameter_overrides erase_parameters
-    register_notation
+fun completed_generated_artifacts source_item source_descriptors parameter_overrides
+    erase_parameters field_representations representation_policies register_notation
     ({rust_name, hol_type_name, hol_type, backend_parameters, backend, source_parameters,
       selector_definitions, item, ...}: generated_datatype) lthy =
   let
@@ -1119,13 +1185,15 @@ fun completed_generated_artifacts source_item source_descriptors parameter_overr
      parameter_overrides = parameter_overrides,
      erase_parameters = erase_parameters,
      source_witnesses = native_parameter_witnesses erase_parameters source_descriptors source_parameters,
+     field_representations = field_representations,
+     representation_policies = representation_policies,
      selector_definitions = selector_definitions,
      lens_definitions = lens_definitions,
      item = item}: generated_artifacts
   end
 
 fun report_generated_field_declarations lthy
-    ({constructors, item, ...}: generated_artifacts) =
+    ({constructors, item, field_representations, ...}: generated_artifacts) =
   let
     fun report_shape shape (_, entry) =
       (case shape of
@@ -1177,12 +1245,21 @@ fun report_generated_field_declarations lthy
     List.app
       (fn (shape, constructor) =>
         report_shape shape constructor)
-      (shapes ~~ constructors)
+      (shapes ~~ constructors);
+    (case constructors of
+       [(_, entry)] =>
+         List.app (fn ((name, pos), _) =>
+           let
+             val field = the (find_first (fn field =>
+               URust_Item_Scope.field_rust_name field = name)
+               (URust_Item_Scope.constructor_field_entries entry))
+           in URust_Item_Scope.defer_field_reference lthy pos field end) field_representations
+     | _ => ())
   end
 
 fun report_generated_datatype_replay lthy
     ({rust_name, hol_type_name, source_parameters, backend_parameters,
-      source_descriptors, parameter_overrides, erase_parameters,
+      source_descriptors, parameter_overrides, erase_parameters, field_representations,
       constructors, source_item = original_item, ...}:
       generated_artifacts)
     source =
@@ -1211,11 +1288,14 @@ fun report_generated_datatype_replay lthy
     (* Resolve every replayed field together, exactly as for generation.  The
        batch's fresh names may differ from the native datatype parameters. *)
     val replayed_fields =
-      URust_Type_Mappings.resolve_declaration lthy source_descriptors parameter_overrides (item_field_types replayed_item)
+      URust_Type_Mappings.resolve_declaration_roles_with_representations
+        lthy source_descriptors parameter_overrides
+        (selected_field_representations replayed_item field_representations)
     val replayed_witnesses =
       partition_parameter_witnesses erase_parameters source_descriptors
         (#source_parameters replayed_fields) (#types replayed_fields)
-    val replayed_parameters = map_filter I replayed_witnesses @ #backend_parameters replayed_fields
+    val replayed_parameters = map_filter I replayed_witnesses @
+      map snd (#backend_parameters replayed_fields)
     val complete_parameters = source_parameters @ backend_parameters
     val _ =
       if map snd replayed_parameters = map snd complete_parameters then ()
@@ -1467,7 +1547,8 @@ fun pretty_manifest_section _ [] = []
 
 fun pretty_datatype_manifest lthy
     (artifacts as {rust_name, hol_type_name, constructors, lenses, register_notation,
-      backend, source_descriptors, source_witnesses, backend_parameters, ...}:
+      backend, source_descriptors, source_witnesses, backend_parameters,
+      representation_policies, item, ...}:
       generated_artifacts) =
   let
     val constructor_rows =
@@ -1507,6 +1588,14 @@ fun pretty_datatype_manifest lthy
     val implicit_rows = map (fn parameter => Pretty.block
       [Pretty.str "implicit ", Syntax.pretty_typ parameter_ctxt (TFree parameter)])
       backend_parameters
+    val field_names = (case item of
+        URust_AST.Struct_Item (_, _, URust_AST.Named_Shape fields, _) => map datatype_field_name fields
+      | _ => [])
+    val representation_rows = if null field_names then [] else map_filter (fn (field, policy) =>
+      Option.map (fn {source_head, representation, ...} => Pretty.block
+        [Pretty.str "    ", Pretty.str field, Pretty.str " -> ",
+         Pretty.str representation, Pretty.str (" (" ^ source_head ^ ")")]) policy)
+      (field_names ~~ representation_policies)
   in
     Pretty.chunks
       (Pretty.keyword1 "urust_datatype generated artifacts" ::
@@ -1517,6 +1606,7 @@ fun pretty_datatype_manifest lthy
        pretty_manifest_section "constructors" constructor_rows @
        pretty_manifest_section "selectors" selector_rows @
        pretty_manifest_section "lenses" lens_rows @
+       pretty_manifest_section "field representations" representation_rows @
        pretty_manifest_section "installed Rust mappings"
          mapping_rows)
   end
@@ -1725,8 +1815,9 @@ type prepared =
    discriminants: (string * URust_AST.integer_literal) list}
 
 fun prepare
-    (declaration as {source, explicit_binding, pp_test, renames, unprefixed_selectors, erase_parameters, backend,
-      word_width, ...} : declaration) source_item lthy : prepared =
+    (declaration as {source, explicit_binding, pp_test, renames, unprefixed_selectors,
+      erase_parameters, field_representations, backend, word_width, ...} : declaration)
+      source_item lthy : prepared =
   let
     val (descriptors, repr, discriminants, item) = case source_item of
       URust_AST.Datatype_Header (descriptors, repr, values, item) => (descriptors, repr, values, item)
@@ -1738,6 +1829,7 @@ fun prepare
     val _ = URust_AST.reject_datatype_keyword_names source_item
     val _ = check_erased_parameters descriptors erase_parameters
     val _ = reject_recursive_item rust_name item
+    val _ = selected_field_representations item field_representations
     val _ = List.app (fn (name, pos, _, shape) => validate_shape name pos shape)
       (item_constructor_descriptors item)
     val _ =
@@ -1822,8 +1914,8 @@ fun prepared_registrations ctxt
 
 fun declare_prepared
     ({declaration =
-        {interactive, verbosity, pretty, register_notation, parameters, erase_parameters, plugins, backend,
-         word_width, ...},
+        {interactive, verbosity, pretty, register_notation, parameters, erase_parameters,
+         field_representations, plugins, backend, word_width, ...},
       source_item, descriptors, item, rust_name, rust_pos, type_binding, resolved_renames,
       repr, discriminants}: prepared) lthy =
   let
@@ -1832,8 +1924,10 @@ fun declare_prepared
     val ((final_lthy, artifacts, pretty_declaration), type_reports) =
       URust_Report_Transaction.capture (fn () =>
         let
-          val {types, source_parameters = resolved_parameters, backend_parameters = role_parameters} =
-            URust_Type_Mappings.resolve_declaration_roles lthy descriptors parameters (item_field_types item)
+          val {types, source_parameters = resolved_parameters,
+              backend_parameters = role_parameters, representations} =
+            URust_Type_Mappings.resolve_declaration_roles_with_representations
+              lthy descriptors parameters (selected_field_representations item field_representations)
           val source_witnesses =
             partition_parameter_witnesses erase_parameters descriptors resolved_parameters types
           val source_parameters = map_filter I source_witnesses
@@ -1871,6 +1965,9 @@ fun declare_prepared
                     resolved_renames all_parameters types type_binding item generation_lthy)
               val native_parameters = #backend_parameters generated
               val (native_source, native_backend) = chop (length source_parameters) native_parameters
+              val native_field_types = map
+                (Term.typ_subst_atomic (map2 (fn old => fn native =>
+                  (TFree old, TFree native)) all_parameters native_parameters)) types
               val generated = finish_metadata selected native_source native_backend generated
               val registered_lthy =
                 generated_lthy
@@ -1885,6 +1982,8 @@ fun declare_prepared
                      parameter_kinds =
                        map (fn URust_AST.Generic_Parameter (_, _, kind) => kind) descriptors,
                      backend_parameters = map fst role_parameters ~~ #backend_parameters generated}
+                |> install_field_representation_metadata
+                    (#hol_type_name generated) item native_field_types representations
               val restored_lthy =
                 registered_lthy
                 |> Local_Theory.map_contexts (fn depth =>
@@ -1894,7 +1993,8 @@ fun declare_prepared
           val (generated, final_lthy) =
             URust_Report_Transaction.invisible_declarations (K I) generate lthy
           val artifacts =
-            completed_generated_artifacts source_item descriptors parameters erase_parameters register_notation
+            completed_generated_artifacts source_item descriptors parameters
+              erase_parameters field_representations representations register_notation
               generated final_lthy
           val _ =
             URust_Report_Transaction.defer_definitions final_lthy

@@ -4552,7 +4552,7 @@ ML_val\<open>
            explicit_binding = NONE, interactive = false, verbosity = 0,
            pp_test = true, pretty = false, register_notation = true, renames = [],
            unprefixed_selectors = NONE,
-           backend = "hol", word_width = NONE, parameters = [], erase_parameters = [],
+           backend = "hol", word_width = NONE, parameters = [], erase_parameters = [], field_representations = [],
            plugins = K Plugin_Name.default_filter}
           lthy) ()
     val _ =
@@ -5265,7 +5265,7 @@ ML_val \<open>
     {source = source, explicit_binding = NONE, interactive = false, verbosity = 0,
      pp_test = true, pretty = false, register_notation = true, renames = [],
      unprefixed_selectors = NONE,
-     backend = "simple_word_enum", word_width = SOME 8, parameters = [], erase_parameters = [],
+     backend = "simple_word_enum", word_width = SOME 8, parameters = [], erase_parameters = [], field_representations = [],
      plugins = K Plugin_Name.default_filter})
       (Named_Target.theory_init \<^theory>)
   val _ = case result of Exn.Res _ => error "explicit word backend discarded a stored singleton payload"

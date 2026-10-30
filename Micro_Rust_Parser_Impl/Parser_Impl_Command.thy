@@ -456,6 +456,7 @@ val register_notation_option = "register_notation"
 val hol_names_option = "hol_names"
 val hol_type_parameters_option = "hol_type_parameters"
 val erase_parameters_option = "erase_parameters"
+val field_representations_option = "field_representations"
 val model_parameters_option = "model_parameters"
 val ambient_type_parameters_option = "ambient_type_parameters"
 val shared_references_option = "shared_references"
@@ -556,6 +557,7 @@ val datatype_option_configs =
      (unprefixed_selectors_option, Boolean_Config unprefixed_selectors_inline),
      (hol_type_parameters_option, Renames_Config),
      (erase_parameters_option, Names_Config),
+     (field_representations_option, Renames_Config),
      ("backend", Backend_Config),
      ("word_width", Width_Config),
      ("plugins", Plugins_Config)]
@@ -2896,6 +2898,8 @@ fun datatype_declaration
          SOME (Renames_Value value, _) => value | _ => []),
        erase_parameters = (case Symtab.lookup options erase_parameters_option of
          SOME (Names_Value value, _) => value | _ => []),
+       field_representations = (case Symtab.lookup options field_representations_option of
+         SOME (Renames_Value value, _) => value | _ => []),
        plugins = (case Symtab.lookup options "plugins" of
          SOME (Plugins_Value value, _) => value | _ => K Plugin_Name.default_filter),
        renames =
