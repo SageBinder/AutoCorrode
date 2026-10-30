@@ -174,27 +174,6 @@ end
 interpretation field_view_transport_instance: field_view_transport
   \<open>undefined :: (nat, bool, 8 word) Global_Store.ref\<close> .
 
-ML_val\<open>
-local
-  structure M = URust_Type_Mappings
-  val ctxt = \<^context>
-  fun parsed text = URust_Parser.parse_type_source ctxt
-    (Parser_Lex_Util.positioned_content_source text Position.none)
-  val ordinary = M.resolve ctxt (parsed "FieldViewTransportAlias<u8,3>")
-  val selected = M.resolve_declaration_roles_with_representations ctxt [] []
-    [(SOME ("transport", Position.none), parsed "FieldViewTransportAlias<u8,0>")]
-  val policy = the_single (#representations selected) |> the
-  val view = the (M.lookup_representation ctxt "view_demo::ReferenceBuffer" "transport")
-  val _ =
-    if ordinary = \<^typ>\<open>(nat, bool, (8 word, 3) vector) Global_Store.ref\<close> andalso
-      #types selected = [\<^typ>\<open>(nat, bool, 8 word) Global_Store.ref list\<close>] andalso
-      null (#backend_parameters selected) andalso
-      #source_head policy = "view_demo::ReferenceBuffer" andalso
-      #declaration_identity policy = M.entry_identity view
-    then () else error "interpreted field representation lost its checked context or source identity"
-in end
-\<close>
-
 urust_datatype [field_representations = ["linked" \<rightarrow> \<open> transport \<close>]] \<open>
   struct FieldViewTransport {
     linked: FieldViewTransportAlias<u8, 0>,

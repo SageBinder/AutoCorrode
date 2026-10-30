@@ -100,7 +100,12 @@ end
 
 section\<open> Checked carriers and policy provenance \<close>
 
-ML_val\<open>
+text\<open>
+  These audits execute serially: native report capture temporarily owns the shared
+  output sink, including reports from the declarations exercised by the audits.
+\<close>
+
+ML\<open>
 local
   open Parser_Field_View_Test
   val ctxt = \<^context>
@@ -202,7 +207,7 @@ in end
 
 context field_view_local_nat
 begin
-ML_val\<open>
+ML\<open>
 local
   open Parser_Field_View_Test
   val entry = the (URust_Item_Scope.lookup_type \<^context> "FieldViewLocalHolder")
@@ -217,7 +222,7 @@ end
 
 context field_view_local_bool
 begin
-ML_val\<open>
+ML\<open>
 local
   open Parser_Field_View_Test
   val entry = the (URust_Item_Scope.lookup_type \<^context> "FieldViewLocalHolder")
@@ -230,9 +235,20 @@ in end
 \<close>
 end
 
-ML_val\<open>
+ML\<open>
 local
   open Parser_Field_View_Test
+  val ctxt = \<^context>
+  val ordinary = resolved ctxt "FieldViewTransportAlias<u8,3>"
+  val selected_result = selected ctxt "transport" "FieldViewTransportAlias<u8,0>"
+  val policy = the_single (#representations selected_result) |> the
+  val view = the (M.lookup_representation ctxt "view_demo::ReferenceBuffer" "transport")
+  val _ = require "interpreted alternative lost its checked context or canonical source identity"
+    (ordinary = \<^typ>\<open>(nat, bool, (8 word, 3) vector) Global_Store.ref\<close> andalso
+     #types selected_result = [\<^typ>\<open>(nat, bool, 8 word) Global_Store.ref list\<close>] andalso
+     null (#backend_parameters selected_result) andalso
+     #source_head policy = "view_demo::ReferenceBuffer" andalso
+     #declaration_identity policy = M.entry_identity view)
   val entry = the (URust_Item_Scope.lookup_type \<^context> "FieldViewTransport")
   val metadata = URust_Datatype.field_representations_of \<^context>
     (URust_Item_Scope.type_hol_name entry)
@@ -250,7 +266,7 @@ in end
 
 section\<open> Imported alias recipes and theory merges \<close>
 
-ML_val\<open>
+ML\<open>
 local
   open Parser_Field_View_Test
   val thy = \<^theory>
@@ -274,9 +290,22 @@ local
   val _ = require "alias declaration's import scope became global"
     (is_none (URust_Import_Scope.lookup imported
       URust_Import_Scope.Type_Namespace "CapturedBuffer"))
-  val closed = succeeded imported_thy "field-view-closed-escape"
-    ("urust_type_alias " ^ cartouche ("type FieldViewClosedEscape = view_demo::Buffer<" ^
-      "\<tau>" ^ cartouche "bool" ^ ",3>;"))
+  val closed_text =
+    "urust_type_alias " ^ cartouche ("type FieldViewClosedEscape = view_demo::Buffer<" ^
+      "\<tau>" ^ cartouche "bool" ^ ",3>;")
+  val (closed, closed_reports) = Parser_Test_Reports.markup
+    (fn () => succeeded imported_thy "field-view-closed-escape" closed_text)
+  val closed_position = range "field-view-closed-escape" closed_text "bool"
+  val _ = require "accepted closed alias escape lost its native type navigation"
+    (exists (fn (tag, props) =>
+      tag = Markup.entityN andalso Properties.get props Markup.kindN = SOME "type_name" andalso
+      Properties.get props Markup.nameN = SOME \<^type_name>\<open>bool\<close> andalso
+      Properties.get props Markup.fileN = Position.file_of closed_position andalso
+      Properties.get props Markup.offsetN =
+        Option.map Value.print_int (Position.offset_of closed_position) andalso
+      Properties.get props Markup.end_offsetN =
+        Option.map Value.print_int (Position.end_offset_of closed_position) andalso
+      is_some (Properties.get props Markup.refN)) closed_reports)
   val _ = require "a checked closed alias escape was lost during selection"
     (#types (selected closed "list" "FieldViewClosedEscape") = [\<^typ>\<open>bool list\<close>])
   val ended = Theory.end_theory thy
@@ -314,7 +343,7 @@ in end
 
 section\<open> Positioned policy and field navigation \<close>
 
-ML_val\<open>
+ML\<open>
 local
   open Parser_Field_View_Test
   val text = datatype_command [policy "authoredValue" "list"]
@@ -338,6 +367,7 @@ local
       val canonical = the (M.lookup \<^context> "view_demo::Buffer")
       val definition = Position.def_properties_of (M.entry_declaration_position canonical)
       fun in_field props =
+        Properties.get props Markup.fileN = Position.file_of authored andalso
         (case (Properties.get props Markup.offsetN, Position.offset_of authored,
             Position.end_offset_of authored) of
            (SOME raw, SOME first, SOME last) =>
@@ -349,6 +379,7 @@ local
         Properties.get props Markup.nameN = SOME "view_demo::Buffer" andalso
         is_some (Properties.get props Markup.refN) andalso in_field props) reports
       fun exact (_, props) =
+        Properties.get props Markup.fileN = Position.file_of expected andalso
         Properties.get props Markup.offsetN = Option.map Value.print_int (Position.offset_of expected)
         andalso Properties.get props Markup.end_offsetN =
           Option.map Value.print_int (Position.end_offset_of expected)
@@ -376,7 +407,7 @@ in end
 
 section\<open> Explicit rejection boundaries and transaction rollback \<close>
 
-ML_val\<open>
+ML\<open>
 local
   open Parser_Field_View_Test
   val thy = \<^theory>

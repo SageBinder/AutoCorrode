@@ -5879,7 +5879,8 @@ struct
           val pos = Input.pos_of source
           val typ =
             positioned_result Alias_Declaration [pos]
-              (fn () => Syntax.read_typ lthy (Syntax.implode_input source))
+              (fn () => URust_Report_Transaction.native lthy
+                (fn read_ctxt => Syntax.read_typ read_ctxt (Syntax.implode_input source)))
           val _ =
             if null (Term.add_tfreesT typ []) andalso
                 null (Term.add_tvarsT typ []) then ()
