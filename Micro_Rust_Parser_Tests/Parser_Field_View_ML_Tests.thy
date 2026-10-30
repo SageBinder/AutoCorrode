@@ -353,9 +353,9 @@ local
     (datatype_command [policy "payload" "list"]
       "struct FieldViewQualifiedNavigation { payload: view_demo::Buffer<u8,4> }")
   val _ = checked_head "field-view-imported-head" "SelectedBuffer" "SelectedBuffer<u8,4>"
-    ("urust " ^ cartouche ("use view_demo::Buffer as SelectedBuffer; " ^
+    ("urust " ^ cartouche ("use view_demo::Buffer as SelectedBuffer;\n" ^
       "\<omega>" ^ cartouche ("field_representations = [" ^ policy "payload" "list" ^ "]") ^
-      " struct FieldViewImportedNavigation { payload: SelectedBuffer<u8,4> }"))
+      "\nstruct FieldViewImportedNavigation { payload: SelectedBuffer<u8,4> }"))
   val _ = checked_head "field-view-aliased-head" "FieldViewAliasAgain" "FieldViewAliasAgain<u8,4>"
     (datatype_command [policy "payload" "list"]
       "struct FieldViewAliasNavigation { payload: FieldViewAliasAgain<u8,4> }")
@@ -382,9 +382,9 @@ local
     "not a source parameter" NONE
     (selected_item (policy "payload" "list") "struct FieldViewRejected<T> { payload: T }")
   val _ = rejection thy "field-view-formal-before-import" "not a source parameter" NONE
-    ("urust " ^ cartouche ("use view_demo::Buffer as T; " ^
+    ("urust " ^ cartouche ("use view_demo::Buffer as T;\n" ^
       "\<omega>" ^ cartouche ("field_representations = [" ^ policy "payload" "list" ^ "]") ^
-      " struct FieldViewRejected<T> { payload: T }"))
+      "\nstruct FieldViewRejected<T> { payload: T }"))
   val _ = rejection thy "field-view-unknown-field" "unknown field representation key"
     (SOME "\"absent\"")
     (selected_item (policy "absent" "list")
@@ -448,12 +448,12 @@ local
       ("type FieldViewFormalEscape<T> = view_demo::Buffer<" ^
         "\<tau>" ^ cartouche "'T option" ^ ",3>;"))
   val rollback_text = "urust " ^ cartouche
-    ("\<omega>" ^ cartouche
+    ("\n\<omega>" ^ cartouche
        ("field_representations = [" ^ policy "payload" "list" ^ "]") ^
-     " struct FieldViewRollback { payload: view_demo::Buffer<u8,4> } " ^
+     "\nstruct FieldViewRollback { payload: view_demo::Buffer<u8,4> }\n" ^
      "\<omega>" ^ cartouche
        ("field_representations = [" ^ policy "payload" "missing" ^ "]") ^
-     " struct FieldViewRollbackLater { payload: view_demo::Buffer<u8,4> }")
+     "\nstruct FieldViewRollbackLater { payload: view_demo::Buffer<u8,4> }")
   val _ = rejection thy "field-view-chunk-rollback" "unknown representation" NONE rollback_text
   val clean = succeeded thy "field-view-retry-after-rollback"
     (selected_item (policy "payload" "list")
