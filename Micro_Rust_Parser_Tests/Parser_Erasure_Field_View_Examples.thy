@@ -142,6 +142,15 @@ lemma composition_concrete_impl_twins:
 
 section\<open> Retained source witnesses and shared backend roles \<close>
 
+text\<open>
+The imported transport example binds its backend roles to concrete types.
+This local context exercises fresh shared roles alongside the retained source witness.
+\<close>
+context notes [[urust_model_parameters = \<open>
+  ["address" \<rightarrow> \<open>_\<close>, "global" \<rightarrow> \<open>_\<close>]
+\<close>]]
+begin
+
 urust_datatype [erase_parameters = ["N"], pp_test,
   field_representations = ["blocks" \<rightarrow> \<open> list \<close>]] \<open>
   struct CompositionLinked<T, const N: usize> {
@@ -166,6 +175,8 @@ lemma composition_linked_constructor_twin:
   \<open> composition_linked_build = composition_linked_build_escape \<close>
   unfolding composition_linked_build_def composition_linked_build_escape_def
   by (rule refl)
+
+end
 
 locale composition_field_transport =
   fixes seed :: nat

@@ -104,8 +104,11 @@ local
       \<^type_name>\<open>composition_linked\<close>)))
   val (_, native_parameters) = Term.dest_Type (body_type (fastype_of native_constructor))
   val _ = require "native fields do not follow retained-source then backend parameter order"
-    (pointer = Type (\<^type_name>\<open>Global_Store.ref\<close>,
-      [nth native_parameters 1, nth native_parameters 2, hd native_parameters]))
+    (pointer = Term.typ_subst_atomic
+       [(\<^typ>\<open>'address\<close>, nth native_parameters 1),
+        (\<^typ>\<open>'global\<close>, nth native_parameters 2),
+        (\<^typ>\<open>'element\<close>, hd native_parameters)]
+       \<^typ>\<open>('address, 'global, 'element) Global_Store.ref\<close>)
   val policy = URust_Datatype.field_representations_of ctxt
     \<^type_name>\<open>composition_linked\<close> |> the_single
   val constructor = the (URust_Item_Scope.lookup_constructor ctxt "CompositionLinked")
@@ -173,7 +176,7 @@ local
   val _ = reject "composition-required-element" "still required by a datatype field" "\"T\""
     ["T", "N"] [policy "blocks" "list"]
     "struct CompositionRejected<T,const N:usize>{blocks:composition::Buffer<T,N>}"
-  val _ = reject "composition-unknown-view" "unknown representation" "missing"
+  val _ = reject "composition-unknown-view" "unknown representation" " missing "
     ["N"] [policy "blocks" "missing"]
     "struct CompositionRejected<const N:usize>{blocks:composition::Buffer<u8,N>}"
   val _ = reject "composition-wrong-const-kind" "const" "u8"
