@@ -148,6 +148,14 @@ local
   val _ = require "selected/nested/default fields did not share backend role variables"
     (selected_type = HOLogic.listT direct_type andalso
      nested_type = Type (\<^type_name>\<open>vector\<close>, [direct_type, \<^typ>\<open>4\<close>]))
+  val sharing_policy = URust_Datatype.field_representations_of ctxt
+    \<^type_name>\<open>field_view_sharing\<close> |> the_single
+  val sharing_constructor = the (URust_Item_Scope.lookup_constructor ctxt "FieldViewSharing")
+  val sharing_field = hd (URust_Item_Scope.constructor_field_entries sharing_constructor)
+  val _ = require "generic policy lost the constructor's checked field type variables"
+    (#field sharing_policy = "selected" andalso
+      #hol_type sharing_policy = selected_type andalso
+      #hol_type sharing_policy = range_type (fastype_of (URust_Item_Scope.field_scheme sharing_field)))
   val [alias_selected, alias_direct] = native_fields ctxt
     \<^type_name>\<open>field_view_alias_sharing\<close>
   val _ = require "retained references through a forwarded outer alias lost ordinary role sharing"

@@ -3564,7 +3564,11 @@ struct
                     SOME (Term_Subst.instantiateT
                       (TVars.make (map_filter I (map the substitutions))) (#template entry))
                   else NONE
-                val _ = List.app (fn position => report_reference ctxt position base entry) positions
+                val _ = if !source_schema_only then
+                    (* This validation adds no carrier typing. A canonical entity reference
+                       belongs to the terminal authored head, as in ordinary nominal use. *)
+                    report_reference ctxt (the_default pos (try List.last positions)) base entry
+                  else List.app (fn position => report_reference ctxt position base entry) positions
                 val _ = if !source_schema_only then ()
                   else note_instantiated_origins ctxt pos (#meaning entry) arguments
               in {meaning = instantiate_meaning (map #meaning resolved) (#meaning entry),
