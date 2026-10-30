@@ -321,6 +321,48 @@ local
     (reference "micro_rust_type_mapping_representation" "view_demo::Buffer::list")
   val _ = require "authored field option did not navigate to the checked source field"
     (reference "urust_field" "FieldViewNavigation.authoredValue")
+  fun checked_head label head source_type command =
+    let
+      val (_, reports) = Parser_Test_Reports.markup
+        (fn () => succeeded \<^theory> label command)
+      val expected = range label command head
+      val authored = range label command source_type
+      val canonical = the (M.lookup \<^context> "view_demo::Buffer")
+      val definition = Position.def_properties_of (M.entry_declaration_position canonical)
+      fun in_field props =
+        (case (Properties.get props Markup.offsetN, Position.offset_of authored,
+            Position.end_offset_of authored) of
+           (SOME raw, SOME first, SOME last) =>
+             first <= Value.parse_int raw andalso Value.parse_int raw < last
+         | _ => false)
+      val references = filter (fn (tag, props) =>
+        tag = Markup.entityN andalso
+        Properties.get props Markup.kindN = SOME "micro_rust_type_mapping" andalso
+        Properties.get props Markup.nameN = SOME "view_demo::Buffer" andalso
+        is_some (Properties.get props Markup.refN) andalso in_field props) reports
+      fun exact (_, props) =
+        Properties.get props Markup.offsetN = Option.map Value.print_int (Position.offset_of expected)
+        andalso Properties.get props Markup.end_offsetN =
+          Option.map Value.print_int (Position.end_offset_of expected)
+        andalso Properties.get props Markup.refN = SOME (Value.print_int (M.entry_identity canonical))
+        andalso forall (fn (name, value) => Properties.get props name = SOME value) definition
+      val _ = require (source_type ^ ": selected head navigation lost its authored token span")
+        (not (null references) andalso forall exact references)
+    in () end
+  val _ = checked_head "field-view-qualified-head" "Buffer" "view_demo::Buffer<u8,4>"
+    (datatype_command [policy "payload" "list"]
+      "struct FieldViewQualifiedNavigation { payload: view_demo::Buffer<u8,4> }")
+  val _ = checked_head "field-view-imported-head" "SelectedBuffer" "SelectedBuffer<u8,4>"
+    ("urust " ^ cartouche ("use view_demo::Buffer as SelectedBuffer; " ^
+      "\<omega>" ^ cartouche ("field_representations = [" ^ policy "payload" "list" ^ "]") ^
+      " struct FieldViewImportedNavigation { payload: SelectedBuffer<u8,4> }"))
+  val _ = checked_head "field-view-aliased-head" "FieldViewAliasAgain" "FieldViewAliasAgain<u8,4>"
+    (datatype_command [policy "payload" "list"]
+      "struct FieldViewAliasNavigation { payload: FieldViewAliasAgain<u8,4> }")
+  val _ = checked_head "field-view-forwarded-head" "Buffer"
+    "FieldViewForward<view_demo::Buffer<u8,4>>"
+    (datatype_command [policy "payload" "list"]
+      "struct FieldViewForwardNavigation { payload: FieldViewForward<view_demo::Buffer<u8,4>> }")
 in end
 \<close>
 

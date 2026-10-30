@@ -3096,6 +3096,17 @@ struct
       val name = Symbol.trim_blanks name
       val field_pos = rust_type_position original
       fun invalid message = mapping_error message name_pos
+      (* A recipe-owned nominal head is reported at the authored alias token. Relocate before
+         substitution so a nominal head supplied by an actual argument keeps its own positions. *)
+      fun relocate_head pos (Group_Type (T, layout)) = Group_Type (relocate_head pos T, layout)
+        | relocate_head pos (Path_Type (segments, layout)) =
+            let
+              val rows = path_rows segments
+              val (prefix, (name, _, arguments)) = split_last rows
+              val rows = map (fn (name, _, args) => (name, Position.none, args)) prefix @
+                [(name, pos, arguments)]
+            in type_from_rows layout rows end
+        | relocate_head _ T = T
       fun expand seen validations escapes (Group_Type (T, _)) =
             expand seen validations escapes T
         | expand seen validations escapes (Path_Type (segments, _)) =
@@ -3126,7 +3137,8 @@ struct
                       SOME recipe => recipe
                     | NONE => invalid ("checked source recipe unavailable for alias " ^ quote base)
                   val _ = List.app (fn position => report_reference ctxt position base entry) positions
-                  val rhs = substitute_alias_recipe (#parameters recipe) arguments (#rhs recipe)
+                  val rhs = substitute_alias_recipe (#parameters recipe) arguments
+                    (relocate_head (List.last positions) (#rhs recipe))
                 in expand (base :: seen)
                   ((#parameter_kinds entry, arguments) :: validations)
                   (#escapes recipe @ escapes) rhs end
@@ -3137,9 +3149,8 @@ struct
                     | NONE => invalid
                         ("unknown representation " ^ quote name ^ " for " ^ quote base)
                   val selected = #entry view
-                  (* All outer reports belong to this authored field occurrence, rather than
-                     the alias definition whose checked source recipe supplied the head. *)
-                  val rows = map (fn (segment, _, args) => (segment, field_pos, args)) rows
+                  (* Direct/imported heads retain exact native token positions. Recipe heads
+                     already carry the authored alias occurrence's terminal token above. *)
                   val T = type_from_rows (make_source_layout field_pos []) rows
                   val provenance =
                     {source_head = base, representation = name,
@@ -3736,7 +3747,9 @@ struct
                     Type (name, _) =>
                       Navigation.defer_type ctxt terminal_pos name
                   | _ => ())
-               val _ = report_use ctxt base entry positions primitive
+               (* Source-head navigation remains attached to its canonical declaration.
+                  The option occurrence separately references the selected alternative. *)
+               val _ = report_use ctxt base (the_default entry active) positions primitive
                val _ = note_instantiated_origins ctxt pos (#meaning entry) arguments
              in
                {typ = result,
