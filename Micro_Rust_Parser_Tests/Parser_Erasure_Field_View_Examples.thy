@@ -95,7 +95,7 @@ urust_fn \<open>
 urust_fn \<open>
   fn CompositionSelectorEscape(value: \<tau>\<open>composition_storage\<close>)
       -> [CompositionBlock<0>] {
-    \<llangle>focus_lens_const composition_storage_blocks_lens value\<rrangle>
+    \<llangle>focus_lens_const composition_storage_composition_storage_blocks_lens value\<rrangle>
   }
 \<close>
 lemma composition_selector_twin:
@@ -103,12 +103,12 @@ lemma composition_selector_twin:
   unfolding composition_selector_def composition_selector_escape_def
   by (simp add: micro_rust_simps)
 
-urust_expr composition_pattern_value (value) \<open>
-  match value { CompositionStorage::<0,0> { blocks, .. } => blocks }
+urust_expr composition_pattern_value (packet) \<open>
+  match packet { CompositionStorage::<0,0> { blocks, .. } => blocks }
 \<close>
 lemma composition_pattern_correct:
-  \<open> composition_pattern_value value = literal (composition_storage_blocks value) \<close>
-  by (cases value) (simp add: composition_pattern_value_def micro_rust_simps)
+  \<open> composition_pattern_value packet = literal (composition_storage_blocks packet) \<close>
+  by (cases packet) (simp add: composition_pattern_value_def micro_rust_simps)
 
 urust \<open>
   impl CompositionStorage<0, 0> {
